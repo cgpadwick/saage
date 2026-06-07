@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cwe"
+version = "0.1.0"
+description = "A tiny deterministic composable agentic workflow engine on PocketFlow"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pocketflow",
+    "pyyaml",
+    "jinja2",
+    "openai",     # also covers OpenRouter + local OpenAI-compatible servers
+    "anthropic",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+cwe = "cwe.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["cwe*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "live: hits a real LLM provider; skipped unless CWE_LIVE_PROVIDER is set",
+]
+testpaths = ["tests"]
