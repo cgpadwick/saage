@@ -24,3 +24,9 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# cwe run artifacts (flows write outputs in-place)
+flows/*/story.md
+flows/*/review.md
+flows/*/history.txt
+flows/*/job_*.count
