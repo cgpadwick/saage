@@ -19,13 +19,15 @@ def venv_env(workspace: Path, venv: str | None) -> dict | None:
     resolving python/pip/pytest — set on every command's subprocess so a venv
     created by an earlier step is used by all later ones, without relying on the
     agent to source anything. The existence gate means the command that *creates*
-    the venv (e.g. `setup`) runs with system Python; everything after uses it."""
+    the venv (e.g. `setup`) runs with system Python; everything after uses it.
+
+    POSIX layout only (`<venv>/bin`); a Windows `Scripts` layout is not handled."""
     if not venv:
         return None
     vdir = Path(venv)
     if not vdir.is_absolute():
         vdir = Path(workspace) / vdir
-    if not (vdir / "bin").is_dir():        # not created yet
+    if not (vdir / "bin").is_dir():        # not created yet (POSIX layout)
         return None
     env = os.environ.copy()
     env["VIRTUAL_ENV"] = str(vdir)

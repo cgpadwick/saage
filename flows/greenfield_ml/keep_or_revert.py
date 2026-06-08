@@ -39,6 +39,9 @@ def main() -> None:
 
     cand, best, fails = args.candidate, args.best, args.failures
     lower_is_better = str(args.lower_is_better).lower() == "true"
+    # strict inequality: a tie (cand == best) counts as NOT improved, so an
+    # experiment that merely reproduces the current best is reverted and the
+    # plateau counter advances rather than churning an equal-score commit.
     improved = (cand < best) if lower_is_better else (cand > best)
 
     if improved:

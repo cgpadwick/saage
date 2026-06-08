@@ -19,7 +19,7 @@ def test_workspace_redirects_commands(tmp_path):
     flow_yaml = _write_flow(tmp_path / "flow", "echo hi > made.txt")
     ws = tmp_path / "ws"
     shared = run_flow(flow_yaml, provider=object(), workspace=str(ws))
-    assert shared["workspace"] == str(ws)
+    assert shared["workspace"] == str(ws.resolve())   # canonicalized absolute path
     assert (ws / "made.txt").exists()                 # command ran in the workspace
     assert not (flow_yaml.parent / "made.txt").exists()  # not in the flow dir
 
@@ -27,7 +27,7 @@ def test_workspace_redirects_commands(tmp_path):
 def test_workspace_defaults_to_flow_dir(tmp_path):
     flow_yaml = _write_flow(tmp_path / "flow", "echo hi > made.txt")
     shared = run_flow(flow_yaml, provider=object())
-    assert shared["workspace"] == str(flow_yaml.parent)
+    assert shared["workspace"] == str(flow_yaml.parent.resolve())
     assert (flow_yaml.parent / "made.txt").exists()
 
 

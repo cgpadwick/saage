@@ -97,10 +97,12 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
     log.info("loading flow: %s", flow_yaml)
     spec = yaml.safe_load(flow_yaml.read_text())
     flow_dir = flow_yaml.parent
-    ws = Path(workspace or spec.get("workspace") or flow_dir).expanduser()
+    # resolve so {{ workspace }} is always an absolute, canonical path (matching
+    # flow_dir below) — a relative --workspace otherwise leaks into prompts/commands.
+    ws = Path(workspace or spec.get("workspace") or flow_dir).expanduser().resolve()
     ws.mkdir(parents=True, exist_ok=True)
     venv = venv or spec.get("venv") or ".venv"
-    if ws != flow_dir:
+    if ws != flow_dir.resolve():
         log.info("workspace: %s", ws)
     if provider is None:
         pspec = dict(spec["provider"])
