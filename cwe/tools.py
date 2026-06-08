@@ -5,11 +5,17 @@ JSON-schema `parameters` to its own tool/function-calling format.
 """
 from __future__ import annotations
 
+import logging
 import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from .config import CommandPolicy
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,7 +54,7 @@ def _obj(required: list[str] | None = None, **props) -> dict:
 # --------------------------------------------------------------------------- #
 # file + exec tools
 # --------------------------------------------------------------------------- #
-def file_tools(root: Path) -> list[Tool]:
+def file_tools(root: Path, command_policy: "CommandPolicy | None" = None) -> list[Tool]:
     root = Path(root)
 
     def read_file(path: str) -> str:
@@ -74,6 +80,13 @@ def file_tools(root: Path) -> list[Tool]:
         return f"deleted {path}"
 
     def run_command(command: str, timeout: int = 600) -> str:
+        # refuse obviously dangerous commands BEFORE executing (non-fatal: the
+        # denial is returned to the model like any other tool error)
+        if command_policy is not None:
+            reason = command_policy.check(command)
+            if reason is not None:
+                log.warning("✋ run_command refused: %s — %s", command, reason)
+                return f"ERROR: {reason}; command not run"
         # timeout guarantees a hung command can never stall the workflow
         r = subprocess.run(command, shell=True, cwd=root,
                            capture_output=True, text=True, timeout=timeout)
@@ -145,5 +158,6 @@ def git_tools(root: Path) -> list[Tool]:
     ]
 
 
-def default_tools(root: Path) -> list[Tool]:
-    return file_tools(root) + git_tools(root)
+def default_tools(root: Path,
+                  command_policy: "CommandPolicy | None" = None) -> list[Tool]:
+    return file_tools(root, command_policy=command_policy) + git_tools(root)

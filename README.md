@@ -148,6 +148,34 @@ so `exit_when` and `{{ templates }}` can use them.
 > **not** sandboxed and can read or modify anything the process can (e.g. `run_command` can
 > `cat ../../etc/passwd`). Run untrusted flows inside a container or VM.
 
+### `run_command` policy (denied commands)
+
+As a first line of defense, `run_command` refuses an obviously destructive command
+*before* running it — recursive force deletes (`rm -rf`), privilege escalation (`sudo`),
+raw-device writes (`dd of=/dev/…`, `mkfs`), fork bombs, pipe-to-shell installs
+(`curl … | sh`), reads of credential files (`/etc/shadow`, `~/.ssh/…`), and more. A
+refused command is returned to the agent as an `ERROR:` (non-fatal — it just can't do
+that). The full built-in denylist is `DEFAULT_DENY` in [`cwe/config.py`](cwe/config.py).
+
+The rules are configurable via an engine config YAML (`--config engine.yaml`):
+
+```yaml
+command_policy:
+  use_defaults: true            # keep the built-in denylist (default); false = start empty
+  deny:                         # extra regex patterns to refuse
+    - '\bkubectl\s+delete\b'
+  allow:                        # regex carve-outs that override a deny match
+    - '^rm -rf \./build\b'
+```
+
+```bash
+cwe run flows/story_writer/flow.yaml --config engine.yaml
+```
+
+See [`engine.example.yaml`](engine.example.yaml). This is **defense in depth, not a
+sandbox**: a denylist over `shell=True` can always be evaded — the real isolation
+boundary is still a container/VM (above).
+
 ## Example flows (`flows/`)
 
 Each is a runnable demo and a deterministic integration test:

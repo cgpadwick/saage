@@ -11,6 +11,7 @@ from pathlib import Path
 
 import yaml
 
+from .config import EngineConfig, load_engine_config
 from .llm import AnthropicProvider, OpenAIProvider
 from .nodes import AgentNode, CommandNode
 from .primitives import Subflow, counting_loop, polling_loop, retry_loop
@@ -77,18 +78,25 @@ def build_step(spec: dict, ctx: Context):
     raise ValueError(f"unknown step type: {t!r}")
 
 
-def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None):
+def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
+               config: "str | Path | EngineConfig | None" = None):
     """Return (flow, shared).
 
     `provider` injects a ready provider object (used by tests). Otherwise the
     YAML `provider` block is used, with any `provider_overrides` (e.g. {"type":
     "openrouter", "model": "..."}) merged on top — handy for switching provider
     or model from the CLI without editing the flow.
+
+    `config` is the engine config governing the `run_command` safety policy:
+    an `EngineConfig`, a path to an engine YAML, or None for the safe built-in
+    defaults. The denylist is always applied to flows built here, so the default
+    execution path is restricted out of the box.
     """
     flow_yaml = Path(flow_yaml)
     log.info("loading flow: %s", flow_yaml)
     spec = yaml.safe_load(flow_yaml.read_text())
     root = flow_yaml.parent
+    cfg = config if isinstance(config, EngineConfig) else load_engine_config(config)
     if provider is None:
         pspec = dict(spec["provider"])
         for k, v in (provider_overrides or {}).items():
@@ -99,7 +107,7 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None)
     skills = load_skills(root)
     log.info("loaded %d skill(s): %s", len(skills), ", ".join(skills) or "(none)")
     ctx = Context(root=root, provider=provider, skills=skills,
-                  tools=default_tools(root))
+                  tools=default_tools(root, command_policy=cfg.command_policy))
     steps = [build_step(s, ctx) for s in spec["workflow"]]
     for a, b in zip(steps, steps[1:]):
         a >> b
@@ -108,9 +116,10 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None)
 
 
 def run_flow(flow_yaml, provider=None, shared: dict | None = None,
-             provider_overrides: dict | None = None) -> dict:
+             provider_overrides: dict | None = None,
+             config: "str | Path | EngineConfig | None" = None) -> dict:
     flow, seed = build_flow(flow_yaml, provider=provider,
-                            provider_overrides=provider_overrides)
+                            provider_overrides=provider_overrides, config=config)
     if shared:
         seed.update(shared)
     log.info("starting run%s", f" (seed: {seed})" if seed else "")

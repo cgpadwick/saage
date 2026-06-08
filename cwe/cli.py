@@ -1,10 +1,13 @@
-"""cwe run <flow.yaml> [--provider T] [--model M] [--base-url U] [--set k=v ...] [-v|-q]
+"""cwe run <flow.yaml> [--config engine.yaml] [--provider T] [--model M] [--base-url U] [--set k=v ...] [-v|-q]
 
 --provider / --model / --base-url override the flow's provider block, so you can
 run the same flow against a different backend/model without editing the YAML, e.g.
 
     OPENROUTER_API_KEY=... cwe run flows/story_writer/flow.yaml \\
         --provider openrouter --model "anthropic/claude-3.5-sonnet"
+
+--config points at an engine config YAML that tunes the run_command safety policy
+(the denied-command patterns). Omit it for the safe built-in denylist.
 
 -v shows tool-output detail (DEBUG); -q quiets progress logs (WARNING+ only).
 """
@@ -17,8 +20,8 @@ from pathlib import Path
 
 from .hydrate import run_flow
 
-USAGE = ("usage: cwe run <flow.yaml> [--provider T] [--model M] [--base-url U] "
-         "[--set key=value ...] [-v|-q]")
+USAGE = ("usage: cwe run <flow.yaml> [--config engine.yaml] [--provider T] "
+         "[--model M] [--base-url U] [--set key=value ...] [-v|-q]")
 
 # third-party libs whose INFO chatter (e.g. "HTTP Request: POST ...") is noise
 _NOISY = ("httpx", "httpcore", "openai", "anthropic", "urllib3")
@@ -36,15 +39,19 @@ def _setup_logging(argv: list[str]) -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
-def _parse(args: list[str]) -> tuple[dict, dict]:
+def _parse(args: list[str]) -> tuple[dict, dict, str | None]:
     overrides: dict = {"type": None, "model": None, "base_url": None}
     shared: dict = {}
+    config: str | None = None
     flag = {"--provider": "type", "--model": "model", "--base-url": "base_url"}
     i = 0
     while i < len(args):
         a = args[i]
         if a in flag and i + 1 < len(args):
             overrides[flag[a]] = args[i + 1]
+            i += 2
+        elif a == "--config" and i + 1 < len(args):
+            config = args[i + 1]
             i += 2
         elif a == "--set" and i + 1 < len(args):
             key, _, value = args[i + 1].partition("=")
@@ -56,7 +63,7 @@ def _parse(args: list[str]) -> tuple[dict, dict]:
             i += 2
         else:                                    # -v/-q and unknown flags
             i += 1
-    return overrides, shared
+    return overrides, shared, config
 
 
 def _snapshot(root: Path) -> dict:
@@ -97,11 +104,12 @@ def main(argv: list[str] | None = None) -> int:
         print(USAGE, file=sys.stderr)
         return 2
     _setup_logging(argv)
-    overrides, shared = _parse(argv[2:])
+    overrides, shared, config = _parse(argv[2:])
     root = Path(argv[1]).parent
 
     before = _snapshot(root)
-    result = run_flow(argv[1], shared=shared, provider_overrides=overrides)
+    result = run_flow(argv[1], shared=shared, provider_overrides=overrides,
+                      config=config)
     after = _snapshot(root)
 
     _print_summary(result, before, after, root)

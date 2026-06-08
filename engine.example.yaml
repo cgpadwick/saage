@@ -1,0 +1,24 @@
+# Example cwe engine config. Point a run at it with:
+#     cwe run flows/<flow>/flow.yaml --config engine.example.yaml
+#
+# It governs the run_command safety policy — the patterns the engine refuses to
+# execute. With no --config, the safe built-in denylist (see cwe/config.py:
+# DEFAULT_DENY) is used automatically.
+command_policy:
+  # Keep the built-in denylist (rm -rf, sudo, mkfs, curl|sh, /etc/shadow, …) and
+  # ADD the patterns below. Set to false to start from an empty denylist and
+  # define the whole policy yourself.
+  use_defaults: true
+
+  # Extra denied patterns — each is a regex, searched case-insensitively against
+  # the full command string. A match means the command is refused (returned to
+  # the agent as an error) instead of run.
+  deny:
+    - '\bterraform\s+(destroy|apply)\b'   # no infra changes from a flow
+    - '\bkubectl\s+delete\b'
+    - '\bdocker\s+(rm|rmi|system\s+prune)\b'
+
+  # Allow-overrides: a command that matches a deny pattern is still permitted if
+  # it ALSO matches one of these — an explicit carve-out for known-safe cases.
+  allow:
+    - '^rm -rf \./(build|dist|\.pytest_cache)\b'   # cleaning local build dirs is fine
