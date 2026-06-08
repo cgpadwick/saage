@@ -140,8 +140,13 @@ so `exit_when` and `{{ templates }}` can use them.
 ### Harness tools available to every agent
 
 `read_file`, `write_file`, `edit_file`, `delete_file`, `run_command`, and git: `git_status`,
-`git_diff`, `git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_log`. All sandboxed to
-the flow directory.
+`git_diff`, `git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_log`.
+
+> **Security note.** The *file* tools are path-confined to the flow/workspace directory
+> (`..` and absolute escapes are rejected). `run_command` and the git tools, however, run
+> arbitrary shell with the engine's own privileges and `cwd` set to the workspace — they are
+> **not** sandboxed and can read or modify anything the process can (e.g. `run_command` can
+> `cat ../../etc/passwd`). Run untrusted flows inside a container or VM.
 
 ## Example flows (`flows/`)
 

@@ -93,6 +93,18 @@ def test_counting_loop_exits_on_predicate():
     assert shared["_exit_reason"]["c"] == "exit_when"
 
 
+def test_counting_loop_undefined_exit_name_does_not_crash():
+    # exit_when references `accuracy`, which no step has populated yet. The loop
+    # must treat the predicate as not-yet-satisfied and run to max_iterations,
+    # rather than raising NameError on the first gate evaluation.
+    flow = counting_loop("c", [Tracer("a")], max_iterations=2,
+                         exit_when="accuracy >= target")
+    shared = {}
+    flow.run(shared)
+    assert shared["_iter"]["c"] == 2
+    assert shared["_exit_reason"]["c"] == "max_iterations"
+
+
 # --------------------------------------------------------------------------- #
 # polling_loop
 # --------------------------------------------------------------------------- #

@@ -211,5 +211,17 @@ class GateNode(Node):
 
 
 def _safe_eval(expr: str, shared: dict) -> bool:
-    """Evaluate an exit predicate against shared with no builtins available."""
-    return bool(eval(expr, {"__builtins__": {}}, dict(shared)))
+    """Evaluate an exit predicate against shared with no builtins available.
+
+    A name the predicate references but that no step has populated yet (e.g. a
+    metric captured only after the first iteration) evaluates to False — the loop
+    keeps going instead of crashing — and we warn, so a genuine typo in
+    `exit_when` is still visible in the logs rather than silently never firing.
+    """
+    try:
+        return bool(eval(expr, {"__builtins__": {}}, dict(shared)))
+    except NameError as e:
+        log.warning("exit_when %r references an undefined name (%s); "
+                    "treating as not-yet-satisfied — seed it in `shared:` if "
+                    "this is not a typo", expr, e)
+        return False
