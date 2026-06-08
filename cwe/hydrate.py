@@ -13,6 +13,7 @@ import yaml
 
 from .llm import AnthropicProvider, OpenAIProvider
 from .nodes import AgentNode, CommandNode
+from .retry import RetryPolicy
 from .primitives import Subflow, counting_loop, polling_loop, retry_loop
 from .skills import Skill, load_skills
 from .tools import default_tools
@@ -29,21 +30,26 @@ class Context:
 
 
 def make_provider(spec: dict):
-    """Out of the box: anthropic | openai | openrouter | local."""
+    """Out of the box: anthropic | openai | openrouter | local.
+
+    An optional `retry:` sub-block tunes the transient-failure backoff, e.g.
+    `provider: { type: anthropic, model: ..., retry: { max_attempts: 8 } }`.
+    """
     t = spec["type"]
     model = spec["model"]
+    rp = RetryPolicy(**spec["retry"]) if spec.get("retry") else None
     if t == "anthropic":
-        return AnthropicProvider(model)
+        return AnthropicProvider(model, retry_policy=rp)
     if t == "openai":
-        return OpenAIProvider(model)
+        return OpenAIProvider(model, retry_policy=rp)
     if t == "openrouter":
         return OpenAIProvider(model, base_url="https://openrouter.ai/api/v1",
-                              api_key_env="OPENROUTER_API_KEY")
+                              api_key_env="OPENROUTER_API_KEY", retry_policy=rp)
     if t == "local":
         return OpenAIProvider(
             model,
             base_url=spec.get("base_url", "http://localhost:11434/v1"),
-            api_key_env=spec.get("api_key_env", "LOCAL_API_KEY"))
+            api_key_env=spec.get("api_key_env", "LOCAL_API_KEY"), retry_policy=rp)
     raise ValueError(f"unknown provider type: {t!r}")
 
 

@@ -15,6 +15,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from .retry import RetryPolicy, call_with_retry
 from .tools import Tool
 
 
@@ -40,11 +41,13 @@ class LLMProvider(Protocol):
 # Anthropic
 # --------------------------------------------------------------------------- #
 class AnthropicProvider:
-    def __init__(self, model: str, max_tokens: int = 4096):
+    def __init__(self, model: str, max_tokens: int = 4096,
+                 retry_policy: RetryPolicy | None = None):
         import anthropic  # lazy: only needed when actually used
         self.client = anthropic.Anthropic()
         self.model = model
         self.max_tokens = max_tokens
+        self.retry_policy = retry_policy or RetryPolicy()
 
     def _tools(self, tools: list[Tool]) -> list[dict]:
         return [{"name": t.name, "description": t.description,
@@ -70,9 +73,11 @@ class AnthropicProvider:
         return out
 
     def complete(self, system, messages, tools):
-        r = self.client.messages.create(
-            model=self.model, max_tokens=self.max_tokens, system=system or " ",
-            tools=self._tools(tools), messages=self._messages(messages))
+        r = call_with_retry(
+            lambda: self.client.messages.create(
+                model=self.model, max_tokens=self.max_tokens, system=system or " ",
+                tools=self._tools(tools), messages=self._messages(messages)),
+            policy=self.retry_policy, what="anthropic.messages.create")
         text = "".join(b.text for b in r.content if b.type == "text")
         calls = [ToolCall(b.id, b.name, b.input)
                  for b in r.content if b.type == "tool_use"]
@@ -85,12 +90,14 @@ class AnthropicProvider:
 # --------------------------------------------------------------------------- #
 class OpenAIProvider:
     def __init__(self, model: str, base_url: str | None = None,
-                 api_key_env: str = "OPENAI_API_KEY"):
+                 api_key_env: str = "OPENAI_API_KEY",
+                 retry_policy: RetryPolicy | None = None):
         import openai  # lazy
         self.client = openai.OpenAI(
             base_url=base_url,
             api_key=os.environ.get(api_key_env, "not-needed"))  # local needs no real key
         self.model = model
+        self.retry_policy = retry_policy or RetryPolicy()
 
     def _tools(self, tools: list[Tool]) -> list[dict]:
         return [{"type": "function",
@@ -116,9 +123,11 @@ class OpenAIProvider:
         return out
 
     def complete(self, system, messages, tools):
-        r = self.client.chat.completions.create(
-            model=self.model, messages=self._messages(system, messages),
-            tools=self._tools(tools) or None)
+        r = call_with_retry(
+            lambda: self.client.chat.completions.create(
+                model=self.model, messages=self._messages(system, messages),
+                tools=self._tools(tools) or None),
+            policy=self.retry_policy, what="openai.chat.completions.create")
         m = r.choices[0].message
         calls = [ToolCall(tc.id, tc.function.name, json.loads(tc.function.arguments))
                  for tc in (m.tool_calls or [])]
