@@ -1,7 +1,10 @@
-"""cwe run <flow.yaml> [--provider T] [--model M] [--base-url U] [--set k=v ...] [-v|-q]
+"""cwe run <flow.yaml> [--workspace DIR] [--venv DIR] [--provider T] [--model M]
+                      [--base-url U] [--set k=v ...] [-v|-q]
 
---provider / --model / --base-url override the flow's provider block, so you can
-run the same flow against a different backend/model without editing the YAML, e.g.
+--workspace sets the dir tools/commands operate in (default: the flow file's dir).
+--venv names a virtualenv (relative to the workspace, default ".venv") that is
+auto-activated for every command once it exists on disk.
+--provider / --model / --base-url override the flow's provider block, e.g.
 
     OPENROUTER_API_KEY=... cwe run flows/story_writer/flow.yaml \\
         --provider openrouter --model "anthropic/claude-3.5-sonnet"
@@ -15,10 +18,10 @@ import logging
 import sys
 from pathlib import Path
 
-from .hydrate import run_flow
+from .hydrate import build_flow
 
-USAGE = ("usage: cwe run <flow.yaml> [--provider T] [--model M] [--base-url U] "
-         "[--set key=value ...] [-v|-q]")
+USAGE = ("usage: cwe run <flow.yaml> [--workspace DIR] [--venv DIR] [--provider T] "
+         "[--model M] [--base-url U] [--set key=value ...] [-v|-q]")
 
 # third-party libs whose INFO chatter (e.g. "HTTP Request: POST ...") is noise
 _NOISY = ("httpx", "httpcore", "openai", "anthropic", "urllib3")
@@ -36,15 +39,20 @@ def _setup_logging(argv: list[str]) -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
-def _parse(args: list[str]) -> tuple[dict, dict]:
+def _parse(args: list[str]) -> tuple[dict, dict, dict]:
     overrides: dict = {"type": None, "model": None, "base_url": None}
     shared: dict = {}
+    opts: dict = {"workspace": None, "venv": None}
     flag = {"--provider": "type", "--model": "model", "--base-url": "base_url"}
+    optflag = {"--workspace": "workspace", "--venv": "venv"}
     i = 0
     while i < len(args):
         a = args[i]
         if a in flag and i + 1 < len(args):
             overrides[flag[a]] = args[i + 1]
+            i += 2
+        elif a in optflag and i + 1 < len(args):
+            opts[optflag[a]] = args[i + 1]
             i += 2
         elif a == "--set" and i + 1 < len(args):
             key, _, value = args[i + 1].partition("=")
@@ -56,7 +64,7 @@ def _parse(args: list[str]) -> tuple[dict, dict]:
             i += 2
         else:                                    # -v/-q and unknown flags
             i += 1
-    return overrides, shared
+    return overrides, shared, opts
 
 
 def _snapshot(root: Path) -> dict:
@@ -97,13 +105,21 @@ def main(argv: list[str] | None = None) -> int:
         print(USAGE, file=sys.stderr)
         return 2
     _setup_logging(argv)
-    overrides, shared = _parse(argv[2:])
-    root = Path(argv[1]).parent
+    overrides, shared, opts = _parse(argv[2:])
+
+    flow, seed = build_flow(argv[1], provider_overrides=overrides,
+                            workspace=opts["workspace"], venv=opts["venv"])
+    if shared:
+        seed.update(shared)
+    root = Path(seed["workspace"])               # the resolved workspace
 
     before = _snapshot(root)
-    result = run_flow(argv[1], shared=shared, provider_overrides=overrides)
+    logging.getLogger("cwe").info("starting run")
+    flow.run(seed)
+    logging.getLogger("cwe").info("run complete")
     after = _snapshot(root)
 
+    result = seed
     _print_summary(result, before, after, root)
     if "-v" in argv or "--verbose" in argv:        # full agent/command outputs
         print("\nresults:")
