@@ -1,10 +1,10 @@
-"""`cwe run <flow.yaml>` — hydrate a flow and run it.
+"""`saage run <flow.yaml>` — hydrate a flow and run it.
 
-  cwe run flows/story_writer/flow.yaml
-  cwe run flows/greenfield_ml/flow.yaml --workspace /tmp/ws --set target_accuracy=0.97
-  OPENROUTER_API_KEY=... cwe run f.yaml --provider openrouter --model "deepseek/deepseek-v4-flash"
+  saage run flows/story_writer/flow.yaml
+  saage run flows/greenfield_ml/flow.yaml --workspace /tmp/ws --set target_accuracy=0.97
+  OPENROUTER_API_KEY=... saage run f.yaml --provider openrouter --model "deepseek/deepseek-v4-flash"
 
-See `cwe run --help` for all options.
+See `saage run --help` for all options.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ _NOISY = ("httpx", "httpcore", "openai", "anthropic", "urllib3")
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="cwe", description="Run a cwe workflow.")
+    parser = argparse.ArgumentParser(prog="saage", description="Run a saage workflow.")
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="hydrate and run a flow")
     run.add_argument("flow", metavar="flow.yaml", help="path to the flow YAML")
@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(seed["workspace"])               # the resolved workspace
 
     before = _snapshot(root)
-    log = logging.getLogger("cwe")
+    log = logging.getLogger("saage")
     log.info("starting run")
     flow.run(seed)
     log.info("run complete")

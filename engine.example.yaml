@@ -1,8 +1,8 @@
-# Example cwe engine config. Point a run at it with:
-#     cwe run flows/<flow>/flow.yaml --config engine.example.yaml
+# Example saage engine config. Point a run at it with:
+#     saage run flows/<flow>/flow.yaml --config engine.example.yaml
 #
 # It governs the run_command safety policy — the patterns the engine refuses to
-# execute. With no --config, the safe built-in denylist (see cwe/config.py:
+# execute. With no --config, the safe built-in denylist (see saage/config.py:
 # DEFAULT_DENY) is used automatically.
 command_policy:
   # Keep the built-in denylist (rm -rf, sudo, mkfs, curl|sh, /etc/shadow, …) and

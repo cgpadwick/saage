@@ -1,5 +1,5 @@
 """CLI: --set JSON coercion + end-to-end run of a command-only flow."""
-from cwe.cli import _parse_set, main
+from saage.cli import _parse_set, main
 
 
 def test_parse_set_coerces_json_values():

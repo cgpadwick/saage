@@ -1,12 +1,12 @@
 import logging
 
-from cwe_testkit import call, resp
+from saage_testkit import call, resp
 
-from cwe.agent import run_agent
-from cwe.llm import LLMResponse, ScriptedProvider
-from cwe.nodes import AgentNode, render
-from cwe.skills import Skill
-from cwe.tools import file_tools
+from saage.agent import run_agent
+from saage.llm import LLMResponse, ScriptedProvider
+from saage.nodes import AgentNode, render
+from saage.skills import Skill
+from saage.tools import file_tools
 
 
 def test_loop_executes_tool_then_finishes(tmp_path):

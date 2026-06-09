@@ -17,6 +17,6 @@ You set up git for the workspace. Commands run at the workspace root.
    `proposals/`, `experiments.jsonl`, `report.html`, `report_assets/`.
 3. Run `git init`, then set a local commit identity so commits don't fail on a
    box without global git config:
-   `git config user.email cwe@local` and `git config user.name cwe`.
+   `git config user.email saage@local` and `git config user.name saage`.
 4. Stage everything and make the initial commit with message `init workspace`.
 5. Finish with a one-line confirmation.

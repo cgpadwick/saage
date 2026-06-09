@@ -36,7 +36,7 @@ def run(cmd, **kw):
 
 
 def have_gpu() -> bool:
-    if os.environ.get("CWE_FORCE_CPU"):           # escape hatch for testing
+    if os.environ.get("SAAGE_FORCE_CPU"):           # escape hatch for testing
         return False
     if not shutil.which("nvidia-smi"):
         return False
@@ -103,7 +103,7 @@ def main():
     ap.add_argument("--extras", default="")        # e.g. "training vision"
     ap.add_argument("--ref", default=None,         # pin ml-frameworks to a tag/branch
                     help="pin ml-frameworks to a trusted tag or branch (recommended)")
-    ap.add_argument("--cache", default=str(Path.home() / ".cache" / "cwe"))
+    ap.add_argument("--cache", default=str(Path.home() / ".cache" / "saage"))
     args = ap.parse_args()
 
     ws = Path(args.workspace).resolve()

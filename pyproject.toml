@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cwe"
+name = "saage"
 version = "0.1.0"
 description = "A tiny deterministic composable agentic workflow engine on PocketFlow"
 readme = "README.md"
@@ -20,13 +20,13 @@ dependencies = [
 dev = ["pytest"]
 
 [project.scripts]
-cwe = "cwe.cli:main"
+saage = "saage.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["cwe*"]
+include = ["saage*"]
 
 [tool.pytest.ini_options]
 markers = [
-    "live: hits a real LLM provider; skipped unless CWE_LIVE_PROVIDER is set",
+    "live: hits a real LLM provider; skipped unless SAAGE_LIVE_PROVIDER is set",
 ]
 testpaths = ["tests"]

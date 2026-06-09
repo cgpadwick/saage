@@ -14,7 +14,7 @@ The goal: a **deterministic workflow engine** where *control flow is code, not m
 - **Provider:** provider-agnostic from day 1 — thin `LLMProvider` abstraction with **Anthropic** and **OpenAI** backends both wired up.
 - **Skills:** reuse the existing Claude/Agent skill markdown format (YAML frontmatter + instruction body), imported unchanged.
 
-> Naming: working package name `cwe` (composable-workflow-engine). Final product name TBD — not a blocker.
+> Naming: working package name `saage` (composable-workflow-engine). Final product name TBD — not a blocker.
 
 ---
 
@@ -52,7 +52,7 @@ Our loop primitives are **not** PocketFlow's `max_retries` (that's exception-onl
 
 ## Component Design
 
-### Layer 1 — Harness tools (`cwe/tools/`)
+### Layer 1 — Harness tools (`saage/tools/`)
 A neutral `Tool` abstraction: `name`, `description`, JSON-schema `parameters`, and `run(**kwargs) -> ToolResult`. Tools are provider-neutral; each provider adapter translates the schema to Anthropic tool-use / OpenAI function-calling format.
 
 - `files.py` — `read_file`, `write_file`, `edit_file` (exact-string replace), `delete_file`, `list_dir`. All paths confined to a configurable **workspace root** (sandbox guard; reject `..` escapes).
@@ -60,18 +60,18 @@ A neutral `Tool` abstraction: `name`, `description`, JSON-schema `parameters`, a
 - `git.py` — thin wrappers shelling `git` directly (no `gh`, no external auth): `git_status`, `git_diff`, `git_branch`, `git_commit`, `git_log`, `git_add`, `git_checkout`. Run inside the workspace root.
 - `registry.py` — `ToolRegistry` that collects tools and emits per-provider tool specs; a skill may restrict which tools it can use.
 
-### Layer 2 — Provider abstraction + agent loop (`cwe/llm/`, `cwe/agent/`)
-- `cwe/llm/base.py` — `LLMProvider` interface: `complete(messages, tools, model, **opts) -> LLMResponse` where `LLMResponse` carries assistant text + a normalized list of `ToolCall(name, args, id)`.
-- `cwe/llm/anthropic.py` — Anthropic Messages API: maps neutral tools → `tools=[...]`, handles `tool_use`/`tool_result` content blocks.
-- `cwe/llm/openai.py` — OpenAI Chat Completions: maps neutral tools → `functions`/`tools`, handles `tool_calls`/`tool` role messages.
-- `cwe/llm/scripted.py` — **`ScriptedProvider`** that replays a canned sequence of responses/tool-calls. Critical for deterministic tests (no network, exact reproducibility).
-- `cwe/agent/loop.py` — `AgentLoop.run(instructions, context, tool_registry) -> AgentResult`: standard tool-use loop — send messages, execute returned tool calls against the registry, append results, repeat until the model emits no tool calls **or** `max_steps` is hit. Bounded so it always terminates.
+### Layer 2 — Provider abstraction + agent loop (`saage/llm/`, `saage/agent/`)
+- `saage/llm/base.py` — `LLMProvider` interface: `complete(messages, tools, model, **opts) -> LLMResponse` where `LLMResponse` carries assistant text + a normalized list of `ToolCall(name, args, id)`.
+- `saage/llm/anthropic.py` — Anthropic Messages API: maps neutral tools → `tools=[...]`, handles `tool_use`/`tool_result` content blocks.
+- `saage/llm/openai.py` — OpenAI Chat Completions: maps neutral tools → `functions`/`tools`, handles `tool_calls`/`tool` role messages.
+- `saage/llm/scripted.py` — **`ScriptedProvider`** that replays a canned sequence of responses/tool-calls. Critical for deterministic tests (no network, exact reproducibility).
+- `saage/agent/loop.py` — `AgentLoop.run(instructions, context, tool_registry) -> AgentResult`: standard tool-use loop — send messages, execute returned tool calls against the registry, append results, repeat until the model emits no tool calls **or** `max_steps` is hit. Bounded so it always terminates.
 
-### Layer 2.5 — Skills (`cwe/skills/`)
+### Layer 2.5 — Skills (`saage/skills/`)
 - `loader.py` — parse **Claude-format markdown**: YAML frontmatter (`name`, `description`, optional `tools:`, optional `model:`) + markdown body (the instructions). Returns a `Skill` object. Bodies are used verbatim as the agent's instructions, so your existing skills import unchanged.
 - A skill resolves to an `AgentNode` at hydration time.
 
-### Layer 3 — Nodes + primitives (`cwe/nodes/`)
+### Layer 3 — Nodes + primitives (`saage/nodes/`)
 Concrete PocketFlow `Node` subclasses; all read/write the shared store.
 - `AgentNode` — `prep` builds context from shared + skill; `exec` runs `AgentLoop` with a skill's instructions and the tool registry; `post` writes the result to shared and returns an action.
 - `CommandNode` — deterministic shell step (no LLM); useful as poll/setup/teardown steps.
@@ -80,11 +80,11 @@ Concrete PocketFlow `Node` subclasses; all read/write the shared store.
   - `polling_loop(poll_node, interval_seconds, max_wait_seconds, status_key)` — `poll >> classify`; `classify - "running" >> wait`; `wait >> poll` (a `WaitNode` doing `time.sleep(interval)`); `classify - "complete" >> <exit>`; `classify - "failed" >> <fail>`. Hard wall-clock cap via `max_wait_seconds`. *Use case: submit to Slurm, poll squeue until done/failed.*
   - `counting_loop(body_nodes, max_iterations, exit_when)` — chain `body[0] >> ... >> body[n] >> gate`; `gate - "continue" >> body[0]`; `gate - "exit" >> <exit>`. Gate evaluates a safe `exit_when` predicate over the shared store **and** the iteration counter. *Use case: ML auto-research loop until `accuracy >= target_accuracy` or `max_iterations`.*
 
-### Layer 3.5 — YAML hydration (`cwe/workflow/`)
+### Layer 3.5 — YAML hydration (`saage/workflow/`)
 - `schema.py` — Pydantic models validating the YAML (clear errors on malformed specs).
 - `hydrate.py` — walk the validated spec, resolve skills → `AgentNode`s, build primitive sub-flows, wire `>>`/`- "action" >>` transitions, return a runnable top-level `Flow`.
 - `runner.py` — `run_workflow(path, initial_shared) -> shared`: load YAML, hydrate, seed shared store, `flow.run(shared)`, return final shared. Structured logging of every node entry/exit/action for observability.
-- `cwe/cli.py` — `cwe run workflow.yaml [--set key=value ...]` entry point.
+- `saage/cli.py` — `saage run workflow.yaml [--set key=value ...]` entry point.
 
 ### Proposed YAML schema (illustrative)
 ```yaml
@@ -129,7 +129,7 @@ Vertical slices — each ends with something runnable and tested.
 2. **M2 — Provider abstraction + agent loop.** `LLMProvider`, Anthropic + OpenAI adapters, `ScriptedProvider`, `AgentLoop`. Tests drive the loop with `ScriptedProvider` (zero network) asserting tool calls fire and the loop terminates.
 3. **M3 — Skills + nodes.** Skill loader (Claude markdown), `AgentNode`, `CommandNode`. Test: a one-skill agent node edits a file via the loop end-to-end with `ScriptedProvider`.
 4. **M4 — Primitives.** `retry_loop`, `polling_loop`, `counting_loop` as PocketFlow flow factories. Tests with fake/scripted nodes assert loop counts, exit conditions, polling termination, and the failure-context re-injection path.
-5. **M5 — YAML hydration + CLI.** Schema, hydrator, runner, `cwe run`. End-to-end test: a small YAML workflow runs to completion with `ScriptedProvider`.
+5. **M5 — YAML hydration + CLI.** Schema, hydrator, runner, `saage run`. End-to-end test: a small YAML workflow runs to completion with `ScriptedProvider`.
 6. **M6 — Real-workflow validation.** Port your ML auto-research workflow; one live smoke run against a real provider. Docs + examples.
 
 PocketFlow itself is added as a dependency (`pip install pocketflow`); we do **not** fork it — we compose on top.
@@ -140,7 +140,7 @@ PocketFlow itself is added as a dependency (`pip install pocketflow`); we do **n
 ```
 composable-workflow-engine/
   pyproject.toml            # deps: pocketflow, anthropic, openai, pydantic, pyyaml, jinja2
-  cwe/
+  saage/
     __init__.py
     cli.py
     tools/      {base,files,exec,git,registry}.py
@@ -160,7 +160,7 @@ composable-workflow-engine/
 - **Per-milestone unit tests (pytest):** tools against temp dir + temp git repo; agent loop and all primitives driven by `ScriptedProvider` so runs are network-free and bit-reproducible.
 - **Determinism check:** run an E2E workflow twice with `ScriptedProvider` and assert identical shared-store output and identical node-execution trace — proves control flow is code-owned, not model-owned.
 - **Termination guarantees:** tests assert `polling_loop` honors `max_wait_seconds`, `retry_loop`/`counting_loop` honor `max_iterations`, and `run_command` honors its timeout — i.e. no path can hang (directly addressing the "poll never returns" failure).
-- **Live smoke (M6):** `cwe run examples/ml-auto-research/workflow.yaml` against a real provider; confirm the loop iterates, polling exits on job completion, and the exit condition fires.
+- **Live smoke (M6):** `saage run examples/ml-auto-research/workflow.yaml` against a real provider; confirm the loop iterates, polling exits on job completion, and the exit condition fires.
 
 ## Open questions / deferred
 - Async engine (`AsyncFlow`) for concurrent steps — deferred; v1 is synchronous.

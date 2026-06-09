@@ -4,9 +4,9 @@ The guesser is never told the target; the judge replies higher/lower/correct.
 The loop exits (via exit_when) when the judge says "correct". Both agents are
 scripted here; the `record` command and the shared history.txt are real.
 """
-from cwe_testkit import RoutedProvider, resp
+from saage_testkit import RoutedProvider, resp
 
-from cwe.hydrate import run_flow
+from saage.hydrate import run_flow
 
 
 def test_guessing_game(flow_copy):

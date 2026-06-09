@@ -1,6 +1,6 @@
 """Configurable workspace root + automatic venv activation for commands."""
-from cwe.hydrate import run_flow
-from cwe.tools import file_tools
+from saage.hydrate import run_flow
+from saage.tools import file_tools
 
 
 def _write_flow(flow_dir, run_cmd):

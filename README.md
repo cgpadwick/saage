@@ -1,8 +1,9 @@
-# Composable Workflow Engine (`cwe`)
+# SAAGE — Super Awesome Agentic Graph Engine
 
-A **deterministic** composable agentic workflow engine. Control flow (loops, retries,
-polling, exit conditions) is owned by code — not by an LLM's judgment — while individual
-steps still use LLMs to do the work.
+**SAAGE** (`saage`) is a **deterministic** composable agentic workflow engine. Control flow
+(loops, retries, polling, exit conditions) is owned by code — not by an LLM's judgment —
+while individual steps still use LLMs to do the work. It's a *graph* engine: workflows are
+hydrated into a graph of nodes over a shared store.
 
 Built on [PocketFlow](https://github.com/The-Pocket/PocketFlow) (graph + shared-store),
 plus a lightweight first-class harness (file CRUD + exec + git tools) that LLM steps drive
@@ -22,13 +23,13 @@ behavior entirely. This engine makes the LLM choose only *content*, never *contr
 Requires Python ≥ 3.10. Recommended with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-git clone <this-repo> && cd composable-workflow-engine
+git clone <this-repo> && cd saage
 uv venv                          # create .venv/
 source .venv/bin/activate
 uv pip install -e ".[dev]"       # editable install + pytest
 ```
 
-This installs the `cwe` CLI and the `cwe` import. `-e` (editable) makes source edits take
+This installs the `saage` CLI and the `saage` import. `-e` (editable) makes source edits take
 effect immediately; drop it for a normal install. `[dev]` adds `pytest`.
 
 Alternatives:
@@ -36,15 +37,15 @@ Alternatives:
 ```bash
 pip install -e ".[dev]"          # plain pip
 uv run pytest -q                 # uv as runner — no manual activate
-uv run cwe run flows/story_writer/flow.yaml
+uv run saage run flows/story_writer/flow.yaml
 ```
 
 ## Quickstart
 
 ```bash
 pytest -q                         # 22 tests, fully offline, no API key needed
-cwe run flows/story_writer/flow.yaml          # a live run (needs a provider key, below)
-cwe run flows/optimize_until_threshold/flow.yaml --set target_accuracy=0.8
+saage run flows/story_writer/flow.yaml          # a live run (needs a provider key, below)
+saage run flows/optimize_until_threshold/flow.yaml --set target_accuracy=0.8
 ```
 
 While a flow runs, the engine logs each step to stderr as it happens — flow
@@ -75,7 +76,7 @@ Use `-v` for tool-output detail and the full per-node results, `-q` to quiet it:
 ────────────────────────────────────────────────
 ```
 
-(Logging is configured by the CLI. As a library, `cwe` never installs log
+(Logging is configured by the CLI. As a library, `saage` never installs log
 handlers — your app controls logging via the standard `logging` module.)
 
 ## Providers
@@ -115,7 +116,7 @@ You can override the flow's `provider` block without editing the YAML using
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-...
-cwe run flows/story_writer/flow.yaml \
+saage run flows/story_writer/flow.yaml \
     --provider openrouter \
     --model "anthropic/claude-3.5-sonnet"      # any model id from openrouter.ai/models
 ```
@@ -123,7 +124,7 @@ cwe run flows/story_writer/flow.yaml \
 Same idea for a local model (no key needed):
 
 ```bash
-cwe run flows/story_writer/flow.yaml \
+saage run flows/story_writer/flow.yaml \
     --provider local --model "llama3.1:8b" --base-url http://localhost:11434/v1
 ```
 
@@ -173,7 +174,7 @@ As a first line of defense, `run_command` refuses an obviously destructive comma
 raw-device writes (`dd of=/dev/…`, `mkfs`), fork bombs, pipe-to-shell installs
 (`curl … | sh`), reads of credential files (`/etc/shadow`, `~/.ssh/…`), and more. A
 refused command is returned to the agent as an `ERROR:` (non-fatal — it just can't do
-that). The full built-in denylist is `DEFAULT_DENY` in [`cwe/config.py`](cwe/config.py).
+that). The full built-in denylist is `DEFAULT_DENY` in [`saage/config.py`](saage/config.py).
 
 The rules are configurable via an engine config YAML (`--config engine.yaml`):
 
@@ -187,7 +188,7 @@ command_policy:
 ```
 
 ```bash
-cwe run flows/story_writer/flow.yaml --config engine.yaml
+saage run flows/story_writer/flow.yaml --config engine.yaml
 ```
 
 An `allow` is a *whole-command* carve-out — it overrides a deny only when it matches the
@@ -221,7 +222,7 @@ are scripted, so the suite is free, offline, and bit-reproducible. For a real en
 smoke test, run a flow live against a provider:
 
 ```bash
-ANTHROPIC_API_KEY=... cwe run flows/story_writer/flow.yaml
+ANTHROPIC_API_KEY=... saage run flows/story_writer/flow.yaml
 ```
 
 (A `live` pytest marker is reserved in `pyproject.toml` for future provider-hitting tests.)

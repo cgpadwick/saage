@@ -1,13 +1,13 @@
 # Greenfield ML Auto-Research Flow — Design Sketch
 
 Replicate **just the workflow** of [MLE-Beast](https://github.com/cgpadwick/mle-beast)
-(no DB, no UI, no event bus) as a `cwe` flow. The user gives a workspace dir, a task
+(no DB, no UI, no event bus) as a `saage` flow. The user gives a workspace dir, a task
 prompt, and a target metric; the flow builds a baseline end-to-end ML pipeline, then
 hill-climbs (Karpathy-style ML auto-research) until the target is met or the budget runs
 out.
 
 ```
-cwe run flows/greenfield_ml/flow.yaml \
+saage run flows/greenfield_ml/flow.yaml \
     --workspace /tmp/workspace \
     --set task="Build an image classifier for MNIST" \
     --set target_accuracy=0.98
@@ -44,7 +44,7 @@ dashboard tags, SSE. Pure workflow only.
 
 ---
 
-## 2. The `cwe` greenfield flow
+## 2. The `saage` greenfield flow
 
 ```
 setup ─ download_data ─ ┌─ baseline_build (implement→verify, retry×3) ─ train ─ evaluate ─┐
@@ -121,9 +121,9 @@ the shared store, so target-met **and** plateau (`consecutive_failures`) are one
 
 ---
 
-## 3. Mapping to `cwe` primitives
+## 3. Mapping to `saage` primitives
 
-| MLE-Beast | `cwe` |
+| MLE-Beast | `saage` |
 |---|---|
 | implement → testing critic (retry) | `retry_loop(action=implement, check=verify)` — review+test folded into one `verify` check |
 | baseline train → evaluate → record | `command`/agent steps + `set:` capture of the metric |
@@ -166,7 +166,7 @@ None of these are large; (1) and (2) are the only ones that genuinely block a co
 
 Mirror MLE-Beast's contract (`prompts/shared.py`): the workspace venv ships a **base stack**
 (`torch torchvision torchaudio numpy scipy pandas scikit-learn matplotlib seaborn pytest`),
-and extras install on demand. For a self-contained `cwe` version the `setup` skill should:
+and extras install on demand. For a self-contained `saage` version the `setup` skill should:
 - create a venv in the workspace (`python -m venv .venv`),
 - install the base stack (pin versions; CPU vs CUDA wheel selection by `torch.cuda` probe),
 - drop a `pyproject.toml` with optional groups (nlp / vision / training / …) so later steps

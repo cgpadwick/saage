@@ -2,7 +2,7 @@ import subprocess
 
 import pytest
 
-from cwe.tools import default_tools, file_tools, git_tools
+from saage.tools import default_tools, file_tools, git_tools
 
 
 def _by_name(tools):

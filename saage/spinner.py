@@ -33,7 +33,7 @@ class Spinner:
         # only animate on an interactive terminal when progress logging is on
         self.enabled = (
             self.stream.isatty()
-            and logging.getLogger("cwe").getEffectiveLevel() <= logging.INFO
+            and logging.getLogger("saage").getEffectiveLevel() <= logging.INFO
         )
 
     def __enter__(self):

@@ -1,7 +1,7 @@
 """Skill loading: frontmatter parsing + warnings on malformed skill files."""
 import logging
 
-from cwe.skills import load_skills, parse_skill
+from saage.skills import load_skills, parse_skill
 
 
 def _skill(tmp_path, name, content):

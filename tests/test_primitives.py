@@ -1,7 +1,7 @@
 """Unit tests for the three loop primitives, using tiny fake nodes (no LLM)."""
 from pocketflow import Node
 
-from cwe.primitives import Subflow, counting_loop, polling_loop, retry_loop
+from saage.primitives import Subflow, counting_loop, polling_loop, retry_loop
 
 
 class Tracer(Node):

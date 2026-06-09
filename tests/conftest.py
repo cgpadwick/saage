@@ -1,4 +1,4 @@
-"""Make `tests/` importable (so `cwe_testkit` works from subdirs) + flow fixture."""
+"""Make `tests/` importable (so `saage_testkit` works from subdirs) + flow fixture."""
 import shutil
 import sys
 from pathlib import Path
@@ -15,7 +15,7 @@ def flow_copy(tmp_path):
     """Copy a flow fixture into a fresh temp dir so runs are hermetic (helper
     scripts create artifacts next to the flow). Safe to call multiple times."""
     counter = {"n": 0}
-    # never copy run artifacts a prior in-place `cwe run` may have left behind
+    # never copy run artifacts a prior in-place `saage run` may have left behind
     ignore = shutil.ignore_patterns(
         "story.md", "review.md", "history.txt", "job_*.count",
         "__pycache__", "*.pyc")

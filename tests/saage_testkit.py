@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from cwe.llm import LLMResponse, ToolCall
+from saage.llm import LLMResponse, ToolCall
 
 
 def resp(text: str = "", calls: list[ToolCall] | None = None) -> LLMResponse:

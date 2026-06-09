@@ -2,9 +2,9 @@
 tool-level enforcement (a denied command must NOT execute)."""
 import pytest
 
-from cwe.config import (CommandPolicy, EngineConfig, load_engine_config,
+from saage.config import (CommandPolicy, EngineConfig, load_engine_config,
                         DEFAULT_DENY)
-from cwe.tools import file_tools
+from saage.tools import file_tools
 
 
 def _run_command(tools):

@@ -7,9 +7,9 @@ edit (a+b) is correct and the real suite passes.
 import subprocess
 import sys
 
-from cwe_testkit import RoutedProvider, call, resp
+from saage_testkit import RoutedProvider, call, resp
 
-from cwe.hydrate import run_flow
+from saage.hydrate import run_flow
 
 
 def _scripts():

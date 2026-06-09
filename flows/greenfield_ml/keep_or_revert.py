@@ -25,7 +25,7 @@ import subprocess
 
 def git(*args: str) -> None:
     # -c identity keeps commits working even without global git config
-    subprocess.run(["git", "-c", "user.email=cwe@local", "-c", "user.name=cwe", *args],
+    subprocess.run(["git", "-c", "user.email=saage@local", "-c", "user.name=saage", *args],
                    check=False)
 
 

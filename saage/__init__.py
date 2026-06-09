@@ -1,4 +1,6 @@
-"""cwe — a tiny deterministic composable agentic workflow engine on PocketFlow.
+"""SAAGE — Super Awesome Agentic Graph Engine.
+
+A tiny deterministic composable agentic workflow engine on PocketFlow.
 
 Control flow (loops, polling, retry, exit conditions) is owned by code; the LLM
 only ever chooses content. Workflows are authored in YAML and hydrated into
