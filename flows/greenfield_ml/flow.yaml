@@ -89,7 +89,10 @@ workflow:
           best_score: "BEST_SCORE=([0-9]*\\.?[0-9]+)"
           consecutive_failures: "FAILURES=([0-9]+)"
 
-  # ---- final research report: HTML with experiments table, best architecture, plot ----
+  # ---- final research report ----
+  # an LLM writes the prose summary (how the model works + winning experiments), then a
+  # deterministic script assembles the HTML (summary + plot + table + architecture).
+  - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 12 }
   - id: report
     type: command
     run: 'python3 "{{ flow_dir }}/report.py" --task "{{ task }}" --target "{{ target_accuracy }}" --lower-is-better "{{ lower_is_better }}"'

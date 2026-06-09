@@ -39,6 +39,43 @@ def load_experiments() -> list[dict]:
     return out
 
 
+def _inline_md(s: str) -> str:
+    s = html.escape(s)
+    s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"`(.+?)`", r"<code>\1</code>", s)
+    return s
+
+
+def md_to_html(text: str) -> str:
+    """Minimal markdown -> HTML (headings, paragraphs, bullet lists, bold, code)."""
+    out, in_list = [], False
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if line.startswith("#"):
+            if in_list:
+                out.append("</ul>"); in_list = False
+            out.append(f"<h3>{_inline_md(line.lstrip('#').strip())}</h3>")
+        elif line.lstrip().startswith(("- ", "* ")):
+            if not in_list:
+                out.append("<ul>"); in_list = True
+            out.append(f"<li>{_inline_md(line.lstrip()[2:])}</li>")
+        elif not line.strip():
+            if in_list:
+                out.append("</ul>"); in_list = False
+        else:
+            if in_list:
+                out.append("</ul>"); in_list = False
+            out.append(f"<p>{_inline_md(line)}</p>")
+    if in_list:
+        out.append("</ul>")
+    return "\n".join(out)
+
+
+def load_narrative() -> str:
+    p = Path("report_narrative.md")
+    return md_to_html(p.read_text()) if p.exists() and p.read_text().strip() else ""
+
+
 def baseline_from_git() -> float | None:
     try:
         log = subprocess.run(["git", "log", "--oneline"], capture_output=True,
@@ -134,7 +171,7 @@ def architecture() -> tuple[str, str]:
 
 
 def render_html(task, target, lower_is_better, baseline, experiments, plot_b64,
-                arch_summary, arch_src) -> str:
+                arch_summary, arch_src, narrative_html="") -> str:
     best = experiments[-1]["best"] if experiments else baseline
     met = (best is not None and target is not None and
            ((best <= target) if lower_is_better else (best >= target)))
@@ -172,6 +209,8 @@ def render_html(task, target, lower_is_better, baseline, experiments, plot_b64,
  .card{{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:.8rem 1.2rem}}
  .card b{{display:block;font-size:1.5rem}} .ok{{color:#16a34a;font-weight:700}} .no{{color:#b45309;font-weight:700}}
  img{{max-width:100%;border:1px solid #e5e7eb;border-radius:8px}}
+ .narrative{{background:#f8fafc;border:1px solid #e5e7eb;border-left:4px solid #2563eb;border-radius:8px;padding:.5rem 1.2rem}}
+ .narrative h3{{margin:.8rem 0 .3rem}} .narrative code{{background:#e2e8f0;padding:.1rem .3rem;border-radius:3px;font-size:.9em}}
 </style></head><body>
 <h1>ML Auto-Research Report</h1>
 <p class="meta">{cell(task)}</p>
@@ -182,6 +221,7 @@ def render_html(task, target, lower_is_better, baseline, experiments, plot_b64,
   <div class="card">experiments<b>{len(experiments)}</b></div>
   <div class="card">outcome<b style="font-size:1rem">{badge}</b></div>
 </div>
+{f'<h2>Summary</h2><div class="narrative">{narrative_html}</div>' if narrative_html else ''}
 <h2>Hill-climb progress</h2>
 {plot_html}
 <h2>Experiments</h2>
@@ -205,8 +245,9 @@ def main() -> None:
     baseline = baseline_from_git()
     plot_b64 = make_plot(baseline, experiments)
     arch_summary, arch_src = architecture()
+    narrative_html = load_narrative()
     html_doc = render_html(args.task, args.target, lower, baseline, experiments,
-                           plot_b64, arch_summary, arch_src)
+                           plot_b64, arch_summary, arch_src, narrative_html)
     Path("report.html").write_text(html_doc, encoding="utf-8")
     best = experiments[-1]["best"] if experiments else baseline
     print(f"REPORT=report.html EXPERIMENTS={len(experiments)} BEST={best}")
