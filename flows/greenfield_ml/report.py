@@ -84,28 +84,50 @@ def make_plot(baseline: float | None, experiments: list[dict]) -> str | None:
 
 
 def architecture() -> tuple[str, str]:
-    """(summary, source) for the best model.py."""
+    """(summary, source) for the best model.py.
+
+    Picks the TOP-LEVEL model, not a building block: instantiate every nn.Module
+    subclass defined in model.py with no args and choose the one with the most
+    parameters (helper blocks like BasicBlock need constructor args and are
+    skipped). Prefers a class that train.py actually instantiates as a tiebreak.
+    """
     src = Path("model.py").read_text() if Path("model.py").exists() else "(model.py not found)"
     summary = "(architecture introspection unavailable)"
     try:
         import importlib.util
         import torch.nn as nn
+
         spec = importlib.util.spec_from_file_location("best_model", "model.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        cls = next((v for v in vars(mod).values()
-                    if isinstance(v, type) and issubclass(v, nn.Module)
-                    and v.__module__ == "best_model"), None)
-        if cls is not None:
+        classes = [v for v in vars(mod).values()
+                   if isinstance(v, type) and issubclass(v, nn.Module)
+                   and v.__module__ == "best_model"]
+        train_src = Path("train.py").read_text() if Path("train.py").exists() else ""
+        referenced = {c.__name__ for c in classes
+                      if re.search(rf"\b{re.escape(c.__name__)}\s*\(", train_src)}
+
+        best = None  # (params, prefers_train, cls, instance)
+        for c in classes:
             try:
-                m = cls()
-                n_params = sum(p.numel() for p in m.parameters())
-                layers = "\n".join(f"  ({name}): {sub}"
-                                   for name, sub in m.named_modules() if name)
-                summary = (f"Class: {cls.__name__}\n"
-                           f"Parameters: {n_params:,}\n\nLayers:\n{layers}")
-            except Exception as e:
-                summary = f"Class: {cls.__name__} (could not instantiate: {e})"
+                m = c()                                  # no-arg constructable only
+            except Exception:
+                continue                                 # helper block needing args
+            n = sum(p.numel() for p in m.parameters())
+            key = (c.__name__ in referenced, n)          # train-referenced wins ties
+            if best is None or key > best[0]:
+                best = (key, c, m, n)
+
+        if best is not None:
+            _, cls, m, n = best
+            layers = "\n".join(f"  ({name}): {sub}"
+                               for name, sub in m.named_modules() if name)
+            summary = f"Class: {cls.__name__}\nParameters: {n:,}\n\nLayers:\n{layers}"
+        elif classes:
+            names = ", ".join(c.__name__ for c in classes)
+            summary = (f"Model classes: {names}\n"
+                       "(none were no-arg constructable, so parameter count is "
+                       "unavailable — see the source below).")
     except Exception as e:
         summary = f"(architecture introspection failed: {e})"
     return summary, src
