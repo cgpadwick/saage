@@ -56,9 +56,16 @@ def test_git_tools(tmp_path):
     assert "init" in g["git_log"].run(n=5)
 
 
+def test_append_file(tmp_path):
+    t = _by_name(file_tools(tmp_path))
+    t["append_file"].run(path="log.txt", content="line1\n")   # creates the file
+    t["append_file"].run(path="log.txt", content="line2\n")   # appends
+    assert (tmp_path / "log.txt").read_text() == "line1\nline2\n"
+
+
 def test_default_tools_count(tmp_path):
     names = [t.name for t in default_tools(tmp_path)]
     assert names == [
-        "read_file", "write_file", "edit_file", "delete_file", "run_command",
-        "git_status", "git_diff", "git_add", "git_commit", "git_branch",
-        "git_checkout", "git_log"]
+        "read_file", "write_file", "append_file", "edit_file", "delete_file",
+        "run_command", "git_status", "git_diff", "git_add", "git_commit",
+        "git_branch", "git_checkout", "git_log"]

@@ -1,0 +1,100 @@
+# Greenfield ML auto-research: build a baseline classifier, then hill-climb until
+# the target metric is met. Mirrors MLE-Beast's pipeline on cwe primitives.
+#
+#   setup(cmd) -> git_init -> download_data -> [implement -> verify]x3
+#     -> train(cmd, fixed epochs) -> evaluate(cmd, capture best_score) -> baseline_commit
+#     -> hillclimb counting_loop (until target or plateau):
+#          propose -> [implement -> verify]x3 -> train(cmd) -> evaluate(cmd, candidate)
+#          -> keep_or_revert(cmd: git keep/revert, update best_score/failures)
+#
+# train/evaluate run deterministically with a FIXED epoch budget so each hill-climb
+# experiment is comparable; the LLM only writes code (implement) and proposes ideas.
+#
+# Run:  OPENROUTER_API_KEY=... cwe run flows/greenfield_ml/flow.yaml \
+#         --workspace /tmp/cwe_mnist --set target_accuracy=0.97
+provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
+workspace: /tmp/cwe_mnist
+shared:
+  task: "Build an image classifier for the MNIST handwritten digit dataset (10 classes, 28x28 grayscale). Metric: classification accuracy on a held-out test split (higher is better)."
+  target_accuracy: 0.97
+  lower_is_better: false
+  best_score: -1.0
+  candidate_score: -1.0
+  consecutive_failures: 0      # tracked for the research log / proposer context, NOT a stop condition
+  ml_stack: pytorch-cu121      # ml-frameworks stack (GPU); CPU box auto-falls-back
+  train_epochs: 8              # FIXED training budget — held constant across every
+                               # experiment so hill-climb scores are comparable
+
+workflow:
+  # ---- environment: ml-frameworks stack on GPU, CPU fallback otherwise ----
+  - id: setup
+    type: command
+    run: 'python3 "{{ flow_dir }}/setup_env.py" --workspace "{{ workspace }}" --venv "{{ venv }}" --stack "{{ ml_stack }}"'
+  - { id: git_init, type: agent, skill: git_init, max_steps: 15 }
+
+  # ---- data ----
+  - { id: data, type: agent, skill: download_data, max_steps: 25 }
+
+  # ---- baseline: implement -> verify (retry), then train + evaluate ----
+  # train/evaluate are DETERMINISTIC commands with a fixed --epochs budget, so the
+  # LLM (implement) can't drift epochs or run redundant training between experiments.
+  - id: baseline_build
+    type: retry_loop
+    max_iterations: 3
+    action: { id: implement, type: agent, skill: implement, max_steps: 40 }
+    check:  { id: verify,    type: agent, skill: verify,    max_steps: 20 }
+  - { id: train, type: command, run: "python train.py --epochs {{ train_epochs }}" }
+  - id: evaluate
+    type: command
+    # score = eval_results.json['value'] (source of truth), validated in [0,1] —
+    # not the agent/script's free-text "Test accuracy:" line (gameable + scale-blind).
+    run: 'python evaluate.py && python3 "{{ flow_dir }}/read_score.py"'
+    set: { best_score: "SCORE=([0-9]*\\.?[0-9]+)" }
+  - { id: baseline_commit, type: agent, skill: baseline_commit, max_steps: 10 }
+
+  # ---- hill-climb until the target is met or the iteration budget is spent ----
+  # A revert is normal in a hill-climb (most experiments fail before one lands), so
+  # there is NO "give up after N failures" stop — only target-met or max_iterations.
+  # max_iterations IS the compute budget; raise it to explore longer.
+  - id: hillclimb
+    type: counting_loop
+    max_iterations: 6
+    exit_when: "best_score >= target_accuracy if not lower_is_better else best_score <= target_accuracy"
+    body:
+      # propose -> proposal_critic retry: the critic reads the research log and the
+      # proposal and sends it back for revision (ACTION: fail) until it's worth the
+      # expensive train run (ACTION: pass). Cheap vetting before costly implement/train.
+      - id: propose_loop
+        type: retry_loop
+        max_iterations: 3
+        action:
+          id: propose
+          type: agent
+          skill: propose
+          max_steps: 15
+          set: { current_proposal: "(?s)(.+)" }   # capture the whole proposal text
+        check: { id: proposal_critic, type: agent, skill: proposal_critic, max_steps: 10 }
+      - id: hc_build
+        type: retry_loop
+        max_iterations: 3
+        action: { id: hc_implement, type: agent, skill: implement, max_steps: 40 }
+        check:  { id: hc_verify,    type: agent, skill: verify,    max_steps: 20 }
+      - { id: hc_train, type: command, run: "python train.py --epochs {{ train_epochs }}" }
+      - id: hc_eval
+        type: command
+        run: 'python evaluate.py && python3 "{{ flow_dir }}/read_score.py"'
+        set: { candidate_score: "SCORE=([0-9]*\\.?[0-9]+)" }
+      - id: keep_or_revert
+        type: command
+        run: 'python3 "{{ flow_dir }}/keep_or_revert.py" --candidate "{{ candidate_score }}" --best "{{ best_score }}" --failures "{{ consecutive_failures }}" --lower-is-better "{{ lower_is_better }}"'
+        set:
+          best_score: "BEST_SCORE=([0-9]*\\.?[0-9]+)"
+          consecutive_failures: "FAILURES=([0-9]+)"
+
+  # ---- final research report ----
+  # an LLM writes the prose summary (how the model works + winning experiments), then a
+  # deterministic script assembles the HTML (summary + plot + table + architecture).
+  - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 12 }
+  - id: report
+    type: command
+    run: 'python3 "{{ flow_dir }}/report.py" --task "{{ task }}" --target "{{ target_accuracy }}" --lower-is-better "{{ lower_is_better }}"'

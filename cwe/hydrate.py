@@ -22,10 +22,11 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Context:
-    root: Path
+    root: Path                # the workspace: tool sandbox + command cwd
     provider: object
     skills: dict[str, Skill]
     tools: list
+    venv: str | None = None   # venv to auto-activate for commands (relative to root)
 
 
 def make_provider(spec: dict):
@@ -57,7 +58,7 @@ def build_step(spec: dict, ctx: Context):
                          max_steps=spec.get("max_steps", 20))
     if t == "command":
         return CommandNode(spec["id"], spec["run"], ctx.root,
-                           captures=spec.get("set"))
+                           captures=spec.get("set"), venv=ctx.venv)
     if t == "retry_loop":
         return retry_loop(spec["id"],
                           build_step(spec["action"], ctx),
@@ -77,18 +78,32 @@ def build_step(spec: dict, ctx: Context):
     raise ValueError(f"unknown step type: {t!r}")
 
 
-def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None):
+def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
+               workspace=None, venv: str | None = None):
     """Return (flow, shared).
 
     `provider` injects a ready provider object (used by tests). Otherwise the
     YAML `provider` block is used, with any `provider_overrides` (e.g. {"type":
     "openrouter", "model": "..."}) merged on top — handy for switching provider
     or model from the CLI without editing the flow.
+
+    `workspace` is the tool sandbox + command working dir. Resolution order:
+    arg → `workspace:` in the YAML → the flow file's directory (back-compat).
+    Skills are always loaded from the flow file's directory. `venv` (arg →
+    `venv:` in YAML → default ".venv") is auto-activated for commands once it
+    exists on disk.
     """
     flow_yaml = Path(flow_yaml)
     log.info("loading flow: %s", flow_yaml)
     spec = yaml.safe_load(flow_yaml.read_text())
-    root = flow_yaml.parent
+    flow_dir = flow_yaml.parent
+    # resolve so {{ workspace }} is always an absolute, canonical path (matching
+    # flow_dir below) — a relative --workspace otherwise leaks into prompts/commands.
+    ws = Path(workspace or spec.get("workspace") or flow_dir).expanduser().resolve()
+    ws.mkdir(parents=True, exist_ok=True)
+    venv = venv or spec.get("venv") or ".venv"
+    if ws != flow_dir.resolve():
+        log.info("workspace: %s", ws)
     if provider is None:
         pspec = dict(spec["provider"])
         for k, v in (provider_overrides or {}).items():
@@ -96,21 +111,27 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None)
                 pspec[k] = v
         provider = make_provider(pspec)
         log.info("provider: %s / %s", pspec.get("type"), pspec.get("model"))
-    skills = load_skills(root)
+    skills = load_skills(flow_dir)
     log.info("loaded %d skill(s): %s", len(skills), ", ".join(skills) or "(none)")
-    ctx = Context(root=root, provider=provider, skills=skills,
-                  tools=default_tools(root))
+    ctx = Context(root=ws, provider=provider, skills=skills,
+                  tools=default_tools(ws, venv=venv), venv=venv)
     steps = [build_step(s, ctx) for s in spec["workflow"]]
     for a, b in zip(steps, steps[1:]):
         a >> b
     log.info("workflow ready: %d top-level step(s)", len(steps))
-    return Subflow(start=steps[0]), dict(spec.get("shared", {}))
+    seed = dict(spec.get("shared", {}))
+    seed.setdefault("workspace", str(ws))
+    seed.setdefault("venv", venv)
+    seed.setdefault("flow_dir", str(flow_dir.resolve()))   # for bundled scripts
+    return Subflow(start=steps[0]), seed
 
 
 def run_flow(flow_yaml, provider=None, shared: dict | None = None,
-             provider_overrides: dict | None = None) -> dict:
+             provider_overrides: dict | None = None,
+             workspace=None, venv: str | None = None) -> dict:
     flow, seed = build_flow(flow_yaml, provider=provider,
-                            provider_overrides=provider_overrides)
+                            provider_overrides=provider_overrides,
+                            workspace=workspace, venv=venv)
     if shared:
         seed.update(shared)
     log.info("starting run%s", f" (seed: {seed})" if seed else "")
