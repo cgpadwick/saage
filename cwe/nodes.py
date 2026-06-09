@@ -8,7 +8,7 @@ import re
 import subprocess
 import time
 
-from jinja2 import Template
+from jinja2 import Environment, Undefined, make_logging_undefined
 from pocketflow import Node
 
 from .agent import run_agent
@@ -18,9 +18,19 @@ from .tools import Tool, venv_env
 log = logging.getLogger(__name__)
 
 
+# Render templates so an undefined `{{ var }}` logs a warning instead of silently
+# becoming "" — a missing shared value / typo is then visible in the run log.
+_LoggingUndefined = make_logging_undefined(logger=log, base=Undefined)
+_jinja = Environment(undefined=_LoggingUndefined)
+
+
 def render(template: str, shared: dict) -> str:
-    """`{{ var }}` substitution from the shared store."""
-    return Template(template).render(**shared)
+    """`{{ var }}` substitution from the shared store, used for every text the
+    engine feeds a step: a `command:` run string, and an agent's skill
+    *description* AND *body*. Undefined names still render to "" (as Jinja does)
+    but emit a warning. To keep a literal brace from being interpreted, wrap it in
+    `{% raw %}…{% endraw %}`."""
+    return _jinja.from_string(template).render(**shared)
 
 
 def capture_into(shared: dict, text: str, captures: dict | None) -> None:
@@ -76,11 +86,12 @@ class AgentNode(Node):
         feedback = shared.get("_feedback", {}).get(self.id)
         if feedback:
             task = f"{task}\n\n--- Feedback from previous attempt ---\n{feedback}"
-        return task
+        system = render(self.skill.system, shared)   # body is templated too
+        return {"task": task, "system": system}
 
-    def exec(self, task):
+    def exec(self, prep_res):
         log.info("▶ %s  [agent: %s]", self.id, self.skill.name)
-        return run_agent(self.provider, self.skill.system, task,
+        return run_agent(self.provider, prep_res["system"], prep_res["task"],
                          self.tools, self.max_steps)
 
     def post(self, shared, prep_res, out):

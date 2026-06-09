@@ -149,6 +149,12 @@ Plain steps are `agent` (an LLM skill with the harness tools) and `command` (a d
 shell step). `set: { key: regex }` captures values from a step's output into the shared store
 so `exit_when` and `{{ templates }}` can use them.
 
+`{{ var }}` placeholders are filled from the shared store (deterministically, by the engine —
+the model only ever sees finished text) in every step's text: a `command:` run string and an
+agent skill's **description and body**. So a skill can say `Answer this question: {{ question }}`
+in its instructions. An undefined name renders to `""` and logs a warning; wrap a literal brace
+in `{% raw %}…{% endraw %}`.
+
 ### Harness tools available to every agent
 
 `read_file`, `write_file`, `edit_file`, `delete_file`, `run_command`, and git: `git_status`,
