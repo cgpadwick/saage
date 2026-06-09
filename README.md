@@ -1,5 +1,8 @@
 # Composable Workflow Engine (`cwe`)
 
+[![CI](https://github.com/cgpadwick/composable-workflow-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/cgpadwick/composable-workflow-engine/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 A **deterministic** composable agentic workflow engine. Control flow (loops, retries,
 polling, exit conditions) is owned by code — not by an LLM's judgment — while individual
 steps still use LLMs to do the work.
@@ -229,3 +232,7 @@ ANTHROPIC_API_KEY=... cwe run flows/story_writer/flow.yaml
 ## Status
 
 Working. ~800 lines across 9 modules. See [`docs/plan.md`](docs/plan.md) for the full design.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
