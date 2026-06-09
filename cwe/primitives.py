@@ -28,6 +28,20 @@ class _End(Node):
 
 
 class Subflow(Flow):
+    def __init__(self, start, reset=()):
+        super().__init__(start=start)
+        # (namespace, key) pairs in the shared store to clear on every entry, so
+        # a loop nested inside another loop gets a fresh counter each time the
+        # outer loop re-enters it. The top-level flow passes nothing.
+        self._reset = reset
+
+    def prep(self, shared):
+        for ns, key in self._reset:
+            d = shared.get(ns)
+            if key is not None and isinstance(d, dict):
+                d.pop(key, None)
+        return None
+
     def post(self, shared, prep_res, last_action):
         return "default" if last_action in _SUCCESS else last_action
 
@@ -43,7 +57,8 @@ def retry_loop(name: str, action, check, max_iterations: int = 3) -> Subflow:
     check - "fail" >> guard
     guard - "again" >> action
     guard - "stop" >> done           # exhausted attempts: give up, continue outer flow
-    return Subflow(start=action)
+    return Subflow(start=action,
+                   reset=[("_iter", name), ("_feedback", getattr(action, "id", None))])
 
 
 def polling_loop(name: str, poll, classify, interval_seconds: float,
@@ -60,7 +75,8 @@ def polling_loop(name: str, poll, classify, interval_seconds: float,
     guard - "again" >> wait
     guard - "stop" >> failed         # timed out: never completed -> propagate failure
     wait >> poll
-    return Subflow(start=poll)
+    return Subflow(start=poll,
+                   reset=[("_iter", name), ("_poll_start", name), ("_poll_count", name)])
 
 
 def counting_loop(name: str, body: list, max_iterations: int = 10,
@@ -76,4 +92,4 @@ def counting_loop(name: str, body: list, max_iterations: int = 10,
     body[-1] >> gate
     gate - "continue" >> body[0]
     gate - "exit" >> done
-    return Subflow(start=body[0])
+    return Subflow(start=body[0], reset=[("_iter", name), ("_exit_reason", name)])

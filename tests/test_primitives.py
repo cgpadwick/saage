@@ -126,6 +126,29 @@ def test_polling_loop_timeout_cap_prevents_hang():
     assert shared["_trace"].count("poll") == 1
 
 
+class AlwaysFail(Node):
+    def __init__(self, id):
+        super().__init__()
+        self.id = id
+
+    def post(self, shared, prep_res, exec_res):
+        shared.setdefault("_trace", []).append(self.id)
+        return "fail"
+
+
+def test_nested_retry_loop_resets_each_outer_iteration():
+    # a retry_loop nested inside a counting_loop must get a FRESH attempt budget
+    # every outer iteration (its counter is reset on subflow entry).
+    inner = retry_loop("inner", Tracer("act"), AlwaysFail("chk"), max_iterations=2)
+    outer = counting_loop("outer", [inner], max_iterations=3)
+    shared = {}
+    outer.run(shared)
+    # 2 attempts per inner run × 3 outer iterations = 6. Without the per-entry
+    # reset the stale counter would yield only 4 (2 + 1 + 1).
+    assert shared["_trace"].count("act") == 6
+    assert shared["_iter"]["outer"] == 3
+
+
 def test_subflow_normalizes_success_action():
     # a primitive composes as a single node returning "default" on success
     flow = counting_loop("c", [Tracer("a")], max_iterations=1)

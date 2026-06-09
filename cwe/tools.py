@@ -6,6 +6,7 @@ JSON-schema `parameters` to its own tool/function-calling format.
 from __future__ import annotations
 
 import logging
+import os
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -16,6 +17,29 @@ if TYPE_CHECKING:
     from .config import CommandPolicy
 
 log = logging.getLogger(__name__)
+
+
+def venv_env(workspace: Path, venv: str | None) -> dict | None:
+    """Return an environment dict that activates `venv`, or None if it isn't on
+    disk yet. This is the deterministic equivalent of `source .../activate` for
+    resolving python/pip/pytest — set on every command's subprocess so a venv
+    created by an earlier step is used by all later ones, without relying on the
+    agent to source anything. The existence gate means the command that *creates*
+    the venv (e.g. `setup`) runs with system Python; everything after uses it.
+
+    POSIX layout only (`<venv>/bin`); a Windows `Scripts` layout is not handled."""
+    if not venv:
+        return None
+    vdir = Path(venv)
+    if not vdir.is_absolute():
+        vdir = Path(workspace) / vdir
+    if not (vdir / "bin").is_dir():        # not created yet (POSIX layout)
+        return None
+    env = os.environ.copy()
+    env["VIRTUAL_ENV"] = str(vdir)
+    env["PATH"] = f"{vdir / 'bin'}{os.pathsep}" + env.get("PATH", "")
+    env.pop("PYTHONHOME", None)
+    return env
 
 
 @dataclass
@@ -54,7 +78,8 @@ def _obj(required: list[str] | None = None, **props) -> dict:
 # --------------------------------------------------------------------------- #
 # file + exec tools
 # --------------------------------------------------------------------------- #
-def file_tools(root: Path, command_policy: "CommandPolicy | None" = None) -> list[Tool]:
+def file_tools(root: Path, venv: str | None = None,
+               command_policy: "CommandPolicy | None" = None) -> list[Tool]:
     root = Path(root)
 
     def read_file(path: str) -> str:
@@ -65,6 +90,13 @@ def file_tools(root: Path, command_policy: "CommandPolicy | None" = None) -> lis
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
         return f"wrote {len(content)} bytes -> {path}"
+
+    def append_file(path: str, content: str) -> str:
+        p = _resolve(root, path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(content)
+        return f"appended {len(content)} bytes -> {path}"
 
     def edit_file(path: str, old: str, new: str) -> str:
         p = _resolve(root, path)
@@ -87,9 +119,11 @@ def file_tools(root: Path, command_policy: "CommandPolicy | None" = None) -> lis
             if reason is not None:
                 log.warning("✋ run_command refused: %s — %s", command, reason)
                 return f"ERROR: {reason}; command not run"
-        # timeout guarantees a hung command can never stall the workflow
+        # timeout guarantees a hung command can never stall the workflow;
+        # venv_env auto-activates the workspace venv once it exists
         r = subprocess.run(command, shell=True, cwd=root,
-                           capture_output=True, text=True, timeout=timeout)
+                           capture_output=True, text=True, timeout=timeout,
+                           env=venv_env(root, venv))
         return (f"exit={r.returncode}\n--- stdout ---\n{r.stdout}"
                 f"\n--- stderr ---\n{r.stderr}")
 
@@ -98,6 +132,8 @@ def file_tools(root: Path, command_policy: "CommandPolicy | None" = None) -> lis
              _obj(["path"], path=_STR), read_file),
         Tool("write_file", "Create or overwrite a file with content.",
              _obj(["path", "content"], path=_STR, content=_STR), write_file),
+        Tool("append_file", "Append content to the end of a file (creating it if needed).",
+             _obj(["path", "content"], path=_STR, content=_STR), append_file),
         Tool("edit_file", "Replace an exact substring that occurs exactly once.",
              _obj(["path", "old", "new"], path=_STR, old=_STR, new=_STR), edit_file),
         Tool("delete_file", "Delete a file from the workspace.",
@@ -158,6 +194,6 @@ def git_tools(root: Path) -> list[Tool]:
     ]
 
 
-def default_tools(root: Path,
+def default_tools(root: Path, venv: str | None = None,
                   command_policy: "CommandPolicy | None" = None) -> list[Tool]:
-    return file_tools(root, command_policy=command_policy) + git_tools(root)
+    return file_tools(root, venv=venv, command_policy=command_policy) + git_tools(root)

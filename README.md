@@ -96,6 +96,18 @@ provider: { type: openrouter, model: "anthropic/claude-3.5-sonnet" }
 provider: { type: local, model: "llama3.1:8b", base_url: "http://localhost:11434/v1" }
 ```
 
+### Transient-failure retries
+
+Every real provider call is wrapped in bounded **exponential backoff with jitter**, so a
+transient API failure (network blip, `429` rate limit, `5xx`) is retried instead of
+aborting the whole run. Permanent errors (`400` bad request, `401` auth) are *not* retried —
+they propagate immediately. Defaults: 5 attempts, 0.5s base delay doubling up to 30s. Tune
+per flow with an optional `retry:` sub-block:
+
+```yaml
+provider: { type: anthropic, model: claude-opus-4-8, retry: { max_attempts: 8, base_delay: 1.0 } }
+```
+
 ### Selecting provider/model from the CLI
 
 You can override the flow's `provider` block without editing the YAML using

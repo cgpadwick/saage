@@ -13,7 +13,7 @@ from pocketflow import Node
 
 from .agent import run_agent
 from .skills import Skill
-from .tools import Tool
+from .tools import Tool, venv_env
 
 log = logging.getLogger(__name__)
 
@@ -95,12 +95,14 @@ class AgentNode(Node):
 class CommandNode(Node):
     """Deterministic shell step (no LLM)."""
 
-    def __init__(self, id: str, command: str, root, captures: dict | None = None):
+    def __init__(self, id: str, command: str, root, captures: dict | None = None,
+                 venv: str | None = None):
         super().__init__()
         self.id = id
         self.command = command
         self.root = root
         self.captures = captures
+        self.venv = venv
 
     def prep(self, shared):
         return render(self.command, shared)
@@ -108,7 +110,8 @@ class CommandNode(Node):
     def exec(self, cmd):
         log.info("$ %s", cmd)
         r = subprocess.run(cmd, shell=True, cwd=self.root,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True,
+                           env=venv_env(self.root, self.venv))
         log.info("  ✓ %s → exit=%d", self.id, r.returncode)
         return {"exit": r.returncode, "stdout": r.stdout, "stderr": r.stderr}
 
