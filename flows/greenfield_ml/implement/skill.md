@@ -37,8 +37,10 @@ Files at the workspace root, following this contract exactly:
   save the best model by val accuracy to `checkpoints/best.pt`.
 - `evaluate.py` — argparse (allow_abbrev=False): `--checkpoint` (default
   "checkpoints/best.pt"), `--data-path` (default "data"), `--device`. Load the
-  checkpoint, run on the HELD-OUT TEST split, print exactly `Test accuracy: 0.9123`,
-  and write `eval_results.json` = `{"metric_name": "accuracy", "value": 0.9123}`.
+  checkpoint, run on the HELD-OUT TEST split, print `Test accuracy: 0.9123`, and
+  write `eval_results.json` = `{"metric_name": "accuracy", "value": 0.9123}`. The
+  `value` is the AUTHORITATIVE score the harness reads — it MUST be the real
+  held-out accuracy as a fraction in [0, 1] (e.g. 0.9123, never 91.23).
 - `tests/test_smoke.py` — imports `model.py` and runs `train.py --help` /
   `evaluate.py --help` via subprocess (asserts exit 0). It must NOT run real training.
 
