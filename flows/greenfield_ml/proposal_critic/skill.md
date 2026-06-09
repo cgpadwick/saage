@@ -26,6 +26,16 @@ is worth the cost of implementing + training it.
      not enough; fail timid proposals and demand a structurally different approach.
    Be pragmatic, not pedantic — a well-reasoned proposal should pass even if its
    outcome is uncertain. Only reject duplicates, vague, or clearly-wasteful proposals.
-3. If it is worth implementing, end your reply with `ACTION: pass`. Otherwise give
-   SPECIFIC feedback (what to change, what to avoid, how to make it bolder) and end
-   with `ACTION: fail`.
+3. If the proposal is rejected, first give SPECIFIC feedback: what is wrong and exactly
+   how to fix it (what to change, what to avoid, how to make it bolder).
+
+VERDICT — REQUIRED. You MUST end your reply with a verdict line, and it must be the
+VERY LAST line, on its own, written EXACTLY as one of:
+
+ACTION: pass
+
+ACTION: fail
+
+No other text on that line, no punctuation, no markdown, no bold. Every reply ends with
+exactly one such line — never omit it. When in doubt, prefer `ACTION: pass` (a borderline
+proposal is cheaper to try than to over-vet).
