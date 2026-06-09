@@ -1,18 +1,14 @@
-"""cwe run <flow.yaml> [--workspace DIR] [--venv DIR] [--provider T] [--model M]
-                      [--base-url U] [--set k=v ...] [-v|-q]
+"""`cwe run <flow.yaml>` — hydrate a flow and run it.
 
---workspace sets the dir tools/commands operate in (default: the flow file's dir).
---venv names a virtualenv (relative to the workspace, default ".venv") that is
-auto-activated for every command once it exists on disk.
---provider / --model / --base-url override the flow's provider block, e.g.
+  cwe run flows/story_writer/flow.yaml
+  cwe run flows/greenfield_ml/flow.yaml --workspace /tmp/ws --set target_accuracy=0.97
+  OPENROUTER_API_KEY=... cwe run f.yaml --provider openrouter --model "deepseek/deepseek-v4-flash"
 
-    OPENROUTER_API_KEY=... cwe run flows/story_writer/flow.yaml \\
-        --provider openrouter --model "anthropic/claude-3.5-sonnet"
-
--v shows tool-output detail (DEBUG); -q quiets progress logs (WARNING+ only).
+See `cwe run --help` for all options.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import sys
@@ -20,56 +16,60 @@ from pathlib import Path
 
 from .hydrate import build_flow
 
-USAGE = ("usage: cwe run <flow.yaml> [--workspace DIR] [--venv DIR] [--provider T] "
-         "[--model M] [--base-url U] [--set key=value ...] [-v|-q]")
-
 # third-party libs whose INFO chatter (e.g. "HTTP Request: POST ...") is noise
 _NOISY = ("httpx", "httpcore", "openai", "anthropic", "urllib3")
 
 
-def _setup_logging(argv: list[str]) -> None:
-    level = logging.INFO
-    if "-v" in argv or "--verbose" in argv:
-        level = logging.DEBUG
-    elif "-q" in argv or "--quiet" in argv:
-        level = logging.WARNING
-    logging.basicConfig(level=level, format="%(asctime)s  %(message)s",
-                        datefmt="%H:%M:%S")
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="cwe", description="Run a cwe workflow.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    run = sub.add_parser("run", help="hydrate and run a flow")
+    run.add_argument("flow", metavar="flow.yaml", help="path to the flow YAML")
+    run.add_argument("--workspace", metavar="DIR",
+                     help="dir tools/commands operate in (default: the flow's dir)")
+    run.add_argument("--venv", metavar="DIR",
+                     help="virtualenv (relative to workspace) auto-activated for "
+                          "commands once it exists (default: .venv)")
+    run.add_argument("--provider", help="override the flow's provider type")
+    run.add_argument("--model", help="override the model")
+    run.add_argument("--base-url", dest="base_url", help="override the provider base URL")
+    run.add_argument("--set", dest="overrides", metavar="KEY=VALUE", action="append",
+                     default=[], help="seed/override a shared-store value (repeatable; "
+                                      "value is parsed as JSON when possible)")
+    verbosity = run.add_mutually_exclusive_group()
+    verbosity.add_argument("-v", "--verbose", action="store_true",
+                           help="show tool-output detail (DEBUG) + the full results")
+    verbosity.add_argument("-q", "--quiet", action="store_true",
+                           help="quiet progress logs (WARNING+ only)")
+    return parser
+
+
+def _setup_logging(verbose: bool, quiet: bool) -> None:
+    level = logging.DEBUG if verbose else logging.WARNING if quiet else logging.INFO
+    logging.basicConfig(level=level, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
     for name in _NOISY:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
-def _parse(args: list[str]) -> tuple[dict, dict, dict]:
-    overrides: dict = {"type": None, "model": None, "base_url": None}
+def _parse_set(items: list[str]) -> dict:
+    """Turn ['k=v', ...] into {'k': v}, parsing each value as JSON when possible."""
     shared: dict = {}
-    opts: dict = {"workspace": None, "venv": None}
-    flag = {"--provider": "type", "--model": "model", "--base-url": "base_url"}
-    optflag = {"--workspace": "workspace", "--venv": "venv"}
-    i = 0
-    while i < len(args):
-        a = args[i]
-        if a in flag and i + 1 < len(args):
-            overrides[flag[a]] = args[i + 1]
-            i += 2
-        elif a in optflag and i + 1 < len(args):
-            opts[optflag[a]] = args[i + 1]
-            i += 2
-        elif a == "--set" and i + 1 < len(args):
-            key, _, value = args[i + 1].partition("=")
-            try:
-                value = json.loads(value)        # allow numbers/bools/json
-            except json.JSONDecodeError:
-                pass
-            shared[key] = value
-            i += 2
-        else:                                    # -v/-q and unknown flags
-            i += 1
-    return overrides, shared, opts
+    for item in items:
+        key, _, value = item.partition("=")
+        try:
+            value = json.loads(value)            # numbers / bools / null / json
+        except json.JSONDecodeError:
+            pass                                 # leave as a plain string
+        shared[key] = value
+    return shared
 
 
-# noise dirs the run-summary file-diff should ignore (tooling/env/data, not user output)
-_SNAPSHOT_SKIP = {".git", ".venv", "venv", "__pycache__", ".pytest_cache",
-                  "node_modules", "data", ".mypy_cache", ".ruff_cache"}
+# Directories the end-of-run summary's "files written" line skips, so it shows real
+# outputs instead of hundreds of env/tooling/data internals. This is purely a DISPLAY
+# filter for the summary — it is NOT a .gitignore and is never written to disk; it just
+# happens to overlap the usual ignore patterns because the same dirs are noise either way.
+_SUMMARY_SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", ".pytest_cache",
+                      "node_modules", "data", ".mypy_cache", ".ruff_cache"}
 
 
 def _snapshot(root: Path) -> dict:
@@ -77,7 +77,7 @@ def _snapshot(root: Path) -> dict:
     for p in root.rglob("*"):
         if not p.is_file() or p.suffix in (".pyc", ".pyo"):
             continue
-        if _SNAPSHOT_SKIP & set(p.relative_to(root).parts):
+        if _SUMMARY_SKIP_DIRS & set(p.relative_to(root).parts):
             continue
         try:
             snap[p] = p.stat().st_mtime
@@ -108,30 +108,26 @@ def _print_summary(result: dict, before: dict, after: dict, root: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = list(sys.argv[1:] if argv is None else argv)
-    if len(argv) < 2 or argv[0] != "run":
-        print(USAGE, file=sys.stderr)
-        return 2
-    _setup_logging(argv)
-    overrides, shared, opts = _parse(argv[2:])
+    args = _build_parser().parse_args(argv)
+    _setup_logging(args.verbose, args.quiet)
 
-    flow, seed = build_flow(argv[1], provider_overrides=overrides,
-                            workspace=opts["workspace"], venv=opts["venv"])
-    if shared:
-        seed.update(shared)
+    overrides = {"type": args.provider, "model": args.model, "base_url": args.base_url}
+    flow, seed = build_flow(args.flow, provider_overrides=overrides,
+                            workspace=args.workspace, venv=args.venv)
+    seed.update(_parse_set(args.overrides))
     root = Path(seed["workspace"])               # the resolved workspace
 
     before = _snapshot(root)
-    logging.getLogger("cwe").info("starting run")
+    log = logging.getLogger("cwe")
+    log.info("starting run")
     flow.run(seed)
-    logging.getLogger("cwe").info("run complete")
+    log.info("run complete")
     after = _snapshot(root)
 
-    result = seed
-    _print_summary(result, before, after, root)
-    if "-v" in argv or "--verbose" in argv:        # full agent/command outputs
+    _print_summary(seed, before, after, root)
+    if args.verbose:                              # full agent/command outputs
         print("\nresults:")
-        print(json.dumps(result.get("results", {}), indent=2, default=str))
+        print(json.dumps(seed.get("results", {}), indent=2, default=str))
     return 0
 
 
