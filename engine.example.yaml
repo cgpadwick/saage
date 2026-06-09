@@ -18,7 +18,9 @@ command_policy:
     - '\bkubectl\s+delete\b'
     - '\bdocker\s+(rm|rmi|system\s+prune)\b'
 
-  # Allow-overrides: a command that matches a deny pattern is still permitted if
-  # it ALSO matches one of these — an explicit carve-out for known-safe cases.
+  # Allow-overrides: a WHOLE-COMMAND carve-out for known-safe cases. A command
+  # that matches a deny pattern is still permitted if one of these matches the
+  # *entire* command (not just a prefix) — so a carve-out can never wave through
+  # a chained extra like `rm -rf ./build && rm -rf /`.
   allow:
-    - '^rm -rf \./(build|dist|\.pytest_cache)\b'   # cleaning local build dirs is fine
+    - 'rm -rf \./(build|dist|\.pytest_cache)'   # cleaning a local build dir is fine

@@ -1,4 +1,4 @@
-"""Engine configuration — currently the `run_command` safety policy.
+r"""Engine configuration — currently the `run_command` safety policy.
 
 `run_command` runs arbitrary shell (`shell=True`) with the engine's privileges, so
 by default the engine refuses an obviously destructive command (recursive force
@@ -12,14 +12,19 @@ can always be evaded (obfuscation, env-var indirection, base64). The real isolat
 boundary is still a container/VM (see the README security note); this layer stops
 the casual/accidental and the obvious-attack cases.
 
+**Scope:** this guards the agent's `run_command` *tool* — the one path where an LLM
+chooses the command string. Deterministic `command:` steps (`CommandNode`) are
+written by the flow author, not the model, so they run unfiltered; if a flow
+templates untrusted input into a `command:` step, that step is your responsibility.
+
 Rules are configurable via an engine config YAML (CLI `--config engine.yaml`):
 
     command_policy:
       use_defaults: true          # start from the built-in denylist (default true)
       deny:                       # extra regex patterns (searched, case-insensitive)
         - '\bterraform\s+destroy\b'
-      allow:                      # regex exceptions that override a deny match
-        - '^rm -rf \./build\b'
+      allow:                      # whole-command carve-outs (must match the FULL
+        - 'rm -rf \./build'       # command — a prefix can't wave through chained extras
 """
 from __future__ import annotations
 
@@ -73,12 +78,20 @@ class CommandPolicy:
         self._allow = [re.compile(p, re.IGNORECASE) for p in self.allow]
 
     def check(self, command: str) -> str | None:
-        """Return a denial reason if `command` is blocked, else None. An `allow`
-        pattern that matches overrides a deny hit (an explicit carve-out)."""
+        """Return a denial reason if `command` is blocked, else None.
+
+        An `allow` pattern is a *whole-command* carve-out: it overrides the
+        denylist only when it matches the ENTIRE command (whitespace-stripped),
+        via `fullmatch`. Matching the whole command rather than a substring is
+        deliberate and load-bearing — a prefix carve-out like `rm -rf \\./build`
+        must NOT also wave through `rm -rf ./build && rm -rf /`, where the
+        appended clause is the dangerous part. Because the allow has to match the
+        whole string, it can only ever permit exactly the command it describes,
+        never that command plus smuggled-on extras."""
+        if any(a.fullmatch(command.strip()) for a in self._allow):
+            return None                       # explicit whole-command carve-out
         for pattern, rx in self._deny:
             if rx.search(command):
-                if any(a.search(command) for a in self._allow):
-                    return None
                 return f"blocked by command policy (matched deny pattern {pattern!r})"
         return None
 

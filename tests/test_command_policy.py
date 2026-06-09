@@ -70,9 +70,21 @@ def test_unrestricted_blocks_nothing():
 # --------------------------------------------------------------------------- #
 def test_allow_overrides_a_deny_hit():
     pol = CommandPolicy(deny=[r"\brm\s+-[a-z]*r[a-z]*f"],
-                        allow=[r"^rm -rf \./build\b"])
+                        allow=[r"rm -rf \./build"])
     assert pol.check("rm -rf /") is not None        # still blocked
     assert pol.check("rm -rf ./build") is None      # carved out
+
+
+def test_allow_is_a_whole_command_carve_out():
+    """An allow must match the ENTIRE command — so a carved-out prefix can't
+    smuggle a chained, un-allowed dangerous command past the denylist."""
+    pol = CommandPolicy(deny=[r"\brm\s+-[a-z]*r[a-z]*f", r"\bmkfs(\.\w+)?\b"],
+                        allow=[r"rm -rf \./build"])
+    assert pol.check("rm -rf ./build") is None                          # exact carve-out
+    # the allow matches the prefix, but the whole command isn't carved out:
+    assert pol.check("rm -rf ./build && rm -rf /") is not None          # chained rm
+    assert pol.check("rm -rf ./build; mkfs.ext4 /dev/sda") is not None  # chained mkfs
+    assert pol.check("rm -rf ./build  ") is None                        # trailing ws tolerated
 
 
 # --------------------------------------------------------------------------- #

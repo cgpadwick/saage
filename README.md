@@ -176,13 +176,18 @@ command_policy:
   use_defaults: true            # keep the built-in denylist (default); false = start empty
   deny:                         # extra regex patterns to refuse
     - '\bkubectl\s+delete\b'
-  allow:                        # regex carve-outs that override a deny match
-    - '^rm -rf \./build\b'
+  allow:                        # whole-command carve-outs (must match the FULL command)
+    - 'rm -rf \./build'
 ```
 
 ```bash
 cwe run flows/story_writer/flow.yaml --config engine.yaml
 ```
+
+An `allow` is a *whole-command* carve-out — it overrides a deny only when it matches the
+**entire** command, so it can't wave through a chained extra (`rm -rf ./build && rm -rf /`
+stays blocked). The policy guards the agent's `run_command` tool, where the LLM picks the
+command; deterministic `command:` steps are author-written and run unfiltered.
 
 See [`engine.example.yaml`](engine.example.yaml). This is **defense in depth, not a
 sandbox**: a denylist over `shell=True` can always be evaded — the real isolation
