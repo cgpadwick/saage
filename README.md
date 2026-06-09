@@ -1,5 +1,8 @@
 # SAAGE — Super Awesome Agentic Graph Engine
 
+[![CI](https://github.com/cgpadwick/composable-workflow-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/cgpadwick/composable-workflow-engine/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 **SAAGE** (`saage`) is a **deterministic** composable agentic workflow engine. Control flow
 (loops, retries, polling, exit conditions) is owned by code — not by an LLM's judgment —
 while individual steps still use LLMs to do the work. It's a *graph* engine: workflows are
@@ -134,6 +137,10 @@ The model id is whatever the backend expects — e.g. `gpt-4o` for `openai`,
 
 ## How a workflow is built
 
+> Building a flow yourself (or pointing a coding agent at this repo)? See
+> [`AGENTS.md`](AGENTS.md) for a complete, self-contained guide to the flow/skill
+> schema, step types, the shared store, and conventions.
+
 A **flow** is a directory containing `flow.yaml` plus one sub-directory per **skill**
 (`skill.md` = Claude-style frontmatter + instructions, with optional `.py` files the agent
 runs via `run_command`). The YAML composes steps with three loop **primitives**:
@@ -230,3 +237,7 @@ ANTHROPIC_API_KEY=... saage run flows/story_writer/flow.yaml
 ## Status
 
 Working. ~800 lines across 9 modules. See [`docs/plan.md`](docs/plan.md) for the full design.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).

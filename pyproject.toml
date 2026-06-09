@@ -8,6 +8,10 @@ version = "0.1.0"
 description = "A tiny deterministic composable agentic workflow engine on PocketFlow"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+]
 dependencies = [
     "pocketflow",
     "pyyaml",
