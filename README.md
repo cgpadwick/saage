@@ -136,6 +136,10 @@ The model id is whatever the backend expects — e.g. `gpt-4o` for `openai`,
 
 ## How a workflow is built
 
+> Building a flow yourself (or pointing a coding agent at this repo)? See
+> [`AGENTS.md`](AGENTS.md) for a complete, self-contained guide to the flow/skill
+> schema, step types, the shared store, and conventions.
+
 A **flow** is a directory containing `flow.yaml` plus one sub-directory per **skill**
 (`skill.md` = Claude-style frontmatter + instructions, with optional `.py` files the agent
 runs via `run_command`). The YAML composes steps with three loop **primitives**:
