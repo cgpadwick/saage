@@ -1,7 +1,11 @@
+import logging
+
 from cwe_testkit import call, resp
 
 from cwe.agent import run_agent
 from cwe.llm import LLMResponse, ScriptedProvider
+from cwe.nodes import AgentNode, render
+from cwe.skills import Skill
 from cwe.tools import file_tools
 
 
@@ -40,10 +44,6 @@ def test_max_steps_bounds_the_loop(tmp_path):
 # instructions like "answer {{ question }}" get filled from the shared store
 # before the model sees them. (regression: bodies used to be passed raw.)
 # --------------------------------------------------------------------------- #
-from cwe.nodes import AgentNode, render
-from cwe.skills import Skill
-
-
 class _CapturingProvider:
     """Records the system prompt it was handed, then returns a fixed reply."""
 
@@ -71,15 +71,25 @@ def test_agentnode_templates_the_skill_body():
 
 def test_agentnode_raw_block_preserves_literal_braces():
     prov = _CapturingProvider()
-    body = "SKILL_ID: t\nEmit a literal {% raw %}{{ token }}{% endraw %} please."
+    body = ("SKILL_ID: t\nFor {{ name }}, emit a literal "
+            "{% raw %}{{ token }}{% endraw %} please.")
     node = AgentNode("t", _skill(body), prov, [])
-    node.exec(node.prep({}))
+    node.exec(node.prep({"name": "Ada"}))
     assert "{{ token }}" in prov.system         # raw block kept the literal braces
+    assert "For Ada," in prov.system            # ...but vars outside raw still render
 
 
 def test_render_warns_on_undefined_but_does_not_fail(caplog):
-    import logging
     with caplog.at_level(logging.WARNING):
         out = render("hello {{ missing }}!", {})
     assert out == "hello !"                      # undefined -> "" (non-fatal)
     assert caplog.records                        # ...but a warning was emitted
+
+
+def test_render_default_filter_does_not_warn(caplog):
+    # a var guarded by `| default(...)` is the supported "maybe-absent" pattern
+    # (greenfield uses it) and must NOT emit an undefined warning.
+    with caplog.at_level(logging.WARNING):
+        out = render('{{ proposal | default("(none)") }}', {})
+    assert out == "(none)"
+    assert not caplog.records                    # silent — no spurious warning
