@@ -3,6 +3,12 @@
 Optional `.py` files may sit beside `skill.md`; the skill's instructions tell the
 agent to run them via the `run_command` tool. There is intentionally no special
 code loader — that keeps the engine small.
+
+Both the frontmatter `description:` and the markdown body are Jinja-templated from
+the shared store when the step runs, so instructions can reference run values
+directly (e.g. ``Answer this question: {{ question }}``). An undefined name
+renders to "" and logs a warning. To keep a literal brace from being interpreted,
+wrap it in ``{% raw %}…{% endraw %}``.
 """
 from __future__ import annotations
 
