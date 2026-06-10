@@ -69,3 +69,13 @@ def test_final_status_is_written_before_the_last_mirror_push():
 def test_venv_flag_passthrough():
     assert "--venv .venv-custom" in start_sh(_spec(venv_arg=".venv-custom"))
     assert "--venv" not in start_sh(_spec())
+
+
+def test_ws_setup_hook_runs_in_ws_after_clone():
+    script = bootstrap_sh(_spec(ws_mode="bundle", ws_setup="bash ../flow/cloud_setup.sh"))
+    hook = "( cd ws && bash ../flow/cloud_setup.sh )"
+    assert hook in script
+    assert script.index("./ws.bundle ws") < script.index(hook)   # clone first
+    assert script.index(hook) < script.index("BOOTSTRAP_OK")
+    assert "( cd ws &&" not in bootstrap_sh(_spec())             # absent by default
+    _bash_n(script)

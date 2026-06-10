@@ -87,7 +87,8 @@ def _collect_secrets(provider_type: str, ws_plan: WorkspacePlan,
 def handoff(*, flow: str, target: Target, set_args: dict | None = None,
             extra_env: dict[str, str] | None = None, workspace_mode: str = "auto",
             dirty: str = "abort", max_run_days: float = 12.0,
-            sync_interval: int = 300, need_gpu: bool = False) -> RunState:
+            sync_interval: int = 300, need_gpu: bool = False,
+            ws_setup: str | None = None) -> RunState:
     flow_path = Path(flow).resolve()
     flow_doc = _load_flow(flow_path)
     flow_dir = flow_path.parent
@@ -116,7 +117,7 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
     spec = RunSpec(run_id=run_id, flow_file=flow_path.name, ws_mode=ws_plan.mode,
                    set_args=set_args or {}, venv_arg=venv_arg,
                    sync_interval=sync_interval, max_run_days=max_run_days,
-                   r2=storage is not None)
+                   r2=storage is not None, ws_setup=ws_setup)
     rs.write_manifest({
         "run_id": run_id,
         "flow": str(flow_path),
@@ -133,6 +134,7 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
         },
         "secrets_pushed": sorted(secrets),     # names only, never values
         "bucket": f"s3://{storage.bucket}/{storage.run_prefix(run_id)}" if storage else None,
+        "ws_setup": ws_setup,
     })
     rs.update(phase="pushing", target=target.name,
               node={"host": target.host, "user": target.user,

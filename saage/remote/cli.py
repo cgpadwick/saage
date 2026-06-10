@@ -53,6 +53,10 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                     help="seconds between artifact/heartbeat collections")
     ho.add_argument("--need-gpu", action="store_true",
                     help="fail preflight if the target has no working GPU")
+    ho.add_argument("--ws-setup", default=None, metavar="CMD",
+                    help="one-time env/data setup command run inside the "
+                         "workspace during bootstrap (flow dir is at ../flow), "
+                         "e.g. 'bash ../flow/cloud_setup.sh'")
 
     sp = rsub.add_parser("spawn", help="launch a Lambda Cloud instance and register it as a target")
     sp.add_argument("--gpu", default="auto",
@@ -169,6 +173,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             max_run_days=args.max_run_days,
             sync_interval=args.sync_interval,
             need_gpu=args.need_gpu,
+            ws_setup=args.ws_setup,
         )
         print(f"run {rs.run_id} handed off — `saage remote status {rs.run_id}`")
         return 0
