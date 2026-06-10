@@ -565,11 +565,18 @@ shred -u ~/.saage_run_env          # secrets do not outlive the run
 
 ---
 
-## 9. Deferred: auto-provisioning (the old "cloud" layer)
+## 9. Auto-provisioning — Lambda implemented (2026-06-09), Thunder deferred
 
-Kept here as design notes so Phase 4 doesn't start from scratch. Provisioning
-is strictly *additive*: `launch()` produces a host+user, which is then handed
-to the exact v1 handoff path; `terminate()` runs after the run stops.
+**Status:** `saage remote spawn` / `saage remote terminate` are implemented
+for Lambda Cloud (`saage/remote/lambda_api.py`) and verified with a full live
+loop: spawn (A10, us-east-1) → handoff greenfield_ml → done (acc 0.9851 in
+~4.5 min) → fetch → terminate → account empty. Provisioning proved strictly
+*additive* as designed: spawn just registers a normal ssh target. Field
+notes: the API sits behind a Cloudflare WAF that 403s default urllib
+user-agents (error 1010); launch takes exactly one ssh key name, so spawn
+launches with the saage key and appends other account keys to authorized_keys
+afterwards; a launch that never reaches `active` is terminated, never leaked.
+Original design notes follow.
 
 - **Backend protocol:** `launch(spec) -> Node`, `terminate(id)`,
   `list_nodes()`, `wait_ssh(node)` — the seam already exists in §6.
