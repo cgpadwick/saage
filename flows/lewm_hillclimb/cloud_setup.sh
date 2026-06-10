@@ -45,6 +45,14 @@ print(f"env ok: torch {torch.__version__}, cuda {torch.version.cuda}, "
       f"device {torch.cuda.get_device_name(0)}")
 PY
 
+# ---- headless GPU rendering --------------------------------------------------
+# eval.py renders mujoco via EGL (it sets MUJOCO_GL=egl itself); cloud images
+# often ship without any GL stack at all -> PyOpenGL dies with
+# "'NoneType' object has no attribute 'eglQueryString'".
+if ! ldconfig -p | grep -q libEGL; then
+  sudo apt-get install -y -qq libegl1 libgl1 libglvnd0 libopengl0 libgles2
+fi
+
 # ---- dataset -----------------------------------------------------------------
 TARGET="$STABLEWM_HOME/datasets/ogbench/cube_single_expert.h5"
 mkdir -p "$STABLEWM_HOME/datasets/ogbench" "$STABLEWM_HOME/checkpoints"
