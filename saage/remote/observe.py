@@ -105,7 +105,10 @@ def status(run_ref: str | None) -> int:
 
     info = state.get("node", {})
     cost = ""
-    if info.get("hourly_usd"):
+    # accruing-cost reminder only while the run is live — after a final phase
+    # we can't know when (or if) the box was terminated, so wall-clock × rate
+    # would just be wrong
+    if info.get("hourly_usd") and state.get("phase") not in _FINAL:
         started = state.get("started_at", "")
         try:
             t0 = datetime.strptime(started, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
