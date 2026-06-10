@@ -23,9 +23,18 @@ fi
 VIRTUAL_ENV="$PWD/.venv" uv pip install --quiet \
   "stable-worldmodel[train,env] @ git+https://github.com/galilai-group/stable-worldmodel.git@${SWM_REF}" \
   "huggingface_hub[cli,hf_transfer]"
+
+# PyPI torch (2.12 -> +cu130) needs driver r580+; Lambda images ship r570
+# (CUDA <= 12.8). If torch can't see the GPU, swap to the newest cu128 pair.
+if ! .venv/bin/python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+  echo "torch can't see CUDA — swapping to cu128 wheels for this driver"
+  VIRTUAL_ENV="$PWD/.venv" uv pip install --quiet \
+    "torch==2.11.0+cu128" "torchvision==0.26.0+cu128" \
+    --index-url https://download.pytorch.org/whl/cu128
+fi
 .venv/bin/python - <<'PY'
 import torch
-assert torch.cuda.is_available(), "torch sees no CUDA device"
+assert torch.cuda.is_available(), "torch sees no CUDA device (even after cu128 swap)"
 print(f"env ok: torch {torch.__version__}, cuda {torch.version.cuda}, "
       f"device {torch.cuda.get_device_name(0)}")
 PY
