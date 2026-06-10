@@ -53,8 +53,10 @@ workflow:                      # required: an ordered list of steps
 - `provider.type` ∈ `anthropic | openai | openrouter | local`; optional
   `retry: { max_attempts, base_delay }` sub-block. Override at run time with
   `--provider/--model/--base-url`.
-- `workspace`, `venv`, and `flow_dir` are auto-seeded into the shared store, so
-  `{{ workspace }}` / `{{ flow_dir }}` / `{{ venv }}` are available in templates.
+- `workspace`, `venv`, `flow_dir`, and `python` are auto-seeded into the shared
+  store, so `{{ workspace }}` / `{{ flow_dir }}` / `{{ venv }}` / `{{ python }}`
+  are available in templates. `python` is the interpreter launcher for helper
+  scripts (`python3` on POSIX, `python` on Windows — there is no `python3.exe`).
 
 ## Step types (exact YAML)
 
@@ -174,7 +176,7 @@ that occurs once), `delete_file`, `run_command`, and git: `git_status`,
   than asking an agent to eyeball a number.
 - **Helper scripts.** A step's `run_command` cwd is the **workspace**, while helper
   `.py` files live in the **flow dir**. Two reliable patterns:
-  1. Call from a `command` step by templated path: `python3 "{{ flow_dir }}/seed.py"`.
+  1. Call from a `command` step by templated path: `{{ python }} "{{ flow_dir }}/seed.py"`.
   2. If an **agent** must run a helper, **stage it into the workspace first** in a
      `command` step (`cp "{{ flow_dir }}/runsql.py" .`) and have the skill call it
      by relative path. (Do not put `{{ flow_dir }}` reasoning on the agent.)
@@ -184,6 +186,14 @@ that occurs once), `delete_file`, `run_command`, and git: `git_status`,
 - **Feedback re-injection** is automatic in `retry_loop`: the `check` skill's full
   reply is appended to the next `action`'s task under a "Feedback from previous
   attempt" header — so write `check` feedback as actionable instructions.
+- **Commands are POSIX sh on every OS.** On native Windows the engine runs
+  `command:` steps and `run_command` through Git Bash (bundled with the
+  already-required Git for Windows; `SAAGE_SHELL` overrides discovery), so
+  quoting, `$VAR`, `&&`, and `>>` behave identically everywhere. Two
+  portability rules: invoke helpers with `{{ python }}` (not a hardcoded
+  `python3`), and avoid POSIX-absolute paths like `/tmp` inside commands —
+  under Git Bash they resolve into the MSYS root, not `C:\tmp`; prefer
+  workspace-relative paths or `{{ workspace }}`.
 
 ## Running a flow
 

@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import logging
 import re
-import subprocess
 import time
 
 from jinja2 import Environment, Undefined, make_logging_undefined
 from pocketflow import Node
 
 from .agent import run_agent
+from .shell import run_shell
 from .skills import Skill
 from .tools import Tool, venv_env
 
@@ -120,9 +120,7 @@ class CommandNode(Node):
 
     def exec(self, cmd):
         log.info("$ %s", cmd)
-        r = subprocess.run(cmd, shell=True, cwd=self.root,
-                           capture_output=True, text=True,
-                           env=venv_env(self.root, self.venv))
+        r = run_shell(cmd, cwd=self.root, env=venv_env(self.root, self.venv))
         log.info("  ✓ %s → exit=%d", self.id, r.returncode)
         return {"exit": r.returncode, "stdout": r.stdout, "stderr": r.stderr}
 

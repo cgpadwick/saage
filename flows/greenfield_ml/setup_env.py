@@ -35,6 +35,14 @@ def run(cmd, **kw):
     subprocess.run(cmd, check=True, **kw)
 
 
+def venv_bin(venv: Path, name: str) -> Path:
+    """Path to an executable inside the venv, handling both layouts
+    (POSIX `bin/`, Windows `Scripts/` + `.exe`)."""
+    if os.name == "nt":
+        return venv / "Scripts" / f"{name}.exe"
+    return venv / "bin" / name
+
+
 def have_gpu() -> bool:
     if os.environ.get("SAAGE_FORCE_CPU"):           # escape hatch for testing
         return False
@@ -82,10 +90,10 @@ def install_gpu_stack(venv: Path, pip: Path, stack: str, extras: str, cache: Pat
     # install the stack into OUR venv rather than spinning up its own.
     env = os.environ.copy()
     env["VIRTUAL_ENV"] = str(venv)
-    env["PATH"] = f"{venv / 'bin'}{os.pathsep}" + env.get("PATH", "")
+    env["PATH"] = f"{venv_bin(venv, 'python').parent}{os.pathsep}" + env.get("PATH", "")
     env["POETRY_VIRTUALENVS_CREATE"] = "false"
     extra_flags = [f for e in extras.split() for f in ("-E", e)]
-    run([str(venv / "bin" / "poetry"), "install", "--no-root", *extra_flags],
+    run([str(venv_bin(venv, "poetry")), "install", "--no-root", *extra_flags],
         cwd=str(stack_dir), env=env)
 
 
@@ -111,7 +119,7 @@ def main():
     venv = Path(args.venv)
     if not venv.is_absolute():
         venv = ws / venv
-    py = venv / "bin" / "python"
+    py = venv_bin(venv, "python")
 
     if torch_ok(py):
         print("setup ok (cached):", torch_report(py))
@@ -119,7 +127,7 @@ def main():
 
     if not py.exists():
         run([sys.executable, "-m", "venv", str(venv)])
-    pip = venv / "bin" / "pip"
+    pip = venv_bin(venv, "pip")
     run([str(pip), "install", "--quiet", "--upgrade", "pip"])
 
     if have_gpu():

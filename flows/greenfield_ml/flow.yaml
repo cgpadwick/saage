@@ -29,7 +29,7 @@ workflow:
   # ---- environment: ml-frameworks stack on GPU, CPU fallback otherwise ----
   - id: setup
     type: command
-    run: 'python3 "{{ flow_dir }}/setup_env.py" --workspace "{{ workspace }}" --venv "{{ venv }}" --stack "{{ ml_stack }}"'
+    run: '{{ python }} "{{ flow_dir }}/setup_env.py" --workspace "{{ workspace }}" --venv "{{ venv }}" --stack "{{ ml_stack }}"'
   - { id: git_init, type: agent, skill: git_init, max_steps: 15 }
 
   # ---- data ----
@@ -48,7 +48,7 @@ workflow:
     type: command
     # score = eval_results.json['value'] (source of truth), validated in [0,1] —
     # not the agent/script's free-text "Test accuracy:" line (gameable + scale-blind).
-    run: 'python evaluate.py && python3 "{{ flow_dir }}/read_score.py"'
+    run: 'python evaluate.py && {{ python }} "{{ flow_dir }}/read_score.py"'
     set: { best_score: "SCORE=([0-9]*\\.?[0-9]+)" }
   - { id: baseline_commit, type: agent, skill: baseline_commit, max_steps: 10 }
 
@@ -82,11 +82,11 @@ workflow:
       - { id: hc_train, type: command, run: "python train.py --epochs {{ train_epochs }}" }
       - id: hc_eval
         type: command
-        run: 'python evaluate.py && python3 "{{ flow_dir }}/read_score.py"'
+        run: 'python evaluate.py && {{ python }} "{{ flow_dir }}/read_score.py"'
         set: { candidate_score: "SCORE=([0-9]*\\.?[0-9]+)" }
       - id: keep_or_revert
         type: command
-        run: 'python3 "{{ flow_dir }}/keep_or_revert.py" --candidate "{{ candidate_score }}" --best "{{ best_score }}" --failures "{{ consecutive_failures }}" --lower-is-better "{{ lower_is_better }}"'
+        run: '{{ python }} "{{ flow_dir }}/keep_or_revert.py" --candidate "{{ candidate_score }}" --best "{{ best_score }}" --failures "{{ consecutive_failures }}" --lower-is-better "{{ lower_is_better }}"'
         set:
           best_score: "BEST_SCORE=([0-9]*\\.?[0-9]+)"
           consecutive_failures: "FAILURES=([0-9]+)"
@@ -97,4 +97,4 @@ workflow:
   - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 12 }
   - id: report
     type: command
-    run: 'python3 "{{ flow_dir }}/report.py" --task "{{ task }}" --target "{{ target_accuracy }}" --lower-is-better "{{ lower_is_better }}"'
+    run: '{{ python }} "{{ flow_dir }}/report.py" --task "{{ task }}" --target "{{ target_accuracy }}" --lower-is-better "{{ lower_is_better }}"'

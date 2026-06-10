@@ -1,6 +1,11 @@
 """Configurable workspace root + automatic venv activation for commands."""
+import os
+
 from saage.hydrate import run_flow
-from saage.tools import file_tools
+from saage.tools import file_tools, venv_env
+
+# the platform's venv executables dir: what `python -m venv` creates here
+VENV_BIN = "Scripts" if os.name == "nt" else "bin"
 
 
 def _write_flow(flow_dir, run_cmd):
@@ -46,19 +51,30 @@ def _run_command(tools):
 
 
 def test_venv_activated_when_present(tmp_path):
-    (tmp_path / ".venv" / "bin").mkdir(parents=True)   # venv exists
+    (tmp_path / ".venv" / VENV_BIN).mkdir(parents=True)   # venv exists
     out = _run_command(file_tools(tmp_path, venv=".venv")).run(command="echo $VIRTUAL_ENV")
     assert str(tmp_path / ".venv") in out
 
 
 def test_venv_puts_its_bin_first_on_path(tmp_path):
-    venvbin = tmp_path / ".venv" / "bin"
+    venvbin = tmp_path / ".venv" / VENV_BIN
     venvbin.mkdir(parents=True)
     fake = venvbin / "python"
-    fake.write_text("#!/bin/sh\necho FROM_VENV_PYTHON\n")
+    fake.write_text("#!/bin/sh\necho FROM_VENV_PYTHON\n", newline="\n")
     fake.chmod(0o755)
     out = _run_command(file_tools(tmp_path, venv=".venv")).run(command="python")
     assert "FROM_VENV_PYTHON" in out                   # resolved to the venv python
+
+
+def test_venv_env_handles_both_layouts(tmp_path):
+    # a POSIX-layout venv and a Windows-layout venv both activate, on any host
+    (tmp_path / "v1" / "bin").mkdir(parents=True)
+    (tmp_path / "v2" / "Scripts").mkdir(parents=True)
+    e1, e2 = venv_env(tmp_path, "v1"), venv_env(tmp_path, "v2")
+    assert e1["PATH"].startswith(str(tmp_path / "v1" / "bin") + os.pathsep)
+    assert e2["PATH"].startswith(str(tmp_path / "v2" / "Scripts") + os.pathsep)
+    assert e1["VIRTUAL_ENV"] == str(tmp_path / "v1")
+    assert e2["VIRTUAL_ENV"] == str(tmp_path / "v2")
 
 
 def test_venv_ignored_when_absent(tmp_path):

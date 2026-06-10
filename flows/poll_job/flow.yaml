@@ -6,11 +6,11 @@ provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 workflow:
   - id: submit
     type: command
-    run: "python submit.py"
+    run: "{{ python }} submit.py"
     set: { job_id: "job (\\d+)" }          # capture job id into shared
   - id: wait
     type: polling_loop
     interval_seconds: 0                      # 0 keeps tests fast; use real value live
     max_wait_seconds: 60
-    poll:   { id: poll,     type: command, run: "python status.py {{ job_id }}" }
+    poll:   { id: poll,     type: command, run: "{{ python }} status.py {{ job_id }}" }
     status: { id: classify, type: agent,   skill: classify_job }

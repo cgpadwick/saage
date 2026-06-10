@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from .shell import run_shell
+
 if TYPE_CHECKING:
     from .config import CommandPolicy
 
@@ -27,17 +29,18 @@ def venv_env(workspace: Path, venv: str | None) -> dict | None:
     agent to source anything. The existence gate means the command that *creates*
     the venv (e.g. `setup`) runs with system Python; everything after uses it.
 
-    POSIX layout only (`<venv>/bin`); a Windows `Scripts` layout is not handled."""
+    Handles both venv layouts: POSIX `<venv>/bin` and Windows `<venv>/Scripts`."""
     if not venv:
         return None
     vdir = Path(venv)
     if not vdir.is_absolute():
         vdir = Path(workspace) / vdir
-    if not (vdir / "bin").is_dir():        # not created yet (POSIX layout)
+    bindir = next((vdir / d for d in ("bin", "Scripts") if (vdir / d).is_dir()), None)
+    if bindir is None:                     # not created yet
         return None
     env = os.environ.copy()
     env["VIRTUAL_ENV"] = str(vdir)
-    env["PATH"] = f"{vdir / 'bin'}{os.pathsep}" + env.get("PATH", "")
+    env["PATH"] = f"{bindir}{os.pathsep}" + env.get("PATH", "")
     env.pop("PYTHONHOME", None)
     return env
 
@@ -83,12 +86,12 @@ def file_tools(root: Path, venv: str | None = None,
     root = Path(root)
 
     def read_file(path: str) -> str:
-        return _resolve(root, path).read_text()
+        return _resolve(root, path).read_text(encoding="utf-8")
 
     def write_file(path: str, content: str) -> str:
         p = _resolve(root, path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content)
+        p.write_text(content, encoding="utf-8")
         return f"wrote {len(content)} bytes -> {path}"
 
     def append_file(path: str, content: str) -> str:
@@ -100,11 +103,11 @@ def file_tools(root: Path, venv: str | None = None,
 
     def edit_file(path: str, old: str, new: str) -> str:
         p = _resolve(root, path)
-        s = p.read_text()
+        s = p.read_text(encoding="utf-8")
         n = s.count(old)
         if n != 1:
             raise ValueError(f"`old` must match exactly once (found {n})")
-        p.write_text(s.replace(old, new))
+        p.write_text(s.replace(old, new), encoding="utf-8")
         return f"edited {path}"
 
     def delete_file(path: str) -> str:
@@ -121,9 +124,8 @@ def file_tools(root: Path, venv: str | None = None,
                 return f"ERROR: {reason}; command not run"
         # timeout guarantees a hung command can never stall the workflow;
         # venv_env auto-activates the workspace venv once it exists
-        r = subprocess.run(command, shell=True, cwd=root,
-                           capture_output=True, text=True, timeout=timeout,
-                           env=venv_env(root, venv))
+        r = run_shell(command, cwd=root, env=venv_env(root, venv),
+                      timeout=timeout)
         return (f"exit={r.returncode}\n--- stdout ---\n{r.stdout}"
                 f"\n--- stderr ---\n{r.stderr}")
 
@@ -150,8 +152,10 @@ def git_tools(root: Path) -> list[Tool]:
     root = Path(root)
 
     def _git(*args: str, timeout: int = 60) -> str:
+        # explicit utf-8: Windows' locale codepage can't decode UTF-8 diff bytes
         r = subprocess.run(["git", *args], cwd=root,
-                           capture_output=True, text=True, timeout=timeout)
+                           capture_output=True, text=True, timeout=timeout,
+                           encoding="utf-8", errors="replace")
         out = (r.stdout + ("\n[stderr] " + r.stderr if r.stderr else "")).strip()
         return out or "(ok)"
 

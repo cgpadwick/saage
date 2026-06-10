@@ -35,6 +35,15 @@ uv pip install -e ".[dev]"       # editable install + pytest
 This installs the `saage` CLI and the `saage` import. `-e` (editable) makes source edits take
 effect immediately; drop it for a normal install. `[dev]` adds `pytest`.
 
+**Platforms:** Linux, macOS, and Windows — both WSL2 and **native**. On native
+Windows the engine needs [Git for Windows](https://git-scm.com/download/win)
+(which you already have if you cloned this repo): flow commands are POSIX `sh`
+and run through its bundled bash, so the same flow works unchanged on every OS
+(activate with `.venv\Scripts\activate` instead of `source .venv/bin/activate`).
+Set `SAAGE_SHELL` to override bash discovery. Local runs only for now —
+`saage remote` handoff from a Windows laptop is untested
+(see `docs/windows_support_plan.md`).
+
 Alternatives:
 
 ```bash

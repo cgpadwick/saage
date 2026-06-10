@@ -32,7 +32,7 @@ class Skill:
 
 def parse_skill(md: Path) -> Skill:
     md = Path(md)
-    text = md.read_text()
+    text = md.read_text(encoding="utf-8")
     meta: dict = {}
     body = text
     if text.startswith("---"):

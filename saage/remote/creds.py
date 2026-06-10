@@ -97,13 +97,17 @@ def load_creds() -> dict:
     path = cred_path()
     creds: dict = {}
     if path.exists():
-        mode = stat.S_IMODE(path.stat().st_mode)
-        if mode & 0o077:
-            raise CredsError(
-                f"refusing {path}: permissions are {oct(mode)} "
-                f"(group/world readable); run: chmod 600 {path}"
-            )
-        creds = tomllib.loads(path.read_text())
+        # POSIX group/world bits are meaningless on NTFS (chmod is a no-op and
+        # stat always reports 0o666); a per-user %USERPROFILE% file is already
+        # ACL-protected from other users, the moral equivalent of 0600
+        if os.name == "posix":
+            mode = stat.S_IMODE(path.stat().st_mode)
+            if mode & 0o077:
+                raise CredsError(
+                    f"refusing {path}: permissions are {oct(mode)} "
+                    f"(group/world readable); run: chmod 600 {path}"
+                )
+        creds = tomllib.loads(path.read_text(encoding="utf-8"))
     for section, key, env in [
         ("storage", "access_key", "SAAGE_STORAGE_ACCESS_KEY"),
         ("storage", "secret_key", "SAAGE_STORAGE_SECRET_KEY"),
