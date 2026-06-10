@@ -140,7 +140,7 @@ def get_target(name: str) -> Target:
 
 
 def add_target(name: str, host: str, user: str | None = None, port: int = 22,
-               hourly_usd: float | None = None) -> Path:
+               hourly_usd: float | None = None, key: str | None = None) -> Path:
     """Append a [targets.<name>] section. Errors if the target already exists."""
     if any(c in name for c in " .[]\"'"):
         raise CredsError(f"invalid target name {name!r}")
@@ -155,6 +155,8 @@ def add_target(name: str, host: str, user: str | None = None, port: int = 22,
         lines.append(f"port = {port}")
     if hourly_usd is not None:
         lines.append(f"hourly_usd = {hourly_usd}")
+    if key:
+        lines.append(f'key = "{key}"')   # per-instance keys (e.g. Thunder Compute)
     existing = path.read_text() if path.exists() else ""
     path.write_text(existing + "\n".join(lines) + "\n")
     path.chmod(0o600)

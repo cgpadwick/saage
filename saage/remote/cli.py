@@ -31,6 +31,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     add.add_argument("--port", type=int, default=22)
     add.add_argument("--hourly-usd", type=float, default=None,
                      help="rented box? status/ps will show running cost")
+    add.add_argument("--key", default=None,
+                     help="private key path for this target (default: the saage key)")
     add.add_argument("--no-check", action="store_true",
                      help="skip the ssh reachability check")
 
@@ -153,7 +155,8 @@ def _dispatch(args: argparse.Namespace) -> int:
 
     if cmd == "add-target":
         ensure_ssh_key()
-        path = add_target(args.name, args.host, args.user, args.port, args.hourly_usd)
+        path = add_target(args.name, args.host, args.user, args.port,
+                          args.hourly_usd, key=args.key)
         print(f"target {args.name!r} added to {path}")
         if not args.no_check:
             warnings = SshTarget(get_target(args.name)).preflight()
