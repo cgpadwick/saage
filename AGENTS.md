@@ -42,6 +42,8 @@ Existing flows are the best templates: `story_writer` (counting_loop),
 provider: { type: openrouter, model: "deepseek/deepseek-v4-flash" }   # required
 workspace: /tmp/saage_run        # optional: tool/command cwd. default = the flow dir
 venv: .venv                    # optional: auto-activated for commands once it exists
+artifacts: [experiments.jsonl, "report*.html"]   # optional: workspace files/globs
+                               # `saage remote` syncs back; ignored by local runs
 shared:                        # optional: initial shared-store values
   question: "..."
   target_accuracy: 0.97

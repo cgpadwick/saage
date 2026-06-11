@@ -27,6 +27,8 @@
 provider: { type: openrouter, model: "deepseek/deepseek-v4-flash" }
 workspace: /home/cpadwick/code/le-wm
 venv: .venv
+# what the remote sidecar collects from the workspace (local runs ignore this)
+artifacts: [experiments.jsonl, research_log.md, report_narrative.md]
 shared:
   task: >-
     Improve the training of LeWorldModel (LeWM) — a JEPA world model (ViT-tiny

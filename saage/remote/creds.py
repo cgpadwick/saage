@@ -28,8 +28,8 @@ try:
 except ModuleNotFoundError:             # 3.10
     import tomli as tomllib
 
-# flow provider.type -> env var holding the key on the laptop. v1 pushes the
-# laptop's own key to the node ("reuse" mode); per-run capped keys are a
+# flow provider.type -> env var holding the key on the local machine. v1
+# pushes that key to the node ("reuse" mode); per-run capped keys are a
 # planned upgrade (docs/remote_handoff_plan.md §4.2).
 PROVIDER_ENV = {
     "openrouter": "OPENROUTER_API_KEY",

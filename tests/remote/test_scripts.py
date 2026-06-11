@@ -2,7 +2,9 @@ import subprocess
 
 import pytest
 
-from saage.remote.scripts import RunSpec, bootstrap_sh, start_sh, stop_sh
+from saage.remote.handoff import HandoffError, _flow_artifacts
+from saage.remote.scripts import (ARTIFACT_FILES, RunSpec, bootstrap_sh,
+                                  start_sh, stop_sh)
 
 
 def _spec(**kw) -> RunSpec:
@@ -54,6 +56,28 @@ def test_set_args_are_shell_quoted():
     assert "--set 'task=do things; rm -rf /'" in script
     assert "--set epochs=8" in script
     _bash_n(script)
+
+
+def test_flow_declared_artifacts_reach_both_collect_loops():
+    # a flow's own ledger naming must not depend on the library's defaults
+    spec = _spec(artifacts=("my_ledger.jsonl", "out/scores-*.json"))
+    for script in (start_sh(spec), stop_sh(spec)):
+        assert "my_ledger.jsonl out/scores-*.json" in script
+        assert "experiments.jsonl" not in script        # defaults fully replaced
+        _bash_n(script)
+
+
+def test_artifacts_default_to_the_ledger_names():
+    assert " ".join(ARTIFACT_FILES) in start_sh(_spec())
+
+
+def test_flow_artifacts_parsing_and_validation():
+    assert _flow_artifacts({}) == ARTIFACT_FILES                      # undeclared
+    assert _flow_artifacts({"artifacts": ["a.json", "r*.md"]}) == ("a.json", "r*.md")
+    for bad in ("not-a-list", ["ok.txt", 7], [""], ["/etc/passwd"],
+                ["../escape.txt"], ["evil; rm -rf /"], ["sp ace.txt"]):
+        with pytest.raises(HandoffError):
+            _flow_artifacts({"artifacts": bad})
 
 
 def test_watchdog_and_sync_intervals():

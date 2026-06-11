@@ -10,7 +10,7 @@ Gotchas encoded here so nobody re-learns them:
 - The API sits behind Cloudflare; default urllib user-agents get a 403
   (error 1010). Every request sends a real User-Agent.
 - Launch is given ONLY the saage key (the automation must be able to ssh);
-  other registered keys (e.g. the user's laptop key) are appended to
+  other registered keys (e.g. the user's own key) are appended to
   authorized_keys right after boot, fetched from the account via the API.
 - A launch that never reaches `active` is terminated, not leaked.
 """

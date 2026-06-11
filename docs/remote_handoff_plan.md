@@ -662,6 +662,10 @@ plan above, decided during the build:
   per-operation; `ws/.git/config` always holds the clean URL.
 - **`--bootstrap-timeout`** caps node bootstrap (default 1800 s) — raise it
   when `--ws-setup` stages a large dataset (the lewm cube download is 46 GB).
+- **Flows declare their artifacts**: an optional `artifacts:` list in
+  flow.yaml (workspace-relative filenames/globs) tells the sidecar what to
+  collect; the old hardcoded ledger names are only the fallback. Keeps
+  flow-specific naming out of the library; local runs ignore the key.
 - **Node layout**: `~/.saage_runs/<run_id>/{saage,venv,flow,ws,artifacts,...}`
   per run; tmux session `saage-<run_id>`; one run per box enforced by
   preflight (any `saage-*` session = busy).

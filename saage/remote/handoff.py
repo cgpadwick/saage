@@ -1,12 +1,13 @@
 """The button: package -> push -> bootstrap -> start -> disconnect.
 
-After `handoff()` returns, the laptop is optional: the engine runs on the node
-under tmux, heartbeats status.json, and copies ledgers into artifacts/.
+After `handoff()` returns, the local machine is optional: the engine runs on
+the node under tmux, heartbeats status.json, and copies ledgers into artifacts/.
 """
 from __future__ import annotations
 
 import logging
 import os
+import re
 import secrets as pysecrets
 import shlex
 from datetime import datetime, timezone
@@ -15,7 +16,7 @@ from pathlib import Path
 import yaml
 
 from .creds import PROVIDER_ENV, Storage, Target, storage_config
-from .scripts import RunSpec, bootstrap_sh, start_sh, stop_sh
+from .scripts import ARTIFACT_FILES, RunSpec, bootstrap_sh, start_sh, stop_sh
 from .state import RunState
 from .target import PreflightError, SshTarget
 from .workspace import WorkspacePlan, plan_workspace
@@ -47,6 +48,29 @@ def _load_flow(flow_path: Path) -> dict:
     if not flow_path.is_file():
         raise HandoffError(f"flow file not found: {flow_path}")
     return yaml.safe_load(flow_path.read_text()) or {}
+
+
+# workspace-relative filenames/globs only — these land unquoted in a generated
+# bash loop, so anything outside this charset is refused, not escaped
+_ARTIFACT_PATTERN = re.compile(r"^[\w.\-*?/\[\]]+$")
+
+
+def _flow_artifacts(flow_doc: dict) -> tuple[str, ...]:
+    """The flow's `artifacts:` declaration (filenames/globs the sidecar collects
+    from the workspace), or the default ledger/report names. Ignored by local
+    runs, like `workspace:`."""
+    arts = flow_doc.get("artifacts")
+    if arts is None:
+        return ARTIFACT_FILES
+    if not isinstance(arts, list) or not all(isinstance(a, str) and a for a in arts):
+        raise HandoffError(
+            "flow.yaml `artifacts:` must be a list of filename/glob strings")
+    for a in arts:
+        if a.startswith("/") or ".." in a or not _ARTIFACT_PATTERN.match(a):
+            raise HandoffError(
+                f"flow.yaml `artifacts:` pattern {a!r} not supported — "
+                f"workspace-relative filenames/globs only")
+    return tuple(arts)
 
 
 def _collect_secrets(provider_type: str, ws_plan: WorkspacePlan,
@@ -121,7 +145,8 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
     spec = RunSpec(run_id=run_id, flow_file=flow_path.name, ws_mode=ws_plan.mode,
                    set_args=set_args or {}, venv_arg=venv_arg,
                    sync_interval=sync_interval, max_run_days=max_run_days,
-                   r2=storage is not None, ws_setup=ws_setup)
+                   r2=storage is not None, ws_setup=ws_setup,
+                   artifacts=_flow_artifacts(flow_doc))
     rs.write_manifest({
         "run_id": run_id,
         "flow": str(flow_path),
@@ -139,6 +164,7 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
         "secrets_pushed": sorted(secrets),     # names only, never values
         "bucket": f"s3://{storage.bucket}/{storage.run_prefix(run_id)}" if storage else None,
         "ws_setup": ws_setup,
+        "artifacts": list(spec.artifacts),
     })
     rs.update(phase="pushing", target=target.name,
               node={"host": target.host, "user": target.user,
@@ -162,7 +188,7 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
     for name, content in (("bootstrap.sh", bootstrap_sh(spec)),
                           ("start.sh", start_sh(spec)),
                           ("stop.sh", stop_sh(spec))):
-        (rs.dir / name).write_text(content)      # laptop copy, for debugging
+        (rs.dir / name).write_text(content)      # local copy, for debugging
         conn.write_file(f"{rdir}/{name}", content, mode="700")
     rs.event("pushed")
 
