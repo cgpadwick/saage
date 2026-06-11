@@ -117,6 +117,18 @@ def load_creds() -> dict:
     return creds
 
 
+def _resolve_key(raw: str) -> Path:
+    """A target's `key` as written, or — when that path doesn't exist on THIS
+    machine — the same-named key under ~/.saage/ssh/. Credentials files travel
+    between machines (a laptop pulls them from a workstation), and an absolute
+    key path written on one OS is meaningless on the other."""
+    p = Path(raw).expanduser()
+    if p.is_file():
+        return p
+    alt = saage_home() / "ssh" / Path(raw).name
+    return alt if alt.is_file() else p
+
+
 def list_targets(creds: dict | None = None) -> dict[str, Target]:
     creds = load_creds() if creds is None else creds
     out: dict[str, Target] = {}
@@ -127,7 +139,7 @@ def list_targets(creds: dict | None = None) -> dict[str, Target]:
             user=t.get("user"),
             port=int(t.get("port", 22)),
             hourly_usd=float(t.get("hourly_usd", 0.0)),
-            key=Path(t["key"]).expanduser() if t.get("key") else ssh_key_path(),
+            key=_resolve_key(t["key"]) if t.get("key") else ssh_key_path(),
         )
     return out
 
@@ -160,7 +172,9 @@ def add_target(name: str, host: str, user: str | None = None, port: int = 22,
     if hourly_usd is not None:
         lines.append(f"hourly_usd = {hourly_usd}")
     if key:
-        lines.append(f'key = "{key}"')   # per-instance keys (e.g. Thunder Compute)
+        # TOML literal string: backslashes in a Windows path must not be
+        # parsed as escape sequences
+        lines.append(f"key = '{key}'")   # per-instance keys (e.g. Thunder Compute)
     existing = path.read_text() if path.exists() else ""
     path.write_text(existing + "\n".join(lines) + "\n")
     path.chmod(0o600)
