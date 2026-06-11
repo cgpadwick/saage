@@ -60,9 +60,12 @@ pip install -e ".[dev]"
 pytest -q                        # full offline suite, should be green
 ```
 
-Scope today: **local runs** (`saage run`). `saage remote` handoff *from* a
-Windows laptop is untested (it needs rsync and CRLF care — see
-`docs/windows_support_plan.md` §7); WSL2 covers that path in the meantime.
+Both `saage run` and `saage remote` work natively: handoffs from Windows push
+over ssh with binary-safe stdin, and transfers go over tar-into-ssh — no
+extra installs beyond Git for Windows, and **don't** install an rsync port:
+on Windows saage deliberately never uses rsync (cygwin/MSYS rsync mis-parses
+`C:/...` paths as remote hosts). Verified live against Lambda Cloud and
+Thunder Compute nodes.
 
 Alternatives:
 

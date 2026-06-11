@@ -117,6 +117,21 @@ def load_creds() -> dict:
     return creds
 
 
+def _resolve_key(raw: str) -> Path:
+    """A target's `key` as written, or — when that path doesn't exist on THIS
+    machine — the same-named key under ~/.saage/ssh/. Credentials files travel
+    between machines (a laptop pulls them from a workstation), and an absolute
+    key path written on one OS is meaningless on the other."""
+    p = Path(raw).expanduser()
+    if p.is_file():
+        return p
+    # basename must parse across OSes: a Windows-written path read on Linux
+    # has backslash separators that PosixPath.name doesn't split
+    base = raw.replace("\\", "/").rsplit("/", 1)[-1]
+    alt = saage_home() / "ssh" / base
+    return alt if alt.is_file() else p
+
+
 def list_targets(creds: dict | None = None) -> dict[str, Target]:
     creds = load_creds() if creds is None else creds
     out: dict[str, Target] = {}
@@ -127,7 +142,7 @@ def list_targets(creds: dict | None = None) -> dict[str, Target]:
             user=t.get("user"),
             port=int(t.get("port", 22)),
             hourly_usd=float(t.get("hourly_usd", 0.0)),
-            key=Path(t["key"]).expanduser() if t.get("key") else ssh_key_path(),
+            key=_resolve_key(t["key"]) if t.get("key") else ssh_key_path(),
         )
     return out
 
@@ -148,6 +163,10 @@ def add_target(name: str, host: str, user: str | None = None, port: int = 22,
     """Append a [targets.<name>] section. Errors if the target already exists."""
     if any(c in name for c in " .[]\"'"):
         raise CredsError(f"invalid target name {name!r}")
+    if key and "'" in key:
+        # the key path is written as a TOML literal string; a quote inside
+        # would corrupt the whole credentials file for every target
+        raise CredsError(f"key path may not contain a single quote: {key!r}")
     path = cred_path()
     if path.exists() and name in list_targets():
         raise CredsError(f"target {name!r} already exists in {path}")
@@ -160,7 +179,9 @@ def add_target(name: str, host: str, user: str | None = None, port: int = 22,
     if hourly_usd is not None:
         lines.append(f"hourly_usd = {hourly_usd}")
     if key:
-        lines.append(f'key = "{key}"')   # per-instance keys (e.g. Thunder Compute)
+        # TOML literal string: backslashes in a Windows path must not be
+        # parsed as escape sequences
+        lines.append(f"key = '{key}'")   # per-instance keys (e.g. Thunder Compute)
     existing = path.read_text() if path.exists() else ""
     path.write_text(existing + "\n".join(lines) + "\n")
     path.chmod(0o600)

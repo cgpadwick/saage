@@ -214,10 +214,13 @@ has the same latent translation bug — remote scope (§7).
 
 ## 7. Future work (explicitly deferred)
 
-- **Remote handoff *from* a Windows laptop**: ssh-stdin newline translation
-  (F5's sibling), `rsync` availability (not bundled with Git for Windows —
-  needs scp fallback or cwRsync), ssh key permission checks. Tracked here so
-  the next branch starts from the failure analysis, not from scratch.
+- **Remote handoff *from* a Windows laptop** — ~~deferred~~ **implemented**
+  (branch `remote-from-windows`, 2026-06-10): ssh stdin is binary always
+  (the F5 sibling), transfers fall back to in-Python tar-over-ssh when rsync
+  is missing, foreign key paths in a copied credentials.toml resolve to
+  `~/.saage/ssh/`, and `add-target` writes key paths as TOML literal strings
+  (backslash escapes). Verified live: greenfield_ml handed off from native
+  Windows to a Lambda A10 and a Thunder Compute A6000.
 - **Windows as a *target* node** (saage running flows pushed to a Windows
   GPU box): tmux/bash scripts are Linux-shaped; out of scope.
 - Process-tree kill on timeout via Job Objects.

@@ -52,9 +52,39 @@ def test_unknown_target_lists_known(saage_home):
         get_target("nope")
 
 
+def test_foreign_key_path_resolves_to_local_ssh_dir(saage_home):
+    # a credentials file pulled from another machine references key paths that
+    # don't exist here — the same-named key under ~/.saage/ssh/ must win
+    (saage_home / "ssh").mkdir()
+    (saage_home / "ssh" / "thunder_k1").write_text("KEY")
+    add_target("t1", "h", key="/home/elsewhere/.saage/ssh/thunder_k1")
+    assert get_target("t1").key == saage_home / "ssh" / "thunder_k1"
+
+
+def test_existing_key_path_is_used_verbatim(saage_home, tmp_path):
+    real = tmp_path / "mykey"
+    real.write_text("KEY")
+    add_target("t2", "h", key=str(real))
+    assert get_target("t2").key == real
+
+
 def test_bad_target_name_rejected(saage_home):
     with pytest.raises(CredsError, match="invalid target name"):
         add_target("bad name", "h")
+
+
+def test_key_path_with_quote_rejected(saage_home):
+    # written as a TOML literal string — a quote would corrupt the whole file
+    with pytest.raises(CredsError, match="single quote"):
+        add_target("t", "h", key="C:\\Users\\o'brien\\.saage\\ssh\\k")
+
+
+def test_windows_key_path_resolves_on_posix_too(saage_home):
+    # backslash separators must not defeat the basename fallback
+    (saage_home / "ssh").mkdir()
+    (saage_home / "ssh" / "k2").write_text("KEY")
+    add_target("t3", "h", key="C:\\Users\\cpadw\\.saage\\ssh\\k2")
+    assert get_target("t3").key == saage_home / "ssh" / "k2"
 
 
 def test_multiple_targets(saage_home):
