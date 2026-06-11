@@ -1,9 +1,15 @@
+import os
 from pathlib import Path
 
 import pytest
 
 from saage.remote.creds import (CredsError, add_target, cred_path, get_target,
                                 list_targets, load_creds)
+
+# POSIX file modes don't exist on NTFS: chmod is a no-op and stat reports
+# 0o666, so the 0600 check (and these tests of it) are POSIX-only
+_posix_only = pytest.mark.skipif(os.name != "posix",
+                                 reason="POSIX file-mode semantics")
 
 
 def test_saage_home_env_relocates_creds(saage_home):
@@ -20,11 +26,13 @@ def test_add_and_get_target_roundtrip(saage_home):
     assert t.key == saage_home / "ssh" / "saage_ed25519"
 
 
+@_posix_only
 def test_creds_file_created_0600(saage_home):
     add_target("a", "h1")
     assert (cred_path().stat().st_mode & 0o077) == 0
 
 
+@_posix_only
 def test_refuses_world_readable_creds(saage_home):
     add_target("a", "h1")
     cred_path().chmod(0o644)

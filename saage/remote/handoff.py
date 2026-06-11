@@ -188,7 +188,9 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
     for name, content in (("bootstrap.sh", bootstrap_sh(spec)),
                           ("start.sh", start_sh(spec)),
                           ("stop.sh", stop_sh(spec))):
-        (rs.dir / name).write_text(content)      # local copy, for debugging
+        # local copy, for debugging — newline="\n" so a Windows machine never
+        # CRLF-corrupts a bash script
+        (rs.dir / name).write_text(content, newline="\n")
         conn.write_file(f"{rdir}/{name}", content, mode="700")
     rs.event("pushed")
 

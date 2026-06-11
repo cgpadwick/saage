@@ -6,6 +6,7 @@ sub-flow; top-level steps are chained with PocketFlow's `>>`.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -107,7 +108,7 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
     """
     flow_yaml = Path(flow_yaml)
     log.info("loading flow: %s", flow_yaml)
-    spec = yaml.safe_load(flow_yaml.read_text())
+    spec = yaml.safe_load(flow_yaml.read_text(encoding="utf-8"))
     flow_dir = flow_yaml.parent
     cfg = config if isinstance(config, EngineConfig) else load_engine_config(config)
     # resolve so {{ workspace }} is always an absolute, canonical path (matching
@@ -137,6 +138,8 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
     seed.setdefault("workspace", str(ws))
     seed.setdefault("venv", venv)
     seed.setdefault("flow_dir", str(flow_dir.resolve()))   # for bundled scripts
+    # the interpreter launcher for helper scripts: Windows has no `python3`
+    seed.setdefault("python", "python" if os.name == "nt" else "python3")
     return Subflow(start=steps[0]), seed
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -50,6 +51,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _setup_logging(verbose: bool, quiet: bool) -> None:
+    if os.name == "nt":
+        # the engine's log glyphs (▶ ✓ ⚙ ↻) must never crash a run when output
+        # is redirected to a legacy-codepage (cp1252) stream
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(errors="replace")
+            except (AttributeError, ValueError):
+                pass
     level = logging.DEBUG if verbose else logging.WARNING if quiet else logging.INFO
     logging.basicConfig(level=level, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
     for name in _NOISY:

@@ -1,3 +1,5 @@
+import os
+import shutil
 import subprocess
 
 import pytest
@@ -5,6 +7,7 @@ import pytest
 from saage.remote.handoff import HandoffError, _flow_artifacts
 from saage.remote.scripts import (ARTIFACT_FILES, RunSpec, bootstrap_sh,
                                   start_sh, stop_sh)
+from saage.shell import ShellNotFound, find_bash
 
 
 def _spec(**kw) -> RunSpec:
@@ -14,9 +17,27 @@ def _spec(**kw) -> RunSpec:
     return RunSpec(**defaults)
 
 
+def _bash() -> str:
+    # resolve via find_bash on Windows (bare "bash" can be the System32 WSL
+    # launcher); plain PATH lookup elsewhere
+    if os.name == "nt":
+        try:
+            return find_bash()
+        except ShellNotFound:
+            pytest.skip("no bash available to validate the generated scripts")
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("no bash available to validate the generated scripts")
+    return bash
+
+
 def _bash_n(script: str) -> None:
-    proc = subprocess.run(["bash", "-n"], input=script, capture_output=True, text=True)
-    assert proc.returncode == 0, f"bash -n rejected the script:\n{proc.stderr}"
+    # binary stdin: text-mode would CRLF-translate the script on Windows,
+    # and bash rejects CR (subprocess.run has no newline= parameter)
+    proc = subprocess.run([_bash(), "-n"], input=script.encode(),
+                          capture_output=True)
+    assert proc.returncode == 0, \
+        f"bash -n rejected the script:\n{proc.stderr.decode(errors='replace')}"
 
 
 @pytest.mark.parametrize("ws_mode", ["ephemeral", "branch", "bundle"])

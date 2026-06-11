@@ -64,6 +64,23 @@ DEFAULT_DENY: tuple[str, ...] = (
     # --- chmod/chown the filesystem root world-writable / recursively ---
     r"\bchmod\s+(-R\s+)?0*777\s+/(\s|$)",
     r"\bchown\s+-R\b[^\n]*\s/(\s|$)",
+    # --- Windows equivalents (reachable via `cmd /c` / `powershell -c` even
+    #     when commands run under bash; added unconditionally — they never
+    #     match ordinary POSIX work) ---
+    r"\b(rd|rmdir)\b[^\n]*\s/s\b",                       # recursive dir delete
+    r"\bdel\b[^\n]*\s/s\b",                              # recursive file delete
+    # format a drive — a bare drive-colon token anywhere after `format`
+    # (flags may precede it: `format /q /y c:`); `ruff format C:\proj` is a
+    # path argument (colon not token-final) and stays allowed
+    r"\bformat(\.com)?\b(?=[^\n]*\s[a-z]:(\s|$))",
+    # PS recursive force delete, incl. the `ri`/`del`/`erase` aliases and
+    # parameter abbreviations (-rec -fo, -r -f): any -r… and -f… after the verb
+    r"\b(remove-item|ri|del|erase)(?=\s)(?=[^\n]*\s-r)(?=[^\n]*\s-f)",
+    r"\breg(\.exe)?\s+delete\b",                         # registry delete
+    r"\bvssadmin\b[^\n]*\bdelete\b",                     # shadow-copy destruction
+    r"\bdiskpart\b",                                     # disk partitioning
+    r"\bcipher\b\s+/w",                                  # wipe free space
+    r"\bbcdedit\b",                                      # boot configuration
 )
 
 
@@ -119,7 +136,7 @@ def load_engine_config(path: str | Path | None = None) -> EngineConfig:
     and *adds* any `deny:` patterns; set it false to start from an empty denylist."""
     if path is None:
         return EngineConfig.default()
-    data = yaml.safe_load(Path(path).read_text()) or {}
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     cp = data.get("command_policy") or {}
     deny = list(DEFAULT_DENY) if cp.get("use_defaults", True) else []
     deny += list(cp.get("deny") or [])

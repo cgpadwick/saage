@@ -57,12 +57,12 @@ workflow:
   # ---- setup: experiment branch, snapshot commit, research log, staged helper ----
   - id: setup
     type: command
-    run: 'python3 "{{ flow_dir }}/setup_experiment.py" --train-epochs {{ train_epochs }} --target {{ target_success }} --branch "{{ run_branch }}"'
+    run: '{{ python }} "{{ flow_dir }}/setup_experiment.py" --train-epochs {{ train_epochs }} --target {{ target_success }} --branch "{{ run_branch }}"'
 
   # ---- baseline at the SAME fixed budget, so hill-climb scores are comparable ----
   - id: baseline_clean
     type: command
-    run: 'STABLEWM_HOME="{{ stablewm_home }}" python3 "{{ flow_dir }}/clean_ckpt.py" --name {{ exp_name }} --name {{ smoke_name }}'
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" {{ python }} "{{ flow_dir }}/clean_ckpt.py" --name {{ exp_name }} --name {{ smoke_name }}'
   - id: baseline_train
     type: command
     run: 'STABLEWM_HOME="{{ stablewm_home }}" python train.py data=ogb output_model_name={{ exp_name }} subdir={{ exp_name }} trainer.max_epochs={{ train_epochs }} num_workers={{ num_workers }} wandb.enabled=False'
@@ -72,7 +72,7 @@ workflow:
     set: { best_score: "'success_rate': (-?[0-9.]+)" }
   - id: baseline_record
     type: command
-    run: 'STABLEWM_HOME="{{ stablewm_home }}" python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ best_score }} --best -1 --failures 0 --exp {{ exp_name }} --best-name {{ best_name }} --baseline true'
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" {{ python }} "{{ flow_dir }}/keep_or_revert.py" --candidate {{ best_score }} --best -1 --failures 0 --exp {{ exp_name }} --best-name {{ best_name }} --baseline true'
     set:
       best_score: "BEST_SCORE=(-?[0-9.]+)"
       consecutive_failures: "FAILURES=([0-9]+)"
@@ -106,7 +106,7 @@ workflow:
         set: { candidate_score: "CANDIDATE=(-?[0-9.]+)" }
       - id: clean
         type: command
-        run: 'STABLEWM_HOME="{{ stablewm_home }}" python3 "{{ flow_dir }}/clean_ckpt.py" --name {{ exp_name }} --name {{ smoke_name }}'
+        run: 'STABLEWM_HOME="{{ stablewm_home }}" {{ python }} "{{ flow_dir }}/clean_ckpt.py" --name {{ exp_name }} --name {{ smoke_name }}'
       - id: train
         type: command
         run: 'STABLEWM_HOME="{{ stablewm_home }}" python train.py data=ogb output_model_name={{ exp_name }} subdir={{ exp_name }} trainer.max_epochs={{ train_epochs }} num_workers={{ num_workers }} wandb.enabled=False'
@@ -116,7 +116,7 @@ workflow:
         set: { candidate_score: "'success_rate': (-?[0-9.]+)" }
       - id: keep_or_revert
         type: command
-        run: 'STABLEWM_HOME="{{ stablewm_home }}" python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best {{ best_score }} --failures {{ consecutive_failures }} --exp {{ exp_name }} --best-name {{ best_name }}'
+        run: 'STABLEWM_HOME="{{ stablewm_home }}" {{ python }} "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best {{ best_score }} --failures {{ consecutive_failures }} --exp {{ exp_name }} --best-name {{ best_name }}'
         set:
           best_score: "BEST_SCORE=(-?[0-9.]+)"
           consecutive_failures: "FAILURES=([0-9]+)"

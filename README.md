@@ -35,6 +35,35 @@ uv pip install -e ".[dev]"       # editable install + pytest
 This installs the `saage` CLI and the `saage` import. `-e` (editable) makes source edits take
 effect immediately; drop it for a normal install. `[dev]` adds `pytest`.
 
+**Platforms:** Linux, macOS, and Windows — both WSL2 and native.
+
+### Native Windows
+
+Flow commands are POSIX `sh` everywhere; on Windows the engine runs them
+through Git Bash, so the same flow works unchanged on every OS. What you need:
+
+- **Python ≥ 3.10** from [python.org](https://www.python.org/downloads/) or
+  `winget install Python.Python.3.12` — with `python` on `PATH` (flows use
+  the auto-seeded `{{ python }}` variable, which is `python` on Windows and
+  `python3` elsewhere; there is no `python3.exe` on Windows).
+- **[Git for Windows](https://git-scm.com/download/win)** — required anyway
+  for the engine's git tools, and its bundled `bash.exe` is what runs flow
+  commands. The engine finds it automatically (next to `git.exe`); it never
+  uses `System32\bash.exe` (the WSL launcher). Set `SAAGE_SHELL` to a bash
+  path to override discovery.
+
+```powershell
+git clone <this-repo>; cd saage
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev]"
+pytest -q                        # full offline suite, should be green
+```
+
+Scope today: **local runs** (`saage run`). `saage remote` handoff *from* a
+Windows laptop is untested (it needs rsync and CRLF care — see
+`docs/windows_support_plan.md` §7); WSL2 covers that path in the meantime.
+
 Alternatives:
 
 ```bash
