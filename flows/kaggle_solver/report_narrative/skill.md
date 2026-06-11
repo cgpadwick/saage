@@ -24,4 +24,4 @@ Structure:
 
 Keep it honest: reverted experiments and failures are part of the story.
 
-End your reply with `ACTION: pass`.
+End your reply with a one-line abstract of the run.

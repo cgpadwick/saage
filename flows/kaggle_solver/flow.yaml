@@ -74,14 +74,14 @@ workflow:
     check:
       id: baseline_smoke
       type: command
-      run: 'python -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+      run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
   - id: baseline_train_loop
     type: retry_loop
     max_iterations: 2
     action:
       id: baseline_train
       type: command
-      run: 'python train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+      run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
       set: { candidate_score: "VAL_SCORE=(\\S+)" }
     check: { id: baseline_verify, type: agent, skill: verify_training, max_steps: 12 }
   - id: baseline_record
@@ -115,7 +115,7 @@ workflow:
         check:
           id: implement_smoke
           type: command
-          run: 'python -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+          run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
       # a failed train must read as nan (revert), never the previous score
       - id: reset_candidate
         type: command
@@ -127,7 +127,7 @@ workflow:
         action:
           id: train
           type: command
-          run: 'python train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+          run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
           set: { candidate_score: "VAL_SCORE=(\\S+)" }
         check: { id: verify_train, type: agent, skill: verify_training, max_steps: 12 }
       - id: keep_or_revert
@@ -145,7 +145,7 @@ workflow:
     action:
       id: final_train
       type: command
-      run: 'python train.py --device {{ device }} --epochs {{ final_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+      run: 'python3 train.py --device {{ device }} --epochs {{ final_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
       set: { final_score: "VAL_SCORE=(\\S+)" }
     check: { id: final_verify, type: agent, skill: verify_training, max_steps: 12 }
   - id: submission_loop
