@@ -215,7 +215,7 @@ has the same latent translation bug — remote scope (§7).
 ## 7. Future work (explicitly deferred)
 
 - **Remote handoff *from* a Windows laptop** — ~~deferred~~ **implemented**
-  (branch `remote-from-windows`, 2026-06-11): ssh stdin is binary always
+  (branch `remote-from-windows`, 2026-06-10): ssh stdin is binary always
   (the F5 sibling), transfers fall back to in-Python tar-over-ssh when rsync
   is missing, foreign key paths in a copied credentials.toml resolve to
   `~/.saage/ssh/`, and `add-target` writes key paths as TOML literal strings

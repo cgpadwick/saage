@@ -61,9 +61,10 @@ pytest -q                        # full offline suite, should be green
 ```
 
 Both `saage run` and `saage remote` work natively: handoffs from Windows push
-over ssh with binary-safe stdin, and when rsync is absent (Git for Windows
-doesn't bundle it) transfers fall back to tar-over-ssh automatically — no
-extra installs beyond Git for Windows. Verified live against Lambda Cloud and
+over ssh with binary-safe stdin, and transfers go over tar-into-ssh — no
+extra installs beyond Git for Windows, and **don't** install an rsync port:
+on Windows saage deliberately never uses rsync (cygwin/MSYS rsync mis-parses
+`C:/...` paths as remote hosts). Verified live against Lambda Cloud and
 Thunder Compute nodes.
 
 Alternatives:

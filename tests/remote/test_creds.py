@@ -73,6 +73,20 @@ def test_bad_target_name_rejected(saage_home):
         add_target("bad name", "h")
 
 
+def test_key_path_with_quote_rejected(saage_home):
+    # written as a TOML literal string — a quote would corrupt the whole file
+    with pytest.raises(CredsError, match="single quote"):
+        add_target("t", "h", key="C:\\Users\\o'brien\\.saage\\ssh\\k")
+
+
+def test_windows_key_path_resolves_on_posix_too(saage_home):
+    # backslash separators must not defeat the basename fallback
+    (saage_home / "ssh").mkdir()
+    (saage_home / "ssh" / "k2").write_text("KEY")
+    add_target("t3", "h", key="C:\\Users\\cpadw\\.saage\\ssh\\k2")
+    assert get_target("t3").key == saage_home / "ssh" / "k2"
+
+
 def test_multiple_targets(saage_home):
     add_target("a", "h1")
     add_target("b", "h2", user="u", port=2222)

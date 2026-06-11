@@ -40,6 +40,25 @@ def test_run_decodes_output_as_utf8(monkeypatch):
 # --------------------------------------------------------------------------- #
 # exclude semantics (rsync-style component matching)
 # --------------------------------------------------------------------------- #
+def test_use_rsync_decision(monkeypatch):
+    import os as _os
+    import shutil as _shutil
+    from saage.remote.sshio import _use_rsync
+    monkeypatch.setattr(_shutil, "which", lambda n: "/usr/bin/rsync")
+    monkeypatch.delenv("SAAGE_FORCE_TAR", raising=False)
+
+    monkeypatch.setattr(_os, "name", "nt")
+    assert _use_rsync() is False        # NEVER on Windows — cygwin/MSYS rsync
+                                        # parses C:/... as a remote host
+
+    monkeypatch.setattr(_os, "name", "posix")
+    assert _use_rsync() is True
+    monkeypatch.setenv("SAAGE_FORCE_TAR", "1")
+    assert _use_rsync() is False
+    monkeypatch.setenv("SAAGE_FORCE_TAR", "0")
+    assert _use_rsync() is True         # "0" means off, not truthy-string on
+
+
 def test_excluded_matches_any_path_component():
     ex = (".git", "__pycache__", "*.log", "tests")
     assert _excluded(".git/config", ex)
@@ -48,6 +67,8 @@ def test_excluded_matches_any_path_component():
     assert _excluded("tests/test_x.py", ex)
     assert not _excluded("saage/tools.py", ex)
     assert not _excluded("testsuite/x.py", ex)     # 'tests' is not 'testsuite'
+    assert not _excluded("Docs/readme.md", ("docs",))   # case-sensitive, like rsync
+    assert not _excluded("x.LOG", ("*.log",))
 
 
 def test_pack_dir_roundtrip_with_excludes(tmp_path):

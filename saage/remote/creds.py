@@ -125,7 +125,10 @@ def _resolve_key(raw: str) -> Path:
     p = Path(raw).expanduser()
     if p.is_file():
         return p
-    alt = saage_home() / "ssh" / Path(raw).name
+    # basename must parse across OSes: a Windows-written path read on Linux
+    # has backslash separators that PosixPath.name doesn't split
+    base = raw.replace("\\", "/").rsplit("/", 1)[-1]
+    alt = saage_home() / "ssh" / base
     return alt if alt.is_file() else p
 
 
@@ -160,6 +163,10 @@ def add_target(name: str, host: str, user: str | None = None, port: int = 22,
     """Append a [targets.<name>] section. Errors if the target already exists."""
     if any(c in name for c in " .[]\"'"):
         raise CredsError(f"invalid target name {name!r}")
+    if key and "'" in key:
+        # the key path is written as a TOML literal string; a quote inside
+        # would corrupt the whole credentials file for every target
+        raise CredsError(f"key path may not contain a single quote: {key!r}")
     path = cred_path()
     if path.exists() and name in list_targets():
         raise CredsError(f"target {name!r} already exists in {path}")

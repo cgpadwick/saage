@@ -44,7 +44,10 @@ class SshTarget:
             raise PreflightError(
                 f"cannot ssh to target {self.target.name!r} ({conn.dest}): {exc}"
             ) from exc
-        for tool in ("tmux", "git", "rsync"):
+        # node-side rsync only matters when the local side will use rsync;
+        # in tar mode the node needs tar instead
+        from .sshio import _use_rsync
+        for tool in ("tmux", "git", "rsync" if _use_rsync() else "tar"):
             if not conn.ok(f"command -v {tool} >/dev/null"):
                 # lean cloud images (e.g. Thunder's base template) ship without
                 # tmux — tell the user the one-liner instead of just refusing

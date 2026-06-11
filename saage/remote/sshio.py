@@ -32,13 +32,22 @@ class SSHError(RuntimeError):
 
 
 def _use_rsync() -> bool:
-    return bool(shutil.which("rsync")) and not os.environ.get("SAAGE_FORCE_TAR")
+    # Never rsync from native Windows, even when one is on PATH (MSYS2/cwRsync):
+    # rsync's remote-path rule parses "C:/Users/..." as remote host "C", so an
+    # installed rsync would BREAK the handoff the tar fallback handles fine.
+    if os.name == "nt":
+        return False
+    if os.environ.get("SAAGE_FORCE_TAR", "0") not in ("", "0"):
+        return False
+    return bool(shutil.which("rsync"))
 
 
 def _excluded(rel_posix: str, excludes: tuple[str, ...]) -> bool:
     """rsync-style component matching: a pattern excludes a path when any
     path component matches it (so ".git" prunes the tree, "*.log" any log)."""
-    return any(fnmatch.fnmatch(part, pat)
+    # fnmatchcase: plain fnmatch is case-insensitive on Windows, which would
+    # silently drop e.g. a flow's Docs/ where rsync (case-sensitive) ships it
+    return any(fnmatch.fnmatchcase(part, pat)
                for part in rel_posix.split("/") for pat in excludes)
 
 
@@ -166,7 +175,10 @@ class SSHConn:
         if self.ok(f"test -d {src_q}"):
             proc = self.run(f"tar -czf - -C {src_q} .", timeout=timeout, binary=True)
             with tarfile.open(fileobj=io.BytesIO(proc.stdout), mode="r:gz") as tf:
-                tf.extractall(dest, filter="data")
+                try:
+                    tf.extractall(dest, filter="data")
+                except TypeError:   # filter= needs 3.12+ / patched 3.10.12+, 3.11.4+
+                    tf.extractall(dest)
         else:
             proc = self.run(f"cat {src_q}", timeout=timeout, binary=True)
             (dest / Path(remote_src.rstrip("/")).name).write_bytes(proc.stdout)
