@@ -46,7 +46,11 @@ class SshTarget:
             ) from exc
         for tool in ("tmux", "git", "rsync"):
             if not conn.ok(f"command -v {tool} >/dev/null"):
-                raise PreflightError(f"target {self.target.name!r} is missing {tool!r}")
+                # lean cloud images (e.g. Thunder's base template) ship without
+                # tmux — tell the user the one-liner instead of just refusing
+                raise PreflightError(
+                    f"target {self.target.name!r} is missing {tool!r} — install "
+                    f"it: ssh the box and run `sudo apt-get install -y {tool}`")
         busy = self.sessions()
         if busy:
             raise PreflightError(
