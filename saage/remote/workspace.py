@@ -114,9 +114,14 @@ def plan_workspace(workspace: Path | None, run_id: str, *, mode: str = "auto",
             raise DirtyWorkspace(
                 f"workspace {workspace} has uncommitted changes ({len(dirt)} paths). "
                 f"Re-run with --dirty commit to snapshot them onto the run branch, "
+                f"--dirty ship-head to package HEAD as-is (ignoring local edits — "
+                f"right when something else is actively using the workspace), "
                 f"or commit/stash them yourself first."
             )
-        tip_sha, dirty_state = snapshot_commit(workspace), "committed"
+        if dirty == "commit":
+            tip_sha, dirty_state = snapshot_commit(workspace), "committed"
+        else:                       # ship-head: explicit choice to ignore the dirt
+            dirty_state = "ignored-ship-head"
 
     run_branch = f"saage-run-{run_id}"
     _git(workspace, "branch", run_branch, tip_sha)

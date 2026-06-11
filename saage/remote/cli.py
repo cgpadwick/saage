@@ -46,9 +46,11 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     ho.add_argument("--workspace-mode", choices=["auto", "ephemeral", "package"],
                     default="auto",
                     help="auto: package the flow's workspace iff it is a git repo")
-    ho.add_argument("--dirty", choices=["abort", "commit"], default="abort",
-                    help="uncommitted workspace changes: abort (default) or "
-                         "snapshot-commit them onto the run branch")
+    ho.add_argument("--dirty", choices=["abort", "commit", "ship-head"], default="abort",
+                    help="uncommitted workspace changes: abort (default), "
+                         "snapshot-commit them onto the run branch, or ship-head "
+                         "(package HEAD, ignore local edits — for workspaces "
+                         "under active local use)")
     ho.add_argument("--max-run-days", type=float, default=12.0,
                     help="watchdog: stop the run (never the box) after this long")
     ho.add_argument("--sync-interval", type=int, default=300,

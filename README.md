@@ -217,11 +217,63 @@ Each is a runnable demo and a deterministic integration test:
 | `fix_failing_test` | `retry_loop` driving real `pytest`, with feedback re-injection |
 | `poll_job` | command capture + `polling_loop` + wall-clock timeout cap |
 | `guessing_game` | multi-agent feedback loop: guesser + judge (higher/lower) homing in on a hidden target via `counting_loop` + `exit_when` |
+| `greenfield_ml` | full ML auto-research: baseline classifier + hill-climb on MNIST |
+| `lewm_hillclimb` | brownfield auto-research on an existing repo (le-wm), incl. `cloud_setup.sh` for remote GPU boxes |
+
+## Remote handoff (`saage remote`)
+
+Develop a flow locally, then hand the *entire run* off to a remote GPU box —
+the node runs the unchanged engine under tmux; your machine packages, pushes,
+starts, and disconnects. Any flow works remotely with zero flow edits.
+
+```bash
+saage remote init                                   # one-time: ssh key + credentials file
+saage remote add-target spark --host spark.local --user saage   # any SSH-able box
+saage remote handoff flows/greenfield_ml/flow.yaml --target spark \
+    --set train_epochs=8                            # the button
+
+saage remote status            # phase, heartbeat, ledger, log tail (latest run)
+saage remote logs --live       # follow the engine log
+saage remote ps                # every target: sessions vs local state (orphan detector)
+saage remote fetch             # pull artifacts back: ./results/<run_id>/
+saage remote kill <run>        # stop the run — never the box
+```
+
+Targets are just SSH hosts (a LAN box, a hand-launched cloud instance —
+`--port` and `--key` cover NAT'd ports and per-instance keys, e.g. Thunder
+Compute). For Lambda Cloud there's provisioning built in:
+
+```bash
+saage remote spawn --gpu a100        # launch + register as a target (live capacity/pricing)
+saage remote terminate <target>      # stops the meter (the only thing that does, on Lambda)
+```
+
+How it works, briefly:
+
+- **Workspace packaging — a git ref, not files.** Brownfield flows (whose
+  `workspace:` is an existing repo) get a `saage-run-<id>` branch: pushed to
+  `origin` when possible, `git bundle` fallback otherwise. Uncommitted
+  changes: `--dirty abort` (default) / `commit` (snapshot them, your checkout
+  untouched) / `ship-head` (package HEAD; for workspaces under active use).
+- **Per-run secrets** (LLM key for the flow's provider, repo token) travel
+  over ssh stdin into a 0600 `run_env` that is deleted when the run stops.
+- **Artifacts**: a sidecar collects ledgers/reports into the node's run dir
+  (`~/.saage_runs/<id>/artifacts/`); with a `[storage]` section in
+  `~/.saage/credentials.toml` they also mirror to R2/S3, and `status`/`fetch`
+  fall back to the mirror when the node is gone. A watchdog stops wedged runs.
+- **Flow env setup**: `--ws-setup "bash ../flow/cloud_setup.sh"` runs a
+  flow-supplied script inside the workspace at bootstrap (see
+  `flows/lewm_hillclimb/cloud_setup.sh` — curated torch stacks via
+  [ml-frameworks](https://github.com/cgpadwick/ml-frameworks) with
+  driver-aware CUDA selection, dataset staging from HF, headless-EGL libs).
+
+Design + field notes: [`docs/remote_handoff_plan.md`](docs/remote_handoff_plan.md).
 
 ## Testing
 
 ```bash
 pytest -q                              # unit + integration, offline & reproducible
+SAAGE_SSH_TESTS=1 pytest tests/remote/ # + live ssh handoffs to localhost
 ```
 
 Integration tests run the real engine + real local tools/commands/files; only the LLM turns

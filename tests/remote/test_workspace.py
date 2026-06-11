@@ -68,6 +68,20 @@ def test_dirty_abort_is_the_default(ws_repo, tmp_path):
         plan_workspace(ws_repo, "r4", out_dir=tmp_path)
 
 
+def test_dirty_ship_head_packages_head_and_ignores_edits(ws_repo, tmp_path):
+    (ws_repo / "config.yaml").write_text("epochs: 16\n")          # local edit, mid-use
+    head = git(ws_repo, "rev-parse", "HEAD").stdout.strip()
+
+    plan = plan_workspace(ws_repo, "r6", dirty="ship-head", out_dir=tmp_path)
+
+    assert plan.dirty_tree == "ignored-ship-head"
+    assert plan.tip_sha == head                                   # HEAD, not a snapshot
+    assert git(ws_repo, "rev-parse", plan.run_branch).stdout.strip() == head
+    # the local edit is untouched and NOT in the shipped tree
+    assert (ws_repo / "config.yaml").read_text() == "epochs: 16\n"
+    assert "epochs: 8" in git(ws_repo, "show", f"{plan.tip_sha}:config.yaml").stdout
+
+
 def test_dirty_commit_snapshots_without_touching_checkout(ws_repo, tmp_path):
     (ws_repo / "config.yaml").write_text("epochs: 16\n")          # tracked, modified
     (ws_repo / "new_module.py").write_text("x = 1\n")             # untracked
