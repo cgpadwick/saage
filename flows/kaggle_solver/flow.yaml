@@ -26,6 +26,7 @@ shared:
   competition_id: spooky-author-identification
   mlebench_data_dir: "$HOME/.mlebench/data"   # shell-expanded in commands
   device: cpu                  # overwritten by prepare's DEVICE capture
+  device_override: ""          # set to cpu/cuda to skip auto-detection
   metric_name: "the competition metric"   # refined by agents from the description
   lower_is_better: false       # SET THIS PER COMPETITION (true for RMSE/logloss)
   target_score: ""             # optional early-exit score
@@ -45,7 +46,7 @@ workflow:
   # ---- stage the competition + git/ledger setup ----
   - id: prepare
     type: command
-    run: 'python3 "{{ flow_dir }}/prepare_comp.py" --comp {{ competition_id }} --data-dir "{{ mlebench_data_dir }}"'
+    run: 'python3 "{{ flow_dir }}/prepare_comp.py" --comp {{ competition_id }} --data-dir "{{ mlebench_data_dir }}" --device "{{ device_override }}"'
     set:
       sample_submission_cols: "SAMPLE_COLS=(.*)"
       sample_submission_rows: "SAMPLE_ROWS=([0-9]+)"
