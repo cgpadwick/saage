@@ -55,6 +55,10 @@ def _collect_fn() -> str:
   for f in {files}; do
     [ -f "ws/$f" ] && cp -f "ws/$f" artifacts/ 2>/dev/null
   done
+  # branch mode: push kept commits out on every sync, so a node death loses at
+  # most one interval of commits (auth URL only at push time, never in config)
+  [ -n "${{WS_RUN_BRANCH:-}}" ] && ( cd ws && \\
+      git push -q "${{WS_REPO_AUTH_URL:-origin}}" "$WS_RUN_BRANCH" 2>/dev/null ) || true
   # mirror to R2 when configured (no-op otherwise); never let it break the run
   [ -n "${{SAAGE_R2_BUCKET:-}}" ] && venv/bin/python -m saage.remote.r2push \\
       >> r2push.log 2>&1 || true
@@ -71,9 +75,13 @@ def _status_fn() -> str:
 
 
 def bootstrap_sh(spec: RunSpec) -> str:
+    # clone may use the token-bearing URL (private repos), but the URL that
+    # persists in ws/.git/config is always the clean one — see _collect_secrets
     ws_setup = {
         "ephemeral": "mkdir -p ws",
-        "branch": '[ -d ws/.git ] || git clone --quiet --branch "$WS_RUN_BRANCH" "$WS_REPO_URL" ws',
+        "branch": '[ -d ws/.git ] || { git clone --quiet --branch "$WS_RUN_BRANCH" '
+                  '"${WS_REPO_AUTH_URL:-$WS_REPO_URL}" ws && '
+                  'git -C ws remote set-url origin "$WS_REPO_URL"; }',
         "bundle": '[ -d ws/.git ] || git clone --quiet --branch "$WS_RUN_BRANCH" ./ws.bundle ws',
     }[spec.ws_mode]
     boto3 = " boto3" if spec.r2 else ""
@@ -123,9 +131,15 @@ SIDECAR=$!
 ( sleep {max_run_seconds} && touch watchdog_fired && pkill -P $$ 2>/dev/null ) &
 WATCHDOG=$!
 
+# packaged workspace: tell the flow which branch it is on, so flows that manage
+# their own experiment branch (e.g. lewm setup_experiment --branch) commit to
+# the branch the push-back channel actually pushes
+RUN_BRANCH_FLAG=""
+[ -n "${{WS_RUN_BRANCH:-}}" ] && RUN_BRANCH_FLAG="--set run_branch=$WS_RUN_BRANCH"
+
 status running
 venv/bin/saage run "flow/{spec.flow_file}" --workspace "$PWD/ws" {venv_flag} {set_flags} \\
-  > saage.log 2>&1
+  $RUN_BRANCH_FLAG > saage.log 2>&1
 RC=$?
 
 kill "$SIDECAR" "$WATCHDOG" 2>/dev/null
@@ -134,8 +148,8 @@ if [ -f watchdog_fired ]; then status timeout 124
 elif [ "$RC" -eq 0 ]; then status done 0
 else status failed "$RC"; fi
 collect
-# push kept experiments out, when the workspace has a pushable origin
-( cd ws && git push -q origin "${{WS_RUN_BRANCH:-}}" 2>/dev/null ) || true
+# final push of kept experiments (collect already pushes every sync interval)
+( cd ws && git push -q "${{WS_REPO_AUTH_URL:-origin}}" "${{WS_RUN_BRANCH:-}}" 2>/dev/null ) || true
 rm -f run_env            # secrets do not outlive the run
 """
 

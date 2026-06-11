@@ -75,11 +75,15 @@ def _collect_secrets(provider_type: str, ws_plan: WorkspacePlan,
     if ws_plan.run_branch:
         env["WS_RUN_BRANCH"] = ws_plan.run_branch
     if ws_plan.repo_url:
-        url = ws_plan.repo_url
+        env["WS_REPO_URL"] = ws_plan.repo_url
         token = os.environ.get("SAAGE_GIT_TOKEN")
-        if token and url.startswith("https://"):
-            url = url.replace("https://", f"https://x-access-token:{token}@", 1)
-        env["WS_REPO_URL"] = url
+        if token and ws_plan.repo_url.startswith("https://"):
+            # the token-bearing URL lives ONLY in run_env (0600, deleted when
+            # the run stops) and is used per-operation; the clean URL is what
+            # lands in the workspace's .git/config — a PAT baked into the
+            # clone's origin would outlive the run (run dirs aren't cleaned)
+            env["WS_REPO_AUTH_URL"] = ws_plan.repo_url.replace(
+                "https://", f"https://x-access-token:{token}@", 1)
     env.update(extra_env)
     return env
 
@@ -88,7 +92,7 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
             extra_env: dict[str, str] | None = None, workspace_mode: str = "auto",
             dirty: str = "abort", max_run_days: float = 12.0,
             sync_interval: int = 300, need_gpu: bool = False,
-            ws_setup: str | None = None) -> RunState:
+            ws_setup: str | None = None, bootstrap_timeout: int = 1800) -> RunState:
     flow_path = Path(flow).resolve()
     flow_doc = _load_flow(flow_path)
     flow_dir = flow_path.parent
@@ -165,7 +169,8 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
     # -- bootstrap (deps + workspace clone; minutes, streamed to handoff.log) --
     log.info("bootstrapping node (deps + workspace) — this can take a few minutes")
     rs.update(phase="bootstrapping")
-    proc = conn.run(f"bash $HOME/{rdir}/bootstrap.sh", timeout=1800, check=False)
+    proc = conn.run(f"bash $HOME/{rdir}/bootstrap.sh", timeout=bootstrap_timeout,
+                    check=False)
     (rs.dir / "handoff.log").write_text(proc.stdout + proc.stderr)
     if proc.returncode != 0 or "BOOTSTRAP_OK" not in proc.stdout:
         rs.update(phase="failed")

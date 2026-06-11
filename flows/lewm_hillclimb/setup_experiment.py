@@ -6,9 +6,11 @@ Runs with cwd = the le-wm repo (the flow workspace). It:
   2. adds run-artifact patterns to .git/info/exclude so `git add -A` /
      `git clean -fd` in keep_or_revert never touch checkpoints, hydra outputs,
      or the experiment ledger,
-  3. switches to (or creates) the `saage-hillclimb` branch and commits the
-     current tracked changes as a snapshot, so every experiment diffs against
-     a known-good state,
+  3. switches to (or creates) the experiment branch (`--branch`; default
+     `saage-hillclimb` locally — remote runs pass the handoff's run branch so
+     kept-experiment commits land on the branch the node pushes back) and
+     commits the current tracked changes as a snapshot, so every experiment
+     diffs against a known-good state,
   4. stages `clean_ckpt.py` into the workspace as `saage_clean_ckpt.py` so the
      verify agent can clean the smoke-run checkpoint dir by relative path,
   5. seeds `research_log.md` with the context the proposer needs (paper target,
@@ -24,7 +26,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-BRANCH = "saage-hillclimb"
+DEFAULT_BRANCH = "saage-hillclimb"
 
 # Heavy / generated artifacts that live inside the repo working tree. Excluding
 # them (rather than .gitignore) keeps the user's tree untouched while making the
@@ -94,7 +96,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(allow_abbrev=False)
     ap.add_argument("--train-epochs", type=int, required=True)
     ap.add_argument("--target", type=float, required=True)
+    ap.add_argument("--branch", default=DEFAULT_BRANCH,
+                    help="experiment branch (remote runs pass the run branch)")
     args = ap.parse_args()
+    branch = args.branch or DEFAULT_BRANCH   # templated arg may render empty
 
     if not (Path("train.py").exists() and Path("jepa.py").exists()
             and Path(".git").exists()):
@@ -109,11 +114,11 @@ def main() -> None:
                 f.write(pat + "\n")
 
     current = sh("git", "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-    if current != BRANCH:
-        exists = sh("git", "rev-parse", "--verify", "--quiet", BRANCH).returncode == 0
-        r = git("checkout", BRANCH) if exists else git("checkout", "-b", BRANCH)
+    if current != branch:
+        exists = sh("git", "rev-parse", "--verify", "--quiet", branch).returncode == 0
+        r = git("checkout", branch) if exists else git("checkout", "-b", branch)
         if r.returncode != 0:
-            print(f"ERROR: could not switch to {BRANCH}: {r.stderr}", file=sys.stderr)
+            print(f"ERROR: could not switch to {branch}: {r.stderr}", file=sys.stderr)
             sys.exit(1)
 
     shutil.copy(Path(__file__).parent / "clean_ckpt.py", "saage_clean_ckpt.py")
@@ -127,7 +132,7 @@ def main() -> None:
     git("add", "research_log.md")
     git("commit", "-m", "saage: hillclimb setup snapshot")
 
-    print(f"SETUP=ok BRANCH={BRANCH}")
+    print(f"SETUP=ok BRANCH={branch}")
 
 
 if __name__ == "__main__":

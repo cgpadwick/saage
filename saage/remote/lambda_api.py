@@ -60,6 +60,8 @@ class LambdaAPI:
         except urllib.error.HTTPError as exc:
             body = exc.read()[:400].decode(errors="replace")
             raise LambdaError(f"Lambda API {path} -> {exc.code}: {body}") from exc
+        except urllib.error.URLError as exc:    # network/DNS — must be catchable too
+            raise LambdaError(f"Lambda API {path} unreachable: {exc.reason}") from exc
 
     # -- read ------------------------------------------------------------------
 
@@ -132,20 +134,33 @@ def pick_instance_type(avail: dict, gpu: str = "auto") -> tuple[str, str, float]
     )
 
 
-def wait_active(api: LambdaAPI, iid: str, timeout_s: int = 900) -> dict:
+def wait_active(api: LambdaAPI, iid: str, timeout_s: int = 900,
+                poll_interval: float = 15) -> dict:
     """Poll until the instance is active (it then has an IP). On timeout the
-    instance is terminated — never leak a half-launched node."""
+    instance is terminated — never leak a half-launched node. A transient API
+    error mid-poll must NOT abort the wait (aborting here would leak a billing
+    instance); only the wall-clock deadline gives up."""
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        inst = api.instance(iid)
+        try:
+            inst = api.instance(iid)
+        except LambdaError as exc:
+            log.warning("poll for %s failed (%s) — retrying", iid, exc)
+            time.sleep(poll_interval)
+            continue
         status = inst["status"]
         if status == "active" and inst.get("ip"):
             return inst
         if status in ("terminated", "terminating"):
             raise LambdaError(f"instance {iid} went to {status} during boot")
-        time.sleep(15)
-    api.terminate([iid])
-    raise LambdaError(f"instance {iid} not active after {timeout_s}s — terminated it")
+        time.sleep(poll_interval)
+    try:
+        api.terminate([iid])
+        note = "terminated it"
+    except LambdaError as exc:
+        note = (f"AND terminating it failed ({exc}) — instance {iid} may still "
+                f"be billing; terminate it in the Lambda dashboard")
+    raise LambdaError(f"instance {iid} not active after {timeout_s}s — {note}")
 
 
 def wait_ssh(host: str, user: str, key_path: str, timeout_s: int = 300) -> None:

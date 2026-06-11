@@ -652,7 +652,16 @@ plan above, decided during the build:
   keys (§4.2) remain future work.
 - **Run branches are `saage-run-<run_id>`** for every flow (plan said
   flow-specific names). The lewm `setup_experiment.py --branch` param (§3.1)
-  is still to do, in the flow not the engine.
+  is implemented: `start.sh` passes `--set run_branch=$WS_RUN_BRANCH`, the
+  flow forwards it as `--branch`, so kept-experiment commits land on the
+  branch the node pushes back (locally it defaults to `saage-hillclimb`).
+- **The sidecar pushes the run branch on every sync** (not only at exit), so
+  a node death loses at most one sync interval of kept commits.
+- **The repo PAT never persists on the node**: the token-bearing URL lives
+  only in the per-run `run_env` (0600, deleted at run end) and is used
+  per-operation; `ws/.git/config` always holds the clean URL.
+- **`--bootstrap-timeout`** caps node bootstrap (default 1800 s) — raise it
+  when `--ws-setup` stages a large dataset (the lewm cube download is 46 GB).
 - **Node layout**: `~/.saage_runs/<run_id>/{saage,venv,flow,ws,artifacts,...}`
   per run; tmux session `saage-<run_id>`; one run per box enforced by
   preflight (any `saage-*` session = busy).

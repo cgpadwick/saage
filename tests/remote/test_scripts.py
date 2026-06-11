@@ -26,8 +26,26 @@ def test_all_scripts_are_valid_bash(ws_mode):
 
 def test_bootstrap_ws_modes():
     assert "mkdir -p ws" in bootstrap_sh(_spec(ws_mode="ephemeral"))
-    assert '"$WS_REPO_URL" ws' in bootstrap_sh(_spec(ws_mode="branch"))
+    assert '"${WS_REPO_AUTH_URL:-$WS_REPO_URL}" ws' in bootstrap_sh(_spec(ws_mode="branch"))
     assert "./ws.bundle ws" in bootstrap_sh(_spec(ws_mode="bundle"))
+
+
+def test_branch_clone_never_persists_the_auth_url():
+    # the token-bearing URL may be USED for the clone, but the URL that stays
+    # in ws/.git/config must be the clean one — a PAT baked into origin would
+    # outlive the run (run dirs are not auto-cleaned)
+    script = bootstrap_sh(_spec(ws_mode="branch"))
+    assert 'git -C ws remote set-url origin "$WS_REPO_URL"' in script
+    _bash_n(script)
+
+
+def test_branch_is_pushed_every_sync_not_only_at_exit():
+    # a node death must lose at most one sync interval of kept commits
+    script = start_sh(_spec(ws_mode="branch"))
+    push = 'git push -q "${WS_REPO_AUTH_URL:-origin}"'
+    assert script.count(push) == 2                  # sidecar collect() + final
+    assert script.index(push) < script.index("SIDECAR=$!")   # inside collect()
+    _bash_n(script)
 
 
 def test_set_args_are_shell_quoted():

@@ -47,12 +47,15 @@ shared:
   exp_name: lewm_cube_exp        # checkpoint dir each experiment trains into
   best_name: lewm_cube_best      # best checkpoint dir, promoted on every keep
   smoke_name: lewm_smoke         # checkpoint dir the verify smoke-run uses
+  run_branch: saage-hillclimb    # experiment branch; remote handoff overrides it
+                                 # (--set run_branch=saage-run-<id>) so kept
+                                 # commits land on the branch the node pushes back
 
 workflow:
   # ---- setup: experiment branch, snapshot commit, research log, staged helper ----
   - id: setup
     type: command
-    run: 'python3 "{{ flow_dir }}/setup_experiment.py" --train-epochs {{ train_epochs }} --target {{ target_success }}'
+    run: 'python3 "{{ flow_dir }}/setup_experiment.py" --train-epochs {{ train_epochs }} --target {{ target_success }} --branch "{{ run_branch }}"'
 
   # ---- baseline at the SAME fixed budget, so hill-climb scores are comparable ----
   - id: baseline_clean

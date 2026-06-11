@@ -61,6 +61,11 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                     help="one-time env/data setup command run inside the "
                          "workspace during bootstrap (flow dir is at ../flow), "
                          "e.g. 'bash ../flow/cloud_setup.sh'")
+    ho.add_argument("--bootstrap-timeout", type=int, default=1800,
+                    metavar="SECONDS",
+                    help="cap on node bootstrap (deps + workspace clone + "
+                         "--ws-setup; raise it when ws-setup stages a large "
+                         "dataset; default 1800)")
 
     sp = rsub.add_parser("spawn", help="launch a Lambda Cloud instance and register it as a target")
     sp.add_argument("--gpu", default="auto",
@@ -179,6 +184,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             sync_interval=args.sync_interval,
             need_gpu=args.need_gpu,
             ws_setup=args.ws_setup,
+            bootstrap_timeout=args.bootstrap_timeout,
         )
         print(f"run {rs.run_id} handed off — `saage remote status {rs.run_id}`")
         return 0
@@ -218,27 +224,49 @@ def _spawn(args: argparse.Namespace) -> int:
     name = args.name or f"lambda-{datetime.now(timezone.utc).strftime('%H%M')}"
     print(f"launching {itype} in {region} (${price:.2f}/hr) as {name!r} …")
     iid = api.launch(itype, region, SAAGE_KEY_NAME, f"saage-{name}")
-    inst = wait_active(api, iid)            # terminates the instance on timeout
-    ip = inst["ip"]
-    print(f"instance {iid[:12]}… active at {ip}; waiting for ssh …")
-    wait_ssh(ip, "ubuntu", str(key_path))
+    # billing starts NOW — print the id before anything that can fail, and
+    # terminate on ANY failure (incl. Ctrl-C) so an error never leaks a node
+    print(f"instance {iid} launching (billing started)")
+    try:
+        inst = wait_active(api, iid)        # terminates the instance on timeout
+        ip = inst["ip"]
+        print(f"instance {iid[:12]}… active at {ip}; waiting for ssh …")
+        wait_ssh(ip, "ubuntu", str(key_path))
 
-    if args.extra_key:                       # let the user's own keys in too
-        registered = {k["name"]: k["public_key"] for k in api.ssh_keys()}
-        extras = [registered[n] for n in args.extra_key if n in registered]
-        missing = [n for n in args.extra_key if n not in registered]
-        if missing:
-            print(f"warning: not registered in Lambda, skipped: {missing}")
-        if extras:
-            from .sshio import SSHConn
-            conn = SSHConn(host=ip, user="ubuntu", key=key_path)
-            conn.run("cat >> ~/.ssh/authorized_keys", input="\n".join(extras) + "\n")
+        if args.extra_key:                   # let the user's own keys in too
+            registered = {k["name"]: k["public_key"] for k in api.ssh_keys()}
+            extras = [registered[n] for n in args.extra_key if n in registered]
+            missing = [n for n in args.extra_key if n not in registered]
+            if missing:
+                print(f"warning: not registered in Lambda, skipped: {missing}")
+            if extras:
+                from .sshio import SSHConn
+                conn = SSHConn(host=ip, user="ubuntu", key=key_path)
+                conn.run("cat >> ~/.ssh/authorized_keys", input="\n".join(extras) + "\n")
 
-    add_target(name, ip, user="ubuntu", hourly_usd=price)
+        add_target(name, ip, user="ubuntu", hourly_usd=price)
+    except BaseException:
+        _ensure_terminated(api, iid)
+        raise
     print(f"target {name!r} registered ({ip}, ${price:.2f}/hr) — "
           f"`saage remote handoff <flow> --target {name}`")
     print(f"REMEMBER: `saage remote terminate {name}` when done — billing runs until then")
     return 0
+
+
+def _ensure_terminated(api: LambdaAPI, iid: str) -> None:
+    """Best-effort cleanup when spawn fails after launch: terminate unless
+    something already did (wait_active's timeout path terminates itself)."""
+    try:
+        if api.instance(iid).get("status") in ("terminated", "terminating"):
+            return
+        api.terminate([iid])
+        print(f"spawn failed — terminated {iid[:12]}… (billing stopped)",
+              file=sys.stderr)
+    except Exception as exc:    # last resort: tell the user loudly
+        print(f"spawn failed AND terminate failed ({exc}) — instance {iid} "
+              f"may still be billing; terminate it in the Lambda dashboard",
+              file=sys.stderr)
 
 
 def _terminate(args: argparse.Namespace) -> int:
