@@ -10,6 +10,7 @@ Programmatic surface (what a dispatcher/sweep builds on):
 ``handoff`` to start a run, ``poll_run``/``fetch_run``/``kill_run`` to manage
 it, ``find_run``/``RunState`` for local state.
 """
+from .dispatch import Dispatcher, Job, dispatch_many     # noqa: F401
 from .handoff import HandoffError, handoff               # noqa: F401
 from .observe import fetch_run, kill_run, poll_run       # noqa: F401
 from .provision import ProvisionError, provision_node    # noqa: F401
