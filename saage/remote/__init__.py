@@ -12,4 +12,5 @@ it, ``find_run``/``RunState`` for local state.
 """
 from .handoff import HandoffError, handoff               # noqa: F401
 from .observe import fetch_run, kill_run, poll_run       # noqa: F401
+from .provision import ProvisionError, provision_node    # noqa: F401
 from .state import RunState, find_run, list_runs         # noqa: F401

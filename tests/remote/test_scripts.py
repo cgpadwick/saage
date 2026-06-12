@@ -136,8 +136,10 @@ def test_venv_flag_passthrough():
 
 def test_ws_setup_hook_runs_in_ws_after_clone():
     script = bootstrap_sh(_spec(ws_mode="bundle", ws_setup="bash ../flow/cloud_setup.sh"))
-    hook = "( cd ws && bash ../flow/cloud_setup.sh )"
+    # the hook runs inside ws, serialized under a cache flock (H6 backstop)
+    hook = "( cd ws && flock"
     assert hook in script
+    assert "'bash ../flow/cloud_setup.sh'" in script
     assert script.index("./ws.bundle ws") < script.index(hook)   # clone first
     assert script.index(hook) < script.index("BOOTSTRAP_OK")
     assert "( cd ws &&" not in bootstrap_sh(_spec())             # absent by default

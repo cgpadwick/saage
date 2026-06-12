@@ -9,13 +9,15 @@ from .creds import (CredsError, add_target, cred_path, ensure_ssh_key,
                     get_target, list_targets, load_creds, storage_config)
 from .handoff import HandoffError, handoff
 from .lambda_api import LambdaAPI, LambdaError, SAAGE_KEY_NAME, pick_instance_type, wait_active, wait_ssh
+from .provision import ProvisionError
 from .sshio import SSHError
 from .state import find_run
 from .target import PreflightError, SshTarget
 from .workspace import DirtyWorkspace, WorkspaceError
 
-_ERRORS = (CredsError, HandoffError, PreflightError, WorkspaceError,
-           DirtyWorkspace, SSHError, LambdaError, FileNotFoundError)
+_ERRORS = (CredsError, HandoffError, PreflightError, ProvisionError,
+           WorkspaceError, DirtyWorkspace, SSHError, LambdaError,
+           FileNotFoundError)
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -69,6 +71,23 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                     help="cap on node bootstrap (deps + workspace clone + "
                          "--ws-setup; raise it when ws-setup stages a large "
                          "dataset; default 1800)")
+
+    pv = rsub.add_parser("provision",
+                         help="one-time node setup into the shared cache "
+                              "(content-keyed, locked, stamped — safe to repeat)")
+    pv.add_argument("target", help="a registered target name")
+    pv.add_argument("--cmd", required=True,
+                    help="setup command; runs with $SAAGE_CACHE exported, "
+                         "cwd = $SAAGE_CACHE/provision/<key>/")
+    pv.add_argument("--files", default=None, metavar="DIR",
+                    help="local dir rsynced into the provision cwd first")
+    pv.add_argument("--key", default=None,
+                    help="cache key (default: hash of --cmd)")
+    pv.add_argument("--env", dest="env", metavar="KEY=VALUE", action="append",
+                    default=[], help="extra env for the setup command")
+    pv.add_argument("--timeout", type=int, default=3600)
+    pv.add_argument("--force", action="store_true",
+                    help="drop the stamp and re-run even if already provisioned")
 
     sp = rsub.add_parser("spawn", help="launch a Lambda Cloud instance and register it as a target")
     sp.add_argument("--gpu", default="auto",
@@ -192,6 +211,18 @@ def _dispatch(args: argparse.Namespace) -> int:
             bootstrap_timeout=args.bootstrap_timeout,
         )
         print(f"run {rs.run_id} handed off — `saage remote status {rs.run_id}`")
+        return 0
+
+    if cmd == "provision":
+        from pathlib import Path
+
+        from .provision import provision_node
+        result = provision_node(
+            get_target(args.target), args.cmd, key=args.key,
+            files=Path(args.files) if args.files else None,
+            env=_parse_kv(args.env, "--env"), timeout=args.timeout,
+            force=args.force)
+        print(f"provision on {args.target!r}: {result}")
         return 0
 
     if cmd == "spawn":
