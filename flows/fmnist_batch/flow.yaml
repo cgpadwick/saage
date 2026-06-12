@@ -1,0 +1,88 @@
+# Batched parallel hill-climb on Fashion-MNIST — the phase-2 coordinator
+# (docs/batched_hillclimb_plan.md §5). Each round: ONE agent call writes K=3
+# diverse proposals -> run_batch (a plain command step) fans them out over
+# the registered targets via saage.remote.batch and blocks for the barrier
+# -> integrate applies the winner and updates the ledger. The engine stays
+# sequential; the parallelism lives behind the command step.
+#
+# Launch (the engine venv must be on PATH so `python3 -m saage.remote.batch`
+# resolves — `source .venv/bin/activate` first):
+#   OPENROUTER_API_KEY=... saage run flows/fmnist_batch/flow.yaml \
+#     --set batch_targets=ph2-a,ph2-b,ph2-c
+provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
+workspace: /tmp/saage_fmnist
+shared:
+  batch_targets: ""            # comma-separated registered targets (REQUIRED)
+  target_score: 0.95
+  short_epochs: 8
+  max_rounds: 5
+  best_score: "nan"
+  candidate_score: "nan"
+  round_no: 0
+  consec_failed_rounds: 0
+  target_met: 0
+  round_ok: 0
+  best_index: -1
+  best_patch: ""
+  # one-time node setup, content-keyed + stamped: cached after round 1
+  provision_cmd: >-
+    mkdir -p "$SAAGE_CACHE/datasets/fmnist" && cd "$SAAGE_CACHE/datasets/fmnist" &&
+    for f in train-images-idx3-ubyte.gz train-labels-idx1-ubyte.gz
+    t10k-images-idx3-ubyte.gz t10k-labels-idx1-ubyte.gz; do
+    [ -f "$f" ] || curl -fsSLO
+    "https://raw.githubusercontent.com/zalandoresearch/fashion-mnist/master/data/fashion/$f";
+    done
+
+workflow:
+  - id: seed
+    type: command
+    run: '{{ python }} "{{ flow_dir }}/seed_workspace.py"'
+
+  - id: rounds
+    type: counting_loop
+    max_iterations: 5
+    exit_when: "target_met == 1 or consec_failed_rounds >= 2"
+    body:
+      - id: propose_loop
+        type: retry_loop
+        max_iterations: 3
+        action: { id: propose_batch, type: agent, skill: propose_batch, max_steps: 25 }
+        check:  { id: propose_critic, type: agent, skill: propose_critic, max_steps: 12 }
+
+      # the fan-out: one experiment per proposal, parallel across targets;
+      # `|| true` so an all-failed round becomes ledger data, not flow death
+      - id: run_batch
+        type: command
+        run: 'python3 -m saage.remote.batch
+              --experiment-flow "{{ flow_dir }}/experiment.yaml"
+              --proposals proposals/current/p0.md proposals/current/p1.md proposals/current/p2.md
+              --targets "{{ batch_targets }}"
+              --workspace "{{ workspace }}"
+              --results-dir "batch/round_{{ round_no }}"
+              --set short_epochs={{ short_epochs }}
+              --provision-cmd "{{ provision_cmd }}"
+              --need-gpu --max-hours 1.0 || true'
+        set:
+          candidate_score: "BEST_SCORE=(\\S+)"
+          best_index: "BEST_INDEX=(-?\\d+)"
+          best_patch: "BEST_PATCH=(.*)"
+          round_ok: "ROUND_OK=([0-9]+)"
+
+      - id: integrate
+        type: command
+        run: '{{ python }} "{{ flow_dir }}/integrate.py"
+              --candidate {{ candidate_score }} --best {{ best_score }}
+              --patch "{{ best_patch }}"
+              --summary "batch/round_{{ round_no }}/summary.json"
+              --target {{ target_score }} --failures {{ consec_failed_rounds }}
+              --round {{ round_no }}'
+        set:
+          best_score: "BEST_SCORE=(\\S+)"
+          consec_failed_rounds: "FAILURES=([0-9]+)"
+          target_met: "TARGET_MET=([01])"
+          round_no: "ROUND_NO=([0-9]+)"
+
+  - id: report
+    type: command
+    run: 'echo "FINAL_BEST={{ best_score }} (target {{ target_score }})" &&
+          tail -n 40 research_log.md'
