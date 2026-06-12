@@ -125,8 +125,9 @@ class LambdaBackend:
                    max_runs=slots)
         return list_targets()[name]
 
-    def terminate_host(self, host: str) -> bool:
-        ids = [i["id"] for i in self.api.instances() if i.get("ip") == host]
+    def terminate_target(self, target: Target) -> bool:
+        ids = [i["id"] for i in self.api.instances()
+               if i.get("ip") == target.host]
         if ids:
             self.api.terminate(ids)
         return bool(ids)
@@ -170,12 +171,10 @@ class ThunderBackend:
                    max_runs=slots)
         return list_targets()[name]
 
-    def terminate_host(self, host: str) -> bool:
-        try:
-            thunder.delete_by_uuid(host)     # matches by ip too
-            return True
-        except thunder.ThunderError:
-            return False
+    def terminate_target(self, target: Target) -> bool:
+        # Thunder instances share proxy IPs — match on (ip, port), never
+        # IP alone, or teardown could delete a sibling sweep box
+        return thunder.delete_by_addr(target.host, target.port)
 
     def emergency_cleanup(self) -> None:
         for uuid in self._spawned:
@@ -297,7 +296,7 @@ def sweep_down(sweep_id: str, *, only_workers: bool = False,
             pass
     done = []
     for name, target in mine.items():
-        if any(b.terminate_host(target.host) for b in backends):
+        if any(b.terminate_target(target) for b in backends):
             done.append(name)
             log.info("terminated %s (%s)", name, target.host)
         else:

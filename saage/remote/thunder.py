@@ -86,10 +86,20 @@ def create(*, gpu: str = "a6000", vcpus: int = 4, disk_gb: int = 100,
 
 def delete_by_uuid(uuid: str) -> None:
     for inst in instances():
-        if inst.uuid == uuid or inst.ip == uuid:
+        if inst.uuid == uuid:
             _run(["delete", inst.id])
             return
     raise ThunderError(f"no instance matching {uuid!r}")
+
+
+def delete_by_addr(ip: str, port: int) -> bool:
+    """Thunder instances share proxy IPs — (ip, port) is the unique address.
+    Matching by IP alone could delete a sibling instance."""
+    for inst in instances():
+        if inst.ip == ip and inst.port == port:
+            _run(["delete", inst.id])
+            return True
+    return False
 
 
 def wait_running(uuid: str, *, timeout: int = 600) -> ThunderInstance:

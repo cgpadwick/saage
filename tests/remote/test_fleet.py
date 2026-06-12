@@ -66,8 +66,8 @@ def test_sweep_down_only_workers_keeps_coordinator(saage_home, monkeypatch):
     killed = []
 
     class FakeBackend:
-        def terminate_host(self, host):
-            killed.append(host)
+        def terminate_target(self, target):
+            killed.append(target.host)
             return True
 
     monkeypatch.setattr(fleet, "backend_for", lambda c: FakeBackend())
