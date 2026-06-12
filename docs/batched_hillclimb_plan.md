@@ -1,7 +1,9 @@
 # Batched parallel hill-climb: remote fixes first, then the batch primitive
 
-**Date:** 2026-06-11 · **Status:** phase 1 implemented + live-accepted
-2026-06-12 (see §3); phase 2 design open
+**Date:** 2026-06-11 · **Status:** phase 1 implemented + live-accepted;
+phase 2 implemented (§5 decisions) and live-proven on Fashion-MNIST
+2026-06-12 — 9 rounds × K=3, baseline 0.879 → 0.9439, see
+[flows/fmnist_batch/README.md](../flows/fmnist_batch/README.md)
 **Goal:** fan out *proposals* within a single flow run — propose K diverse
 experiments, run them in parallel, collect all results, repropose — and fix
 the remote-layer holes that block running K jobs at once.
