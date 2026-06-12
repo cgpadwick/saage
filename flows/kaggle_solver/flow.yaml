@@ -22,6 +22,9 @@
 #     --workspace /tmp/kaggle_run --set competition_id=spooky-author-identification
 provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 workspace: /tmp/saage_kaggle
+artifacts: [experiments.jsonl, research_log.md, eval_results.json,
+            submission.csv, report_narrative.md, competition_understanding.md,
+            data_analysis.md]
 shared:
   competition_id: spooky-author-identification
   mlebench_data_dir: "$HOME/.mlebench/data"   # shell-expanded in commands
