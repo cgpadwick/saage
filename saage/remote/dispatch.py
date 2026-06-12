@@ -50,10 +50,13 @@ class DispatchError(RuntimeError):
 
 @dataclass
 class Job:
-    """One unit of work: a flow run distinguished by its --set overrides."""
+    """One unit of work: a flow run distinguished by its --set overrides
+    (and, optionally, its own staged flow file — used by batch rounds where
+    each job carries its own proposal.md inside the flow dir)."""
     name: str
     set_args: dict = field(default_factory=dict)
     env: dict = field(default_factory=dict)
+    flow_file: str | None = None    # overrides the dispatcher-wide flow
     max_attempts: int = 2
     # supervised state
     status: str = "queued"      # queued|dispatching|running|<FINAL>
@@ -195,7 +198,7 @@ class Dispatcher:
             job.attempts += 1
             node.in_flight += 1
             fut = self._pool.submit(
-                self.ops.handoff, self.flow, node.target,
+                self.ops.handoff, job.flow_file or self.flow, node.target,
                 dict(job.set_args), dict(job.env), **self.handoff_opts)
             self._futures[fut] = (job, node)
             log.info("job %s -> %s (attempt %d)", job.name,

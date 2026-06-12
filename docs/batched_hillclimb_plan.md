@@ -220,7 +220,32 @@ cold-start path that's tested anyway.
   hostage forever. (Optional later: "proceed at ≥M of K, kill the rest" —
   deliberately not v1.)
 
-## 5. What this supersedes from earlier drafts
+## 5. Phase 2 decisions (resolved 2026-06-12)
+
+1. **No new engine primitive.** A batch round is a `counting_loop` body:
+   propose_batch (agent+critic) → run_batch (a *command* step wrapping the
+   phase-1 dispatch layer; the engine never learns what "parallel" means)
+   → integrate (command: apply winner, ledger, exit flags).
+2. **Experiment = a mini-flow, implemented on the worker** (parallelizes
+   the LLM-heavy implement step, reuses retry/smoke machinery). Proposal
+   travels as a file in a per-job temp copy of the flow dir, never
+   through `--set` quoting. Winner's diff returns as an
+   `experiment.patch` artifact (works in bundle mode; no repo URL or
+   branch push required).
+3. **One agent call proposes all K**, prompted to attack K distinct
+   mechanisms; the critic judges the *set* (diversity + plausibility).
+4. **Coordinator runs on the local workstation** for now;
+   coordinator-on-a-box is one handoff away but needs a creds-forwarding
+   story — deferred.
+5. **Batch-synchronous, strict barrier; winner-take-all integration.**
+   Async slot-filling and multi-patch merging are future modes.
+6. **Warm run-dir reuse deferred** — measured per-job overhead (~50–80 s)
+   is noise against real training steps.
+7. **First live test: Fashion-MNIST**, target val accuracy 0.95 with a
+   deliberately weak MLP baseline (~0.88) so no single proposal can
+   one-shot it — forces multi-round climbing. K=3 on spawned Lambda a10s.
+
+## 6. What this supersedes from earlier drafts
 
 - **`bench.py` as a kaggle-local driver:** dead. The dispatch/poll/fetch
   core moves into `saage.remote` (phase 1); a competition sweep (M3) and
