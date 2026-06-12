@@ -93,6 +93,17 @@ workflow:
       best_score: "BEST_SCORE=(\\S+)"
       target_met: "TARGET_MET=([01])"
 
+  # ---- the researcher: one deliberate pass over the problem class, after
+  # the baseline exists — writes the ranked idea menu every round draws on
+  - id: research_loop
+    type: retry_loop
+    max_iterations: 2
+    action: { id: research_ideas, type: agent, skill: research_ideas, max_steps: 25 }
+    check:
+      id: check_ideas
+      type: command
+      run: 'python3 "{{ flow_dir }}/check_ideas.py"'
+
   # ---- the batched hill-climb: K=3 parallel experiments per round ----
   - id: batch_rounds
     type: counting_loop

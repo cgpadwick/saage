@@ -22,6 +22,10 @@ FAIL the set if ANY of these hold:
 5. CONTRACT-BREAKING / OVER-BUDGET — touches the train.py CLI/eval
    contract, the validation protocol, the epoch budget, or obviously
    cannot fit it.
+6. MENU VIOLATIONS — read `autoresearch_ideas.md` (when present): a
+   proposal on its anti-ideas list always fails; a proposal that ignores
+   higher-ranked untried menu ideas without a stated reason fails unless
+   its rationale justifies the deviation.
 
 Judge substance, not style — do not fail a good set for formatting.
 Good set: say why briefly, end `ACTION: pass`. Bad set: name the failing

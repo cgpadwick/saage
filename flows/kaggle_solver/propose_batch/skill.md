@@ -17,14 +17,21 @@ best result is kept. So the 3 must be genuinely different bets — different
 mechanisms, not three variations of one idea.
 
 WORKFLOW:
-1. Read `research_log.md` — the full history, including past *rounds* with
-   every parallel result. Do NOT re-propose what failed (in any round)
-   unless you can say why this time differs; DO recombine a near-miss
-   mechanism onto the current best code.
-2. Read the current `model.py`, `train.py`, `predict.py` (and
+1. Read `autoresearch_ideas.md` — the researcher's RANKED menu of ideas
+   (with an anti-ideas list). Default behavior: this round's 3 proposals
+   are the 3 highest-ranked ideas NOT yet tried (per the research log),
+   from 3 different categories. You may adapt an idea's specifics,
+   recombine a near-miss with the current best, or deviate from the menu
+   entirely — but a deviation's RATIONALE must say why. NEVER propose
+   anything on the anti-ideas list.
+2. Read `research_log.md` — the full history, including past *rounds* with
+   every parallel result. The ledger OUTRANKS the menu: do NOT re-propose
+   what failed (in any round) unless you can say why this time differs;
+   DO recombine a near-miss mechanism onto the current best code.
+3. Read the current `model.py`, `train.py`, `predict.py` (and
    `competition_understanding.md` / `data_analysis.md`;
    `git log --oneline` shows kept experiments).
-3. Pick 3 distinct mechanism categories (e.g.: model family/architecture /
+4. Pick 3 distinct mechanism categories (e.g.: model family/architecture /
    feature representation / data handling & augmentation / optimization &
    schedule / regularization / unused data modalities). One proposal each.
 

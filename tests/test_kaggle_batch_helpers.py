@@ -195,3 +195,43 @@ def test_real_improvement_clears_the_noise_floor(ws):
     _summary(ws)
     out = _integrate(ws, candidate="0.4990", best="0.5039", patch=str(patch))
     assert out["BEST_SCORE"] == "0.499"
+
+
+# ---- check_ideas: the researcher's menu gate --------------------------------
+
+def _check_ideas(ws):
+    proc = subprocess.run([sys.executable, str(FLOW / "check_ideas.py")],
+                          cwd=ws, capture_output=True, text=True)
+    assert proc.returncode == 0
+    return proc.stdout
+
+
+GOOD_MENU = "\n".join(
+    ["# Autoresearch ideas: spooky", "",
+     "**Hard constraints (do not violate):** budget fixed.", "",
+     "## Ranked ideas"]
+    + [f"### {i}. Idea {i} [{cat}]\nDo the thing.\n"
+       for i, cat in enumerate(
+           ["Feature Representation", "Model Family", "Optimization",
+            "Regularization", "Data Handling", "Ensembling"], start=1)]
+    + ["## Anti-ideas", "- flips — known to hurt"])
+
+
+def test_check_ideas_passes_good_menu(ws):
+    (ws / "autoresearch_ideas.md").write_text(GOOD_MENU)
+    assert "ACTION: pass" in _check_ideas(ws)
+
+
+def test_check_ideas_fails_missing_file(ws):
+    out = _check_ideas(ws)
+    assert "does not exist" in out and "ACTION: fail" in out
+
+
+def test_check_ideas_fails_thin_or_uncategorized_menus(ws):
+    (ws / "autoresearch_ideas.md").write_text(
+        "# x\nconstraints\n## Ranked ideas\n### 1. A [cat]\n## Anti-ideas\n- y")
+    out = _check_ideas(ws)
+    assert "only 1 ranked" in out and "ACTION: fail" in out
+    (ws / "autoresearch_ideas.md").write_text(GOOD_MENU.replace(
+        "## Anti-ideas\n- flips — known to hurt", ""))
+    assert "Anti-ideas" in _check_ideas(ws)
