@@ -93,3 +93,19 @@ def test_render_default_filter_does_not_warn(caplog):
         out = render('{{ proposal | default("(none)") }}', {})
     assert out == "(none)"
     assert not caplog.records                    # silent — no spurious warning
+
+
+def test_malformed_tool_args_never_crash_and_surface_to_model():
+    """Models sometimes emit single-quoted pseudo-JSON tool arguments (seen
+    live: killed an 18-experiment run at json.loads). The parse must degrade:
+    valid JSON -> dict; python-literal dict -> dict; garbage -> a wrapper that
+    makes tool dispatch return an ERROR string the model can react to."""
+    from saage.llm import _parse_tool_args
+
+    assert _parse_tool_args('{"path": "a.txt"}') == {"path": "a.txt"}
+    assert _parse_tool_args("{'path': 'a.txt'}") == {"path": "a.txt"}   # ast fallback
+    assert _parse_tool_args("") == {}
+    assert _parse_tool_args(None) == {}
+    out = _parse_tool_args("not a dict at all {")
+    assert out == {"_malformed_arguments": "not a dict at all {"}
+    assert _parse_tool_args('"just a string"') == {"_malformed_arguments": '"just a string"'}

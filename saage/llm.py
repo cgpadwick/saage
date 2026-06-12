@@ -129,9 +129,34 @@ class OpenAIProvider:
                 tools=self._tools(tools) or None),
             policy=self.retry_policy, what="openai.chat.completions.create")
         m = r.choices[0].message
-        calls = [ToolCall(tc.id, tc.function.name, json.loads(tc.function.arguments))
+        calls = [ToolCall(tc.id, tc.function.name, _parse_tool_args(tc.function.arguments))
                  for tc in (m.tool_calls or [])]
         return LLMResponse(m.content or "", calls)
+
+
+def _parse_tool_args(raw: str | None) -> dict:
+    """Parse a tool call's arguments WITHOUT trusting the model to emit valid
+    JSON — some (seen live: deepseek) occasionally produce single-quoted
+    pseudo-JSON, which crashed a run at json.loads. Fall back to
+    ast.literal_eval; as a last resort wrap the raw string so tool dispatch
+    fails with an ERROR string the model sees and self-corrects (the same
+    contract as every other tool failure)."""
+    if not raw:
+        return {}
+    try:
+        out = json.loads(raw)
+        if isinstance(out, dict):
+            return out
+    except (json.JSONDecodeError, ValueError):
+        pass
+    try:
+        import ast
+        out = ast.literal_eval(raw)
+        if isinstance(out, dict):
+            return out
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        pass
+    return {"_malformed_arguments": raw}
 
 
 # --------------------------------------------------------------------------- #
