@@ -17,6 +17,11 @@ import sys
 from pathlib import Path
 
 
+def _stdev(vals: list[float]) -> float:
+    m = sum(vals) / len(vals)
+    return (sum((v - m) ** 2 for v in vals) / len(vals)) ** 0.5
+
+
 def fail(*issues: str) -> None:
     for issue in issues:
         print(f"ISSUE: {issue}")
@@ -43,11 +48,21 @@ def main() -> None:
             header = next(reader, None)
             rows = 0
             bad_cells = 0
+            value_cols: list[list[float]] = []
             for row in reader:
                 rows += 1
-                for cell in row[1:]:           # value columns (first is the id)
+                for i, cell in enumerate(row[1:]):  # value columns (first is the id)
                     if cell.strip() == "" or cell.strip().lower() == "nan":
                         bad_cells += 1
+                        continue
+                    try:
+                        v = float(cell)
+                    except ValueError:
+                        continue                    # non-numeric comp — skip stats
+                    while len(value_cols) <= i:
+                        value_cols.append([])
+                    if rows <= 5000:                # plenty for the variance check
+                        value_cols[i].append(v)
     except Exception as exc:
         fail(f"failed to read submission.csv: {exc}")
 
@@ -60,6 +75,18 @@ def main() -> None:
         issues.append(f"row count mismatch: got {rows}, expected {expected_rows}")
     if bad_cells:
         issues.append(f"{bad_cells} empty/NaN value cell(s)")
+    # quality tripwire (seen live): near-constant predictions across all rows
+    # mean the model/checkpoint never reached predict.py — a format-valid
+    # submission that scores worse than guessing. Variance this low is never
+    # a real prediction; tell the agent where to look.
+    numeric = [c for c in value_cols if len(c) >= 50]
+    if not issues and numeric and all(_stdev(c) < 0.02 for c in numeric):
+        issues.append(
+            "predictions are near-constant across all rows (stdev < 0.02 in "
+            "every value column) — the trained model is not reaching "
+            "predict.py. Check that predict.py loads the fitted "
+            "pipeline/checkpoint that train.py saved (same features, same "
+            "preprocessing), then regenerate submission.csv.")
     if issues:
         fail(*issues)
 

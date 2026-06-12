@@ -18,11 +18,17 @@ log-reading.
 | competition | model | medal | val score | test score | cost | run |
 |---|---|---|---|---|---|---|
 | spooky-author-identification | deepseek-v4-flash | none | 0.3815 logloss | 0.4017 | ~$8 (4×a10, 1.6 h) | batched ×6 rounds, 2026-06-12¹ |
+| spooky-author-identification | deepseek-v4-flash | none | 0.4828 logloss | 1.1152² | ~$4 (4×a6000 TC, 3 h) | sweep-up fire-and-forget ×6 rounds, 2026-06-12 |
 
 ¹ First flow_batch.yaml outing: baseline 0.5039 → 0.3815 over 6 rounds
 (18 parallel experiments); ended early on the since-raised 2-miss patience
 and surfaced the no-op-implement + noise-keep bugs the guards now cover.
 Bronze is ≈0.36 — within reach of a full-patience rerun.
+² Thunder fire-and-forget validation run (coordinator-on-a-box, zero
+laptop involvement after sweep-up). The broken test score was
+train/predict skew — predict.py served near-constant probabilities;
+validate_submission.py now has a deterministic variance tripwire that
+fails exactly this shape and feeds the diagnosis back to the agent.
 
 **The brag we're building toward:** medals per dollar — deepseek-class
 models on $0.35–1.99/hr rented GPUs, reproducible from this YAML.
