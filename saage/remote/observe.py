@@ -45,6 +45,18 @@ def _status_from_bucket(storage: Storage, run_id: str) -> dict:
         return {}
 
 
+def bucket_names(storage: Storage, run_id: str) -> set[str]:
+    """Object basenames in the run's mirror prefix (cheap LIST, no GETs)."""
+    try:
+        client = _bucket_client(storage)
+        listed = client.list_objects_v2(Bucket=storage.bucket,
+                                        Prefix=storage.run_prefix(run_id) + "/")
+        return {obj["Key"].rsplit("/", 1)[-1]
+                for obj in listed.get("Contents", [])}
+    except Exception:
+        return set()
+
+
 def _fetch_from_bucket(storage: Storage, run_id: str, dest: Path) -> list[str]:
     client = _bucket_client(storage)
     prefix = storage.run_prefix(run_id)

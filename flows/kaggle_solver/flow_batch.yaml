@@ -17,7 +17,7 @@ provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 workspace: /tmp/saage_kaggle_batch
 artifacts: [experiments.jsonl, research_log.md, eval_results.json,
             submission.csv, report_narrative.md, competition_understanding.md,
-            data_analysis.md]
+            data_analysis.md, batch_done.marker]
 shared:
   competition_id: spooky-author-identification
   mlebench_data_dir: "$HOME/.mlebench/data"
@@ -110,7 +110,7 @@ workflow:
       # ../../ = $SAAGE_CACHE), stamped, so rounds 2+ skip it
       - id: run_batch
         type: command
-        run: 'python3 -m saage.remote.batch
+        run: '"{{ engine_python }}" -m saage.remote.batch
               --experiment-flow "{{ flow_dir }}/experiment.yaml"
               --proposals proposals/current/p0.md proposals/current/p1.md proposals/current/p2.md
               --targets "{{ batch_targets }}"
@@ -142,6 +142,12 @@ workflow:
           consec_failed_rounds: "FAILURES=([0-9]+)"
           target_met: "TARGET_MET=([01])"
           round_no: "ROUND_NO=([0-9]+)"
+
+  # the climb is over — `saage remote sweep-watch` sees this marker on the
+  # mirror and releases the worker boxes while the tail below runs here
+  - id: mark_batch_done
+    type: command
+    run: 'date -u +%FT%TZ > batch_done.marker && echo MARKED'
 
   # ---- identical to flow.yaml: final train, submit, report, grade ----
   - id: final_train_loop

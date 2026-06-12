@@ -8,16 +8,18 @@ from . import observe
 from .creds import (CredsError, add_target, cred_path, ensure_ssh_key,
                     get_target, list_targets, load_creds, storage_config)
 from .handoff import HandoffError, handoff
+from .fleet import FleetError
 from .lambda_api import LambdaAPI, LambdaError, SAAGE_KEY_NAME, pick_instance_type, wait_active, wait_ssh
 from .provision import ProvisionError
 from .sshio import SSHError
+from .thunder import ThunderError
 from .state import find_run
 from .target import PreflightError, SshTarget
 from .workspace import DirtyWorkspace, WorkspaceError
 
 _ERRORS = (CredsError, HandoffError, PreflightError, ProvisionError,
            WorkspaceError, DirtyWorkspace, SSHError, LambdaError,
-           FileNotFoundError)
+           FleetError, ThunderError, FileNotFoundError)
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -102,6 +104,42 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
 
     tm = rsub.add_parser("terminate", help="terminate a spawned instance (stops billing)")
     tm.add_argument("target", help="target name or instance IP")
+
+    su = rsub.add_parser("sweep-up",
+                         help="fire-and-forget a batched flow: spawn a "
+                              "coordinator + N workers, scope creds, hand off")
+    su.add_argument("flow", metavar="flow.yaml")
+    su.add_argument("--workers", type=int, required=True)
+    su.add_argument("--cloud", choices=["thunder", "lambda"], default="thunder")
+    su.add_argument("--gpu", default="auto")
+    su.add_argument("--slots", type=int, default=1,
+                    help="concurrent runs per worker box")
+    su.add_argument("--set", dest="overrides", metavar="KEY=VALUE",
+                    action="append", default=[])
+    su.add_argument("--env", dest="env", metavar="KEY=VALUE",
+                    action="append", default=[])
+    su.add_argument("--provision-cmd", default=None,
+                    help="one-time coordinator setup (cwd has ./files)")
+    su.add_argument("--provision-files", default=None, metavar="DIR",
+                    help="local dir staged for --provision-cmd")
+    su.add_argument("--max-run-days", type=float, default=2.0)
+    su.add_argument("--bootstrap-timeout", type=int, default=1800)
+    su.add_argument("--dirty", choices=["abort", "commit", "ship-head"],
+                    default="abort")
+
+    sw = rsub.add_parser("sweep-watch",
+                         help="babysit a sweep via the R2 mirror: release "
+                              "workers at the batch-done marker, fetch + "
+                              "tear down everything at the final phase")
+    sw.add_argument("run", nargs="?", default=None, help="run id (default: latest)")
+    sw.add_argument("--interval", type=int, default=60)
+    sw.add_argument("--dest", default=None, help="fetch destination")
+
+    sd = rsub.add_parser("sweep-down",
+                         help="terminate a sweep's boxes (artifacts stay on "
+                              "the mirror)")
+    sd.add_argument("sweep_id")
+    sd.add_argument("--only-workers", action="store_true")
 
     st = rsub.add_parser("status", help="phase, heartbeat, ledger, log tail")
     st.add_argument("run", nargs="?", default=None, help="run id or prefix (default: latest)")
@@ -229,6 +267,41 @@ def _dispatch(args: argparse.Namespace) -> int:
         return _spawn(args)
     if cmd == "terminate":
         return _terminate(args)
+    if cmd == "sweep-up":
+        from pathlib import Path
+
+        from .fleet import sweep_up
+        rs = sweep_up(
+            args.flow, n_workers=args.workers, cloud=args.cloud, gpu=args.gpu,
+            worker_slots=args.slots,
+            set_args=_parse_kv(args.overrides, "--set"),
+            extra_env=_parse_kv(args.env, "--env"),
+            provision_cmd=args.provision_cmd,
+            provision_files=Path(args.provision_files) if args.provision_files else None,
+            max_run_days=args.max_run_days,
+            bootstrap_timeout=args.bootstrap_timeout, dirty=args.dirty)
+        state = rs.state()
+        print(f"sweep {state['sweep_id']} up — run {rs.run_id}")
+        print(f"boxes: {', '.join(state['sweep_boxes'])}")
+        print(f"watch + auto-teardown:  saage remote sweep-watch {rs.run_id}")
+        print(f"manual teardown:        saage remote sweep-down {state['sweep_id']}")
+        return 0
+    if cmd == "sweep-watch":
+        from pathlib import Path
+
+        from .fleet import sweep_watch
+        out = sweep_watch(args.run, interval=args.interval,
+                          fetch_dest=Path(args.dest) if args.dest else None)
+        print(f"run finished: {out['phase']}; fetched {len(out['fetched'])} "
+              f"file(s) → {out['dest']}")
+        print(f"terminated: {', '.join(out['terminated']) or '(nothing live)'}")
+        return 0
+    if cmd == "sweep-down":
+        from .fleet import sweep_down
+        done = sweep_down(args.sweep_id, only_workers=args.only_workers)
+        print(f"terminated: {', '.join(done) or '(nothing live)'} — "
+              f"targets de-registered")
+        return 0
     if cmd == "status":
         return observe.status(args.run)
     if cmd == "logs":

@@ -53,7 +53,7 @@ workflow:
       # `|| true` so an all-failed round becomes ledger data, not flow death
       - id: run_batch
         type: command
-        run: 'python3 -m saage.remote.batch
+        run: '"{{ engine_python }}" -m saage.remote.batch
               --experiment-flow "{{ flow_dir }}/experiment.yaml"
               --proposals proposals/current/p0.md proposals/current/p1.md proposals/current/p2.md
               --targets "{{ batch_targets }}"
