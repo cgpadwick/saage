@@ -62,6 +62,7 @@ class Target:
     user: str | None = None
     port: int = 22
     hourly_usd: float = 0.0
+    max_runs: int = 1               # concurrent runs the box may host (slots)
     key: Path = field(default_factory=ssh_key_path)
 
 
@@ -142,6 +143,7 @@ def list_targets(creds: dict | None = None) -> dict[str, Target]:
             user=t.get("user"),
             port=int(t.get("port", 22)),
             hourly_usd=float(t.get("hourly_usd", 0.0)),
+            max_runs=max(1, int(t.get("max_runs", 1))),
             key=_resolve_key(t["key"]) if t.get("key") else ssh_key_path(),
         )
     return out
@@ -159,7 +161,8 @@ def get_target(name: str) -> Target:
 
 
 def add_target(name: str, host: str, user: str | None = None, port: int = 22,
-               hourly_usd: float | None = None, key: str | None = None) -> Path:
+               hourly_usd: float | None = None, key: str | None = None,
+               max_runs: int = 1) -> Path:
     """Append a [targets.<name>] section. Errors if the target already exists."""
     if any(c in name for c in " .[]\"'"):
         raise CredsError(f"invalid target name {name!r}")
@@ -178,6 +181,8 @@ def add_target(name: str, host: str, user: str | None = None, port: int = 22,
         lines.append(f"port = {port}")
     if hourly_usd is not None:
         lines.append(f"hourly_usd = {hourly_usd}")
+    if max_runs != 1:
+        lines.append(f"max_runs = {int(max_runs)}")
     if key:
         # TOML literal string: backslashes in a Windows path must not be
         # parsed as escape sequences

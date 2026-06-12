@@ -33,6 +33,9 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                      help="rented box? status/ps will show running cost")
     add.add_argument("--key", default=None,
                      help="private key path for this target (default: the saage key)")
+    add.add_argument("--slots", type=int, default=1, metavar="N",
+                     help="concurrent runs this box may host (default 1; "
+                          "GPU contention is your call)")
     add.add_argument("--no-check", action="store_true",
                      help="skip the ssh reachability check")
 
@@ -72,6 +75,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                     help="GPU class (a10/a100/h100/gh200), exact instance type, "
                          "or 'auto' = cheapest with capacity (default)")
     sp.add_argument("--name", default=None, help="target name (default: lambda-<hhmm>)")
+    sp.add_argument("--slots", type=int, default=1, metavar="N",
+                    help="concurrent runs the new box may host (default 1)")
     sp.add_argument("--extra-key", action="append", default=[],
                     help="also authorize this Lambda-registered ssh key name on "
                          "the node (repeatable)")
@@ -163,7 +168,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     if cmd == "add-target":
         ensure_ssh_key()
         path = add_target(args.name, args.host, args.user, args.port,
-                          args.hourly_usd, key=args.key)
+                          args.hourly_usd, key=args.key, max_runs=args.slots)
         print(f"target {args.name!r} added to {path}")
         if not args.no_check:
             warnings = SshTarget(get_target(args.name)).preflight()
@@ -244,7 +249,8 @@ def _spawn(args: argparse.Namespace) -> int:
                 conn = SSHConn(host=ip, user="ubuntu", key=key_path)
                 conn.run("cat >> ~/.ssh/authorized_keys", input="\n".join(extras) + "\n")
 
-        add_target(name, ip, user="ubuntu", hourly_usd=price)
+        add_target(name, ip, user="ubuntu", hourly_usd=price,
+                   max_runs=args.slots)
     except BaseException:
         _ensure_terminated(api, iid)
         raise

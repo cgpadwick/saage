@@ -55,10 +55,13 @@ class SshTarget:
                     f"target {self.target.name!r} is missing {tool!r} — install "
                     f"it: ssh the box and run `sudo apt-get install -y {tool}`")
         busy = self.sessions()
-        if busy:
+        if len(busy) >= self.target.max_runs:
+            cap = (f"{self.target.max_runs} concurrent runs"
+                   if self.target.max_runs > 1 else "one run per box")
             raise PreflightError(
-                f"target {self.target.name!r} already has a saage run: {', '.join(busy)} "
-                f"(one run per box; `saage remote kill` it first)"
+                f"target {self.target.name!r} is at capacity ({cap}): "
+                f"{', '.join(busy)} — `saage remote kill` one, or register the "
+                f"target with a higher max_runs"
             )
         if not conn.ok("command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null"):
             msg = f"target {self.target.name!r} has no working GPU (nvidia-smi)"
@@ -79,6 +82,10 @@ class SshTarget:
         self.conn.run(f"bash $HOME/{self.run_dir(run_id)}/stop.sh", timeout=60)
 
     # -- introspection -----------------------------------------------------------
+
+    def free_slots(self) -> int:
+        """Capacity remaining right now: max_runs minus live saage sessions."""
+        return max(0, self.target.max_runs - len(self.sessions()))
 
     def sessions(self) -> list[str]:
         proc = self.conn.run("tmux ls 2>/dev/null", check=False)

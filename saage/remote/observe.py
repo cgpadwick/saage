@@ -114,6 +114,12 @@ def status(run_ref: str | None) -> int:
             t0 = datetime.strptime(started, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
             hours = (datetime.now(timezone.utc) - t0).total_seconds() / 3600
             cost = f"   ~${hours * info['hourly_usd']:.2f} so far — remember: terminating the box is on you"
+            try:
+                shared = get_target(state["target"]).max_runs
+            except Exception:           # target since removed from creds — fine
+                shared = 1
+            if shared > 1:
+                cost += f" (box rate; up to {shared} runs share this box)"
         except ValueError:
             pass
 
