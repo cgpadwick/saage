@@ -66,8 +66,8 @@ def provision_node(target: Target, command: str, *, key: str | None = None,
     - runs with cwd ``$SAAGE_CACHE/provision/<key>/`` and ``$SAAGE_CACHE``
       exported; the command's job is to populate cache entries
       (``$SAAGE_CACHE/datasets/...``, ``$SAAGE_CACHE/venvs/...``).
-    - ``files``: a local dir rsynced into the provision cwd first (setup
-      scripts, requirement files).
+    - ``files``: a local dir rsynced to ``./files/`` inside the provision
+      cwd first (setup scripts, requirement files, staged datasets).
     - ``env``: extra env for the command; storage (R2) credentials are
       included by default so dataset pulls from the bucket just work. The
       env file is removed after the attempt — secrets never persist.
@@ -81,7 +81,10 @@ def provision_node(target: Target, command: str, *, key: str | None = None,
     pdir = f".saage_cache/provision/{key}"
     conn.run(f"mkdir -p $HOME/{pdir}")
     if files is not None:
-        conn.rsync_to(Path(files).as_posix() + "/", f"{pdir}/",
+        # into ./files/, NOT the cwd root — the cwd also briefly holds the
+        # env file (secrets) and provision.sh, which a `cp -r` of staged
+        # data must never sweep up
+        conn.rsync_to(Path(files).as_posix() + "/", f"{pdir}/files/",
                       excludes=("__pycache__", ".git"))
     env_vars = dict(env or {})
     if with_storage_env:

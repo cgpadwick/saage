@@ -1,0 +1,166 @@
+# Kaggle solver, BATCHED hill-climb variant (plan §3 P3, via the phase-2
+# machinery of docs/batched_hillclimb_plan.md): identical to flow.yaml
+# through the baseline, then each round proposes K=3 diverse experiments,
+# fans them out over `batch_targets` (one short-train per box, competition
+# data provisioned once per node from the coordinator's prepared copy),
+# applies the round winner's patch, and reproposes from the full ledger.
+#
+# The coordinator runs locally (needs the prepared data + a GPU for the
+# baseline/final train); the engine venv must be on PATH for run_batch:
+#   source .venv/bin/activate
+#   OPENROUTER_API_KEY=... saage run flows/kaggle_solver/flow_batch.yaml \
+#     --workspace /tmp/kaggle_batch \
+#     --set competition_id=spooky-author-identification \
+#     --set lower_is_better=true \
+#     --set batch_targets=w1,w2,w3
+provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
+workspace: /tmp/saage_kaggle_batch
+artifacts: [experiments.jsonl, research_log.md, eval_results.json,
+            submission.csv, report_narrative.md, competition_understanding.md,
+            data_analysis.md]
+shared:
+  competition_id: spooky-author-identification
+  mlebench_data_dir: "$HOME/.mlebench/data"
+  device: cpu                  # coordinator-side; overwritten by prepare
+  device_override: ""
+  metric_name: "the competition metric"
+  lower_is_better: false       # SET THIS PER COMPETITION
+  target_score: ""             # optional early exit
+  short_epochs: 15
+  final_epochs: 100
+  batch_targets: ""            # comma-separated worker targets (REQUIRED)
+  max_failed_rounds: 2         # consecutive no-improvement rounds before exit
+  best_score: "nan"
+  candidate_score: "nan"
+  round_no: 0
+  consec_failed_rounds: 0
+  target_met: 0
+  round_ok: 0
+  best_index: -1
+  best_patch: ""
+  sample_submission_cols: ""
+  sample_submission_rows: 0
+  run_branch: ""
+  final_score: "nan"
+
+workflow:
+  # ---- identical to flow.yaml: stage data, git/ledger, understand, EDA ----
+  - id: prepare
+    type: command
+    run: 'python3 "{{ flow_dir }}/prepare_comp.py" --comp {{ competition_id }} --data-dir "{{ mlebench_data_dir }}" --device "{{ device_override }}"'
+    set:
+      sample_submission_cols: "SAMPLE_COLS=(.*)"
+      sample_submission_rows: "SAMPLE_ROWS=([0-9]+)"
+      device: "DEVICE=(\\S+)"
+  - id: setup
+    type: command
+    run: 'python3 "{{ flow_dir }}/setup_competition.py" --comp {{ competition_id }} --metric "{{ metric_name }}" --lower-is-better {{ lower_is_better }} --short-epochs {{ short_epochs }} --final-epochs {{ final_epochs }} --branch "{{ run_branch }}"'
+  - id: understand_loop
+    type: retry_loop
+    max_iterations: 3
+    action: { id: comp_understanding, type: agent, skill: comp_understanding, max_steps: 30 }
+    check:  { id: comp_understanding_critic, type: agent, skill: comp_understanding_critic, max_steps: 10 }
+  - id: eda_loop
+    type: retry_loop
+    max_iterations: 3
+    action: { id: eda, type: agent, skill: eda, max_steps: 35 }
+    check:  { id: eda_critic, type: agent, skill: eda_critic, max_steps: 10 }
+
+  # ---- baseline (coordinator-local, same as flow.yaml) ----
+  - id: baseline_build
+    type: retry_loop
+    max_iterations: 3
+    action: { id: build_baseline, type: agent, skill: build_baseline, max_steps: 45 }
+    check:
+      id: baseline_smoke
+      type: command
+      run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+  - id: baseline_train_loop
+    type: retry_loop
+    max_iterations: 2
+    action:
+      id: baseline_train
+      type: command
+      run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+      set: { candidate_score: "VAL_SCORE=(\\S+)" }
+    check: { id: baseline_verify, type: agent, skill: verify_training, max_steps: 12 }
+  - id: baseline_record
+    type: command
+    run: 'python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best nan --failures 0 --lower-is-better {{ lower_is_better }} --target "{{ target_score }}" --baseline true'
+    set:
+      best_score: "BEST_SCORE=(\\S+)"
+      target_met: "TARGET_MET=([01])"
+
+  # ---- the batched hill-climb: K=3 parallel experiments per round ----
+  - id: batch_rounds
+    type: counting_loop
+    max_iterations: 10
+    exit_when: "consec_failed_rounds >= max_failed_rounds or target_met == 1"
+    body:
+      - id: propose_loop
+        type: retry_loop
+        max_iterations: 3
+        action: { id: propose_batch, type: agent, skill: propose_batch, max_steps: 25 }
+        check:  { id: propose_critic_batch, type: agent, skill: propose_critic_batch, max_steps: 12 }
+
+      # data provisioned once per node: rsync the coordinator's prepared
+      # public split into the node cache (relative to the provision cwd —
+      # ../../ = $SAAGE_CACHE), stamped, so rounds 2+ skip it
+      - id: run_batch
+        type: command
+        run: 'python3 -m saage.remote.batch
+              --experiment-flow "{{ flow_dir }}/experiment.yaml"
+              --proposals proposals/current/p0.md proposals/current/p1.md proposals/current/p2.md
+              --targets "{{ batch_targets }}"
+              --workspace "{{ workspace }}"
+              --results-dir "batch/round_{{ round_no }}"
+              --set short_epochs={{ short_epochs }}
+              --set competition_id={{ competition_id }}
+              --lower-is-better {{ lower_is_better }}
+              --provision-files "{{ mlebench_data_dir }}/{{ competition_id }}/prepared/public"
+              --provision-cmd "mkdir -p ../../datasets/mlebench/{{ competition_id }} && rm -rf ../../datasets/mlebench/{{ competition_id }}/public && cp -r files ../../datasets/mlebench/{{ competition_id }}/public"
+              --need-gpu --max-hours 1.5 || true'
+        set:
+          candidate_score: "BEST_SCORE=(\\S+)"
+          best_index: "BEST_INDEX=(-?[0-9]+)"
+          best_patch: "BEST_PATCH=(.*)"
+          round_ok: "ROUND_OK=([0-9]+)"
+
+      - id: integrate
+        type: command
+        run: 'python3 "{{ flow_dir }}/integrate_batch.py"
+              --candidate {{ candidate_score }} --best {{ best_score }}
+              --lower-is-better {{ lower_is_better }}
+              --patch "{{ best_patch }}"
+              --summary "batch/round_{{ round_no }}/summary.json"
+              --target "{{ target_score }}" --failures {{ consec_failed_rounds }}
+              --round {{ round_no }}'
+        set:
+          best_score: "BEST_SCORE=(\\S+)"
+          consec_failed_rounds: "FAILURES=([0-9]+)"
+          target_met: "TARGET_MET=([01])"
+          round_no: "ROUND_NO=([0-9]+)"
+
+  # ---- identical to flow.yaml: final train, submit, report, grade ----
+  - id: final_train_loop
+    type: retry_loop
+    max_iterations: 2
+    action:
+      id: final_train
+      type: command
+      run: 'python3 train.py --device {{ device }} --epochs {{ final_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+      set: { final_score: "VAL_SCORE=(\\S+)" }
+    check: { id: final_verify, type: agent, skill: verify_training, max_steps: 12 }
+  - id: submission_loop
+    type: retry_loop
+    max_iterations: 3
+    action: { id: make_submission, type: agent, skill: make_submission, max_steps: 30 }
+    check:
+      id: validate_submission
+      type: command
+      run: 'python3 "{{ flow_dir }}/validate_submission.py"'
+  - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 20 }
+  - id: grade
+    type: command
+    run: 'python3 "{{ flow_dir }}/grade.py" --comp {{ competition_id }} --data-dir "{{ mlebench_data_dir }}" || true'
+    set: { medal: "MEDAL=(\\S+)" }

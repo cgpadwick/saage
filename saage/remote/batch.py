@@ -88,6 +88,7 @@ def run_round(experiment_flow: Path, proposals: list[Path], targets: list,
               set_args: dict | None = None, lower_is_better: bool = False,
               max_hours: float = 2.0, poll_interval: float = 30.0,
               stale_after: float = 120.0, provision_cmd: str | None = None,
+              provision_files: Path | None = None,
               handoff_opts: dict | None = None, ops=None, clock=None,
               dispatcher_cls=Dispatcher) -> dict:
     """Dispatch one experiment per proposal, wait for all, score, pick."""
@@ -105,6 +106,7 @@ def run_round(experiment_flow: Path, proposals: list[Path], targets: list,
     extra = {"clock": clock} if clock is not None else {}
     d = dispatcher_cls(str(experiment_flow), jobs, targets, ops=ops,
                        provision_cmd=provision_cmd,
+                       provision_files=provision_files,
                        max_hours=max_hours, poll_interval=poll_interval,
                        stale_after=stale_after, fetch_dest=results_dir,
                        dispatch_workers=max(4, len(jobs)),
@@ -158,11 +160,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--results-dir", required=True)
     ap.add_argument("--set", dest="set_args", action="append", default=[],
                     metavar="KEY=VALUE")
-    ap.add_argument("--lower-is-better", default="false",
-                    choices=["true", "false"])
+    ap.add_argument("--lower-is-better", default="false", type=str.lower,
+                    choices=["true", "false"])    # templates render bools as True/False
     ap.add_argument("--max-hours", type=float, default=2.0)
     ap.add_argument("--poll-interval", type=float, default=30.0)
     ap.add_argument("--provision-cmd", default=None)
+    ap.add_argument("--provision-files", default=None, metavar="DIR",
+                    help="local dir rsynced into the provision cwd on each "
+                         "node (e.g. prepared competition data)")
     ap.add_argument("--bootstrap-timeout", type=int, default=1800)
     ap.add_argument("--need-gpu", action="store_true")
     args = ap.parse_args(argv)
@@ -179,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         lower_is_better=args.lower_is_better == "true",
         max_hours=args.max_hours, poll_interval=args.poll_interval,
         provision_cmd=args.provision_cmd,
+        provision_files=Path(args.provision_files) if args.provision_files else None,
         handoff_opts={"bootstrap_timeout": args.bootstrap_timeout,
                       "need_gpu": args.need_gpu},
     )

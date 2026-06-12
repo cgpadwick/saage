@@ -45,6 +45,22 @@ Key knobs (`--set`): `short_epochs` (per-experiment budget, default 15),
 `final_epochs` (default 100), `max_consecutive_failures` (default 10),
 `target_score` (optional early exit), `device` (auto-detected).
 
+### Batched variant (P3): K=3 parallel experiments per round
+
+`flow_batch.yaml` keeps the same pipeline through the baseline, then each
+hill-climb round proposes **3 diverse experiments at once** (one agent
+call, set-level critic), runs them in parallel across registered GPU boxes
+(`saage.remote.batch`: per-node data provisioning from your prepared copy,
+patches back as artifacts), applies the round winner, and reproposes from
+the full ledger. Run from an activated engine venv:
+
+```bash
+saage remote spawn --name w1   # ×K, or reuse registered targets
+saage run flows/kaggle_solver/flow_batch.yaml --workspace /tmp/kaggle_batch \
+  --set competition_id=... --set lower_is_better=... \
+  --set batch_targets=w1,w2,w3
+```
+
 ## How it works
 
 ```
