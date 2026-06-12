@@ -93,3 +93,23 @@ def test_render_default_filter_does_not_warn(caplog):
         out = render('{{ proposal | default("(none)") }}', {})
     assert out == "(none)"
     assert not caplog.records                    # silent — no spurious warning
+
+
+def test_malformed_tool_args_become_error_result_not_crash(tmp_path):
+    # a model emitting invalid JSON args (seen with deepseek tool calls)
+    # must get an ERROR tool result and continue, never kill the process
+    from saage.llm import MALFORMED_ARGS, ToolCall
+    provider = ScriptedProvider([
+        LLMResponse("", [ToolCall("c1", "write_file",
+                                  {MALFORMED_ARGS: "Unterminated string"})]),
+        resp("recovered"),
+    ])
+    assert run_agent(provider, "sys", "task", file_tools(tmp_path)) == "recovered"
+    assert not list(tmp_path.iterdir())              # nothing was executed
+
+
+def test_parse_args_tags_bad_json_and_non_objects():
+    from saage.llm import MALFORMED_ARGS, _parse_args
+    assert _parse_args('{"path": "x"}') == {"path": "x"}
+    assert MALFORMED_ARGS in _parse_args('{"path": "unterminated')
+    assert MALFORMED_ARGS in _parse_args('[1, 2]')

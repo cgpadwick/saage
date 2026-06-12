@@ -18,6 +18,10 @@ from typing import Protocol
 from .retry import RetryPolicy, call_with_retry
 from .tools import Tool
 
+# sentinel key marking a tool call whose arguments were not valid JSON —
+# the agent loop turns it into an ERROR tool result instead of crashing
+MALFORMED_ARGS = "__malformed_args__"
+
 
 @dataclass
 class ToolCall:
@@ -129,9 +133,21 @@ class OpenAIProvider:
                 tools=self._tools(tools) or None),
             policy=self.retry_policy, what="openai.chat.completions.create")
         m = r.choices[0].message
-        calls = [ToolCall(tc.id, tc.function.name, json.loads(tc.function.arguments))
+        calls = [ToolCall(tc.id, tc.function.name, _parse_args(tc.function.arguments))
                  for tc in (m.tool_calls or [])]
         return LLMResponse(m.content or "", calls)
+
+
+def _parse_args(raw: str) -> dict:
+    """Models occasionally emit invalid JSON in tool arguments. That is the
+    model's mistake, not a process-fatal event: tag the call so the agent
+    loop returns an ERROR tool result and the model can retry."""
+    try:
+        args = json.loads(raw)
+        return args if isinstance(args, dict) else \
+            {MALFORMED_ARGS: f"arguments must be a JSON object, got: {raw[:200]}"}
+    except json.JSONDecodeError as exc:
+        return {MALFORMED_ARGS: f"{exc} in: {raw[:200]}"}
 
 
 # --------------------------------------------------------------------------- #

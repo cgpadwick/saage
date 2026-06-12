@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from .llm import LLMProvider
+from .llm import MALFORMED_ARGS, LLMProvider
 from .spinner import Spinner
 from .tools import Tool
 
@@ -37,7 +37,11 @@ def run_agent(provider: LLMProvider, system: str, task: str,
         for call in resp.tool_calls:
             log.info("    ⚙ %s %s", call.name, _brief(call.args))
             tool = by_name.get(call.name)
-            if tool is None:
+            if MALFORMED_ARGS in call.args:
+                out = (f"ERROR: your arguments for {call.name!r} were not "
+                       f"valid JSON ({call.args[MALFORMED_ARGS]}). "
+                       "Repeat the call with valid JSON arguments.")
+            elif tool is None:
                 out = f"ERROR: unknown tool {call.name!r}"
             else:
                 try:
