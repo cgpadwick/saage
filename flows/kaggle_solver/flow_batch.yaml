@@ -140,7 +140,7 @@ workflow:
               --lower-is-better {{ lower_is_better }}
               --provision-files "{{ mlebench_data_dir }}/{{ competition_id }}/prepared/public"
               --provision-cmd "mkdir -p ../../datasets/mlebench/{{ competition_id }} && rm -rf ../../datasets/mlebench/{{ competition_id }}/public && cp -r files ../../datasets/mlebench/{{ competition_id }}/public && pip3 install --user -q scikit-learn pandas xgboost lightgbm"
-              --need-gpu --max-hours 1.5 || true'
+              --need-gpu --max-hours 0.5 || true'
         set:
           candidate_score: "BEST_SCORE=(\\S+)"
           best_index: "BEST_INDEX=(-?[0-9]+)"

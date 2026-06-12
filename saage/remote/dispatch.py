@@ -58,6 +58,9 @@ class Job:
     env: dict = field(default_factory=dict)
     flow_file: str | None = None    # overrides the dispatcher-wide flow
     max_attempts: int = 2
+    retry_timeouts: bool = True     # False: a deadline kill is final (batch
+                                    # rounds — a too-slow idea re-hangs on
+                                    # retry and stalls the barrier twice)
     # supervised state
     status: str = "queued"      # queued|dispatching|running|<FINAL>
     target: str | None = None
@@ -306,6 +309,8 @@ class Dispatcher:
             node.in_flight -= 1
         job.error = why
         retryable = status in _RETRYABLE or status == "error"
+        if status == "timeout" and not job.retry_timeouts:
+            retryable = False
         if retryable and job.attempts < job.max_attempts:
             job.status, job.run_id, job.started = "queued", None, None
             log.info("job %s requeued after %s (%s)", job.name, status, why)

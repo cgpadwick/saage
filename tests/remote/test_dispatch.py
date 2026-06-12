@@ -222,3 +222,14 @@ def test_set_args_pass_through_per_job():
     ops = FakeOps(clock)
     _dispatch(_jobs(3), _targets(a=3), ops, clock)
     assert sorted(s["seed"] for _, s in ops.handoffs) == ["0", "1", "2"]
+
+
+def test_timeout_is_final_when_retries_disabled():
+    clock = FakeClock()
+    ops = FakeOps(clock, phase_for=lambda t, n: "running")   # wedged forever
+    jobs = [Job(name="j0", retry_timeouts=False)]
+    out = _dispatch(jobs, _targets(a=1), ops, clock,
+                    max_hours=0.5, poll_interval=1800)
+    assert out[0].status == "timeout"
+    assert out[0].attempts == 1                 # no second stall of the barrier
+    assert len(ops.kills) == 1

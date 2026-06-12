@@ -101,6 +101,8 @@ def run_round(experiment_flow: Path, proposals: list[Path], targets: list,
         flow_file = stage_job_flow(experiment_flow, prop, workspace,
                                    stage_root, i)
         jobs.append(Job(name=f"p{i}", flow_file=str(flow_file),
+                        retry_timeouts=False,   # a too-slow experiment is a
+                                                # result, not a retry
                         set_args={**(set_args or {}), "job_index": str(i)}))
 
     extra = {"clock": clock} if clock is not None else {}
