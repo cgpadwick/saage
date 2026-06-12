@@ -150,13 +150,29 @@ class ThunderBackend:
     def __init__(self):
         self._spawned: list[str] = []   # uuids
 
-    def spawn(self, name: str, gpu: str, slots: int) -> Target:
+    def spawn(self, name: str, gpu: str, slots: int,
+              avoid_ips: tuple = ()) -> Target:
         gpu = "a6000" if gpu == "auto" else gpu
         log.info("launching thunder %s (~$%.2f/hr) as %r",
                  gpu, self.HOURLY.get(gpu, 0.0), name)
-        uuid, key_pem = thunder.create(gpu=gpu)
-        self._spawned.append(uuid)
-        inst = thunder.wait_running(uuid)
+        inst = None
+        for attempt in range(3):
+            uuid, key_pem = thunder.create(gpu=gpu)
+            self._spawned.append(uuid)
+            inst = thunder.wait_running(uuid)
+            if inst.ip not in avoid_ips:
+                break
+            # Thunder proxies block hairpin connections: a box cannot reach
+            # a sibling behind its own shared proxy IP, so a worker on the
+            # coordinator's IP would be quarantined every round
+            log.warning("%s landed on an avoided proxy IP (%s) — respawning",
+                        name, inst.ip)
+            thunder.delete_by_uuid(uuid)
+            self._spawned.remove(uuid)
+            inst = None
+        if inst is None:
+            raise FleetError(
+                f"could not get {name!r} off the avoided proxy IPs in 3 tries")
         key_path = saage_home() / "ssh" / f"{name}_key"
         key_path.parent.mkdir(parents=True, exist_ok=True)
         key_path.write_text(key_pem)
@@ -229,7 +245,10 @@ def sweep_up(flow: str, *, n_workers: int, cloud: str = "thunder",
 
     try:
         coordinator = backend.spawn(coord_name, gpu, 1)
-        workers = [backend.spawn(n, gpu, worker_slots) for n in worker_names]
+        avoid = ({"avoid_ips": (coordinator.host,)}
+                 if isinstance(backend, ThunderBackend) else {})
+        workers = [backend.spawn(n, gpu, worker_slots, **avoid)
+                   for n in worker_names]
 
         # the per-sweep key is the ONLY laptop credential the coordinator
         # gets, and it opens only these boxes

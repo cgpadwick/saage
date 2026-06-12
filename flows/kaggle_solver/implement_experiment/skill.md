@@ -25,6 +25,14 @@ WORKFLOW:
 4. Verify with `run_command: python -B -m pytest -q tests/` and fix failures.
 
 CRITICAL RULES (the harness depends on these):
+- **The change must be ACTIVE under the exact harness invocation**
+  `python3 train.py --device <d> --epochs <n> --data-path data/
+  --checkpoint-dir checkpoints/`. NEVER hide it behind a new CLI flag,
+  config key, or env var that defaults to the old behavior — if you add
+  a flag, its DEFAULT must BE the proposed behavior. An implementation
+  that still trains the old model under that invocation is a FAILED
+  implementation (it scores identically to the baseline and the round
+  is wasted).
 - Keep the train.py CLI stable: `--device --epochs --data-path
   --checkpoint-dir --lr`, allow_abbrev=False.
 - train.py still prints train AND validation metrics per epoch, saves the

@@ -38,6 +38,10 @@ EACH proposal file must contain:
 
 HARD CONSTRAINTS (a proposal that breaks these is wasted compute):
 - ONE self-contained change per proposal — no "and also..." stacking.
+- The change must REPLACE the current default behavior. The harness always
+  runs plain `train.py` with the contract flags — anything optional or
+  flag-gated never executes. Say explicitly "replace X with Y", never
+  "add Y as an option".
 - Do NOT propose changing the training budget (epochs are fixed at
   {{ short_epochs }} by the harness) or the validation protocol.
 - The train.py contract is frozen: CLI flags, `eval_results.json` +

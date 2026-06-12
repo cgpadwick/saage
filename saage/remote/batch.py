@@ -139,6 +139,8 @@ def run_round(experiment_flow: Path, proposals: list[Path], targets: list,
 
     summary = {
         "proposals": [r.to_dict() for r in results],
+        "quarantined": {n.target.name: n.quarantined
+                        for n in d.nodes if n.quarantined},
         "ok": sum(1 for r in results if r.status == "done"),
         "failed": sum(1 for r in results if r.status != "done"),
         "best_index": best.index if best else None,
@@ -191,6 +193,8 @@ def main(argv: list[str] | None = None) -> int:
     for r in summary["proposals"]:
         print(f"  p{r['index']}: status={r['status']} score={r['score']} "
               f"target={r['target']}")
+    for name, why in summary["quarantined"].items():
+        print(f"  QUARANTINED {name}: {why}")
     print(f"ROUND_OK={summary['ok']}")
     print(f"ROUND_FAILED={summary['failed']}")
     print(f"BEST_INDEX={summary['best_index'] if summary['best_index'] is not None else -1}")
