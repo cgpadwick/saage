@@ -44,7 +44,14 @@ workflow:
           --data-path data/ --checkpoint-dir checkpoints/ > training.log 2>&1
           && python3 "{{ flow_dir }}/read_val_score.py"'
 
+  # eval_results.json is TRACKED (the baseline committed it), so the
+  # worker excludes don't apply to it — drop it from the patch explicitly.
+  # An empty patch means the implement agent changed nothing: that is a
+  # FAILED experiment (nan, can't win a round), not a candidate.
   - id: make_patch
     type: command
-    run: 'git add -A && git diff --cached --binary > experiment.patch
-          && git reset -q && wc -c experiment.patch'
+    run: 'git add -A && git reset -q -- eval_results.json
+          && git diff --cached --binary > experiment.patch && git reset -q
+          && wc -c experiment.patch
+          && { [ -s experiment.patch ]
+               || { echo "EMPTY PATCH: implement made no code changes"; exit 1; }; }'

@@ -46,9 +46,13 @@ def main() -> int:
     lower = args.lower_is_better == "true"
     candidate, best = fnum(args.candidate), fnum(args.best)
     target = fnum(args.target) if args.target else float("nan")
-    # strict inequality: ties don't churn; nan candidates never win
+    # noise floor: an "improvement" smaller than 0.01% of the incumbent is
+    # rerun jitter (seen live: a no-op experiment "winning" by 4e-8 logloss),
+    # not a result — keeping it would pollute the ledger and the git history
+    margin = abs(best) * 1e-4 if not math.isnan(best) else 0.0
     improved = not math.isnan(candidate) and (
-        math.isnan(best) or (candidate < best if lower else candidate > best))
+        math.isnan(best)
+        or (candidate < best - margin if lower else candidate > best + margin))
 
     try:
         summary = json.loads(Path(args.summary).read_text())

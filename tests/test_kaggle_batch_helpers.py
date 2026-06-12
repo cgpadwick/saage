@@ -177,3 +177,21 @@ def test_worker_setup_idempotent(ws, tmp_path):
     assert _worker_setup(ws, "spooky", cache).returncode == 0
     excl = (ws / ".git" / "info" / "exclude").read_text()
     assert excl.count("experiment.patch") == 1          # no duplicate appends
+
+
+def test_noise_level_improvement_is_rejected(ws):
+    patch = _patch_for(ws, "lr = 2\n")
+    _summary(ws)
+    # 4e-8 better on a 0.5 logloss — rerun jitter, must NOT be kept
+    out = _integrate(ws, candidate="0.5039050271", best="0.5039050688",
+                     patch=str(patch))
+    assert out["BEST_SCORE"] == "0.5039050688"
+    assert out["FAILURES"] == "1"
+    assert (ws / "train.py").read_text() == "lr = 1\n"
+
+
+def test_real_improvement_clears_the_noise_floor(ws):
+    patch = _patch_for(ws, "lr = 2\n")
+    _summary(ws)
+    out = _integrate(ws, candidate="0.4990", best="0.5039", patch=str(patch))
+    assert out["BEST_SCORE"] == "0.499"
