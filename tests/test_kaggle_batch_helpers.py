@@ -197,7 +197,7 @@ def test_real_improvement_clears_the_noise_floor(ws):
     assert out["BEST_SCORE"] == "0.499"
 
 
-# ---- check_ideas: the researcher's menu gate --------------------------------
+# ---- check_ideas: structured menu validation + rendering ---------------------
 
 def _check_ideas(ws):
     proc = subprocess.run([sys.executable, str(FLOW / "check_ideas.py")],
@@ -206,32 +206,73 @@ def _check_ideas(ws):
     return proc.stdout
 
 
-GOOD_MENU = "\n".join(
-    ["# Autoresearch ideas: spooky", "",
-     "**Hard constraints (do not violate):** budget fixed.", "",
-     "## Ranked ideas"]
-    + [f"### {i}. Idea {i} [{cat}]\nDo the thing.\n"
-       for i, cat in enumerate(
-           ["Feature Representation", "Model Family", "Optimization",
-            "Regularization", "Data Handling", "Ensembling"], start=1)]
-    + ["## Anti-ideas", "- flips — known to hurt"])
+def _menu(n=6, cats=("feature representation", "model family",
+                     "optimization & schedule", "regularization",
+                     "data handling", "ensembling")):
+    return {
+        "constraints": ["budget fixed", "contract frozen"],
+        "ideas": [{"rank": i + 1, "title": f"Idea {i + 1}",
+                   "category": cats[i % len(cats)],
+                   "change": f"change number {i + 1}", "why": "EDA says so",
+                   "cost": "fits budget"} for i in range(n)],
+        "anti_ideas": [{"technique": "flips", "reason": "hurts this metric"}],
+    }
 
 
-def test_check_ideas_passes_good_menu(ws):
-    (ws / "autoresearch_ideas.md").write_text(GOOD_MENU)
-    assert "ACTION: pass" in _check_ideas(ws)
+def _write_menu(ws, doc):
+    (ws / "autoresearch_ideas.json").write_text(json.dumps(doc))
 
 
-def test_check_ideas_fails_missing_file(ws):
+def test_check_ideas_passes_and_renders(ws):
+    _write_menu(ws, _menu())
     out = _check_ideas(ws)
-    assert "does not exist" in out and "ACTION: fail" in out
+    assert "ACTION: pass" in out
+    md = (ws / "autoresearch_ideas.md").read_text()
+    assert "### 1. Idea 1 [feature representation]" in md
+    assert "## Anti-ideas" in md and "flips" in md
 
 
-def test_check_ideas_fails_thin_or_uncategorized_menus(ws):
-    (ws / "autoresearch_ideas.md").write_text(
-        "# x\nconstraints\n## Ranked ideas\n### 1. A [cat]\n## Anti-ideas\n- y")
+def test_check_ideas_fails_missing_or_invalid_json(ws):
+    assert "does not exist" in _check_ideas(ws)
+    (ws / "autoresearch_ideas.json").write_text("{not json")
+    assert "not valid JSON" in _check_ideas(ws)
+
+
+def test_check_ideas_fails_structural_problems(ws):
+    doc = _menu()
+    doc["ideas"][2]["change"] = "  "                     # empty field
+    _write_menu(ws, doc)
+    assert "missing/empty field 'change'" in _check_ideas(ws)
+
+    doc = _menu()
+    doc["ideas"][3]["rank"] = 99                         # broken ranks
+    _write_menu(ws, doc)
+    assert "unique and contiguous" in _check_ideas(ws)
+
+    doc = _menu()
+    for i in doc["ideas"]:
+        i["category"] = "model family"                   # fake diversity
+    _write_menu(ws, doc)
+    assert "distinct categories" in _check_ideas(ws)
+
+    doc = _menu(4)                                       # too thin
+    _write_menu(ws, doc)
+    assert "at least 6" in _check_ideas(ws)
+
+
+def test_check_ideas_fails_exact_duplicates(ws):
+    doc = _menu()
+    doc["ideas"][4]["title"] = doc["ideas"][1]["title"]
+    _write_menu(ws, doc)
     out = _check_ideas(ws)
-    assert "only 1 ranked" in out and "ACTION: fail" in out
-    (ws / "autoresearch_ideas.md").write_text(GOOD_MENU.replace(
-        "## Anti-ideas\n- flips — known to hurt", ""))
-    assert "Anti-ideas" in _check_ideas(ws)
+    assert "identical title" in out and "ACTION: fail" in out
+
+
+def test_check_ideas_requires_real_anti_ideas(ws):
+    doc = _menu()
+    doc["anti_ideas"] = [{"technique": "x", "reason": ""}]
+    _write_menu(ws, doc)
+    assert "anti_ideas[0]" in _check_ideas(ws)
+    doc["anti_ideas"] = []
+    _write_menu(ws, doc)
+    assert "non-empty list" in _check_ideas(ws)
