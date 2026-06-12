@@ -29,7 +29,9 @@ shared:
   short_epochs: 15
   final_epochs: 100
   batch_targets: ""            # comma-separated worker targets (REQUIRED)
-  max_failed_rounds: 2         # consecutive no-improvement rounds before exit
+  max_failed_rounds: 4         # consecutive no-improvement rounds before exit
+                               # (= 12 experiments at K=3 — kaggle plateaus
+                               # then breaks through; don't give up at 2)
   best_score: "nan"
   candidate_score: "nan"
   round_no: 0
