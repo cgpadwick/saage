@@ -47,7 +47,7 @@ def main() -> None:
     jsonl.write_text(json.dumps(
         {"competition_id": args.comp, "submission_path": str(sub)}) + "\n")
 
-    cmd = ["mlebench", "grade", "--submission", str(jsonl)]
+    cmd = ["mlebench", "grade", "--submission", str(jsonl), "--output-dir", "."]
     if args.data_dir:
         cmd += ["--data-dir", args.data_dir]
     try:

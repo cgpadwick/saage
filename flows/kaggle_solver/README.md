@@ -17,7 +17,12 @@ log-reading.
 
 | competition | model | medal | val score | test score | cost | run |
 |---|---|---|---|---|---|---|
-| _(results land here as the benchmark sweeps run — M1/M2/M3)_ | | | | | | |
+| spooky-author-identification | deepseek-v4-flash | none | 0.3815 logloss | 0.4017 | ~$8 (4×a10, 1.6 h) | batched ×6 rounds, 2026-06-12¹ |
+
+¹ First flow_batch.yaml outing: baseline 0.5039 → 0.3815 over 6 rounds
+(18 parallel experiments); ended early on the since-raised 2-miss patience
+and surfaced the no-op-implement + noise-keep bugs the guards now cover.
+Bronze is ≈0.36 — within reach of a full-patience rerun.
 
 **The brag we're building toward:** medals per dollar — deepseek-class
 models on $0.35–1.99/hr rented GPUs, reproducible from this YAML.
