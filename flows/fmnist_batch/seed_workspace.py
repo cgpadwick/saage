@@ -17,6 +17,7 @@ data/
 eval_results.json
 experiment.patch
 training.log
+proposal.md
 proposals/
 batch/
 rounds.jsonl
