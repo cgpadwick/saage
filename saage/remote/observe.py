@@ -88,6 +88,84 @@ def refresh(rs: RunState) -> tuple[dict, dict]:
     return state, node_status
 
 
+# --------------------------------------------------------------------------- #
+# programmatic API — what a dispatcher/sweep needs; the CLI wraps these
+# --------------------------------------------------------------------------- #
+
+def poll_run(rs: RunState, *, prefer: str = "bucket") -> dict:
+    """One poll of node truth, without printing.
+
+    Returns {"phase", "updated", "source"} — phase is the node's word (or the
+    local intent when nothing answers), source ∈ node|bucket|local. With
+    prefer="bucket" the R2 mirror is consulted first (cheap, works when the
+    box is gone, never holds an ssh slot); "node" asks over ssh first. Final
+    phases fold back into local state either way.
+    """
+    storage = storage_config()
+    node_status: dict = {}
+    source = "local"
+    order = ("bucket", "node") if prefer == "bucket" else ("node", "bucket")
+    for via in order:
+        if via == "bucket" and storage:
+            node_status = _status_from_bucket(storage, rs.run_id)
+        elif via == "node":
+            try:
+                node_status = _node_for(rs).read_status(rs.run_id)
+            except Exception:           # unreachable box is an answer, not an error
+                node_status = {}
+        if node_status:
+            source = via
+            break
+    state = rs.state()
+    phase = node_status.get("phase")
+    if phase in _FINAL and state.get("phase") not in _FINAL:
+        rs.update(phase=phase)
+        rs.event("phase_from_node", phase=phase, source=source)
+    return {"phase": phase or state.get("phase"),
+            "updated": node_status.get("updated"), "source": source}
+
+
+def fetch_run(rs: RunState, dest: Path | None = None, *,
+              via_bucket: bool = False) -> tuple[Path, list[str], str]:
+    """Pull artifacts/ (+ log/status) for a run; returns (dest, files, source).
+
+    Tries the node first (unless via_bucket), falls back to the R2 mirror
+    when the node is unreachable — same semantics the CLI always had.
+    """
+    node = _node_for(rs)
+    out = dest if dest else Path.cwd() / "results" / rs.run_id
+    out.mkdir(parents=True, exist_ok=True)
+    storage = storage_config()
+    source = "node"
+    if via_bucket and not storage:
+        raise RuntimeError("--bucket: no [storage] section in credentials.toml")
+    if not via_bucket:
+        try:
+            rdir = node.run_dir(rs.run_id)
+            node.conn.rsync_from(f"{rdir}/artifacts/", out)
+            for f in ("saage.log", "status.json"):
+                try:
+                    node.conn.rsync_from(f"{rdir}/{f}", out)
+                except Exception:
+                    pass
+        except Exception:
+            if not storage:
+                raise
+            via_bucket = True            # node gone -> fall back to the mirror
+    if via_bucket:
+        source = "bucket mirror"
+        _fetch_from_bucket(storage, rs.run_id, out)
+    rs.event("fetched", dest=str(out), source=source)
+    return out, sorted(p.name for p in out.iterdir()), source
+
+
+def kill_run(rs: RunState) -> None:
+    """Stop the run (never the box) and record it locally."""
+    _node_for(rs).stop(rs.run_id)
+    rs.update(phase="killed")
+    rs.event("killed")
+
+
 def status(run_ref: str | None) -> int:
     rs = find_run(run_ref)
     state, node_status = refresh(rs)
@@ -217,41 +295,15 @@ def ps() -> int:
 
 def kill(run_ref: str) -> int:
     rs = find_run(run_ref)
-    node = _node_for(rs)
-    node.stop(rs.run_id)
-    rs.update(phase="killed")
-    rs.event("killed")
+    kill_run(rs)
     print(f"run {rs.run_id} stopped (the box is untouched — only the run was killed)")
     return 0
 
 
 def fetch(run_ref: str | None, dest: str | None = None, *, via_bucket: bool = False) -> int:
     rs = find_run(run_ref)
-    node = _node_for(rs)
-    out = Path(dest) if dest else Path.cwd() / "results" / rs.run_id
-    out.mkdir(parents=True, exist_ok=True)
-    storage = storage_config()
-    source = "node"
-    if via_bucket and not storage:
-        raise RuntimeError("--bucket: no [storage] section in credentials.toml")
-    if not via_bucket:
-        try:
-            rdir = node.run_dir(rs.run_id)
-            node.conn.rsync_from(f"{rdir}/artifacts/", out)
-            for f in ("saage.log", "status.json"):
-                try:
-                    node.conn.rsync_from(f"{rdir}/{f}", out)
-                except Exception:
-                    pass
-        except Exception:
-            if not storage:
-                raise
-            via_bucket = True            # node gone -> fall back to the mirror
-    if via_bucket:
-        source = "bucket mirror"
-        _fetch_from_bucket(storage, rs.run_id, out)
-    rs.event("fetched", dest=str(out), source=source)
-    got = sorted(p.name for p in out.iterdir())
+    out, got, source = fetch_run(rs, Path(dest) if dest else None,
+                                 via_bucket=via_bucket)
     print(f"fetched {len(got)} file(s) from {source} → {out}")
     for name in got:
         print(f"  {name}")
