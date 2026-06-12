@@ -97,13 +97,14 @@ workflow:
   # the baseline exists — writes the ranked idea menu every round draws on.
   # Inner loop gates FORMAT deterministically; the outer critic judges
   # SUBSTANCE (concrete, budget-real, grounded, honestly ranked).
+  # NOTE nested maxes multiply: 5 critic attempts x 3 format attempts each
   - id: research_loop
     type: retry_loop
-    max_iterations: 2
+    max_iterations: 5
     action:
       id: research_format_loop
       type: retry_loop
-      max_iterations: 2
+      max_iterations: 3
       action: { id: research_ideas, type: agent, skill: research_ideas, max_steps: 25 }
       check:
         id: check_ideas
