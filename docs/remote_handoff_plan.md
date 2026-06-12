@@ -667,8 +667,13 @@ plan above, decided during the build:
   collect; the old hardcoded ledger names are only the fallback. Keeps
   flow-specific naming out of the library; local runs ignore the key.
 - **Node layout**: `~/.saage_runs/<run_id>/{saage,venv,flow,ws,artifacts,...}`
-  per run; tmux session `saage-<run_id>`; one run per box enforced by
-  preflight (any `saage-*` session = busy).
+  per run; tmux session `saage-<run_id>`; concurrency capped by the target's
+  `max_runs` (default 1; `--slots` at add-target/spawn). Was strictly
+  one-per-box until the 2026-06-12 concurrency work — see
+  [batched_hillclimb_plan.md](batched_hillclimb_plan.md) for per-target
+  capacity, `$SAAGE_CACHE` + `saage remote provision` (one setup per node),
+  the public `poll_run`/`fetch_run`/`kill_run` API, and
+  `dispatch_many`/`Dispatcher` (fan-out scheduler + reaper).
 - **Bundle mode is one-way for commits in v1**: the node clones the bundle,
   but with no pushable origin the run's *commits* don't come back yet
   (`final.bundle` at exit is unimplemented) — ledgers/artifacts still return

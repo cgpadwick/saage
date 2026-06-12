@@ -1,6 +1,7 @@
 # Batched parallel hill-climb: remote fixes first, then the batch primitive
 
-**Date:** 2026-06-11 · **Status:** draft for discussion
+**Date:** 2026-06-11 · **Status:** phase 1 implemented + live-accepted
+2026-06-12 (see §3); phase 2 design open
 **Goal:** fan out *proposals* within a single flow run — propose K diverse
 experiments, run them in parallel, collect all results, repropose — and fix
 the remote-layer holes that block running K jobs at once.
@@ -121,6 +122,21 @@ jobs at once.
 and the dataset/ML-venv setup ran **once per box**, not once per run.
 *Failure drill:* kill one box mid-run — its jobs requeue and complete on
 the surviving box, the replacement (if spawned) provisions itself cold.
+
+**✓ PASSED 2026-06-12** on two spawned Lambda a10s (`ph1-a` 2 slots,
+`ph1-b` 3 slots, $1.29/hr each, terminated after):
+
+- *Stage 1:* 5 jobs dispatched concurrently, split exactly 2/3, all done;
+  provision (15 s simulated dataset pull) ran **once per box** under the
+  flock (one dated marker + one stamp each); per-job `result.txt` fetched
+  with correct per-job `--set` values and host attribution.
+- *Stage 2:* ph1-b terminated via the Lambda API with 2 of 4 jobs running
+  on it. Reaper declared it dead **~2 min** after the kill ("box
+  unreachable and heartbeats stale", with sync_interval 30 s /
+  stale_after 100 s), requeued both jobs, waited for ph1-a's slots, and
+  finished them there with fresh run_ids (`attempts=2`). Implementation:
+  commits `3edb2fb` (H1/H4), `ec8657f` (H3), `f42e8fa` (H6),
+  `716f781` (H2), `30cd045` (H5).
 
 **Phase 2 — the batch primitive** (design settles after phase 1; sketch):
 
