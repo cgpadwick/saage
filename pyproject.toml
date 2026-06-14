@@ -34,6 +34,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "boto3"]
 r2 = ["boto3"]    # laptop-side reads of the R2 artifact mirror
+# deps for PREPARING/GRADING mle-bench competitions (the kaggle_solver flow
+# itself ships as data and runs without this; prepare_comp.py fails fast with
+# install instructions). kaggle>=2.2 (KGAT access tokens) needs python >= 3.11.
+kaggle-solver = [
+    "mlebench @ git+https://github.com/openai/mle-bench.git",
+    "kaggle>=2.2",
+    "pandas",
+]
 
 [project.scripts]
 saage = "saage.cli:main"

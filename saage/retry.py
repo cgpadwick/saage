@@ -55,6 +55,12 @@ def is_retryable_error(exc: BaseException) -> bool:
     name = type(exc).__name__.lower()
     if "connection" in name or "timeout" in name:   # no HTTP response at all
         return True
+    # malformed response BODY (e.g. a proxy/CDN error page or truncated stream
+    # behind a 200): json.JSONDecodeError / httpx.DecodingError / the SDKs'
+    # response-validation errors. Transient by nature — killed a live 18-step
+    # run when OpenRouter returned non-JSON once.
+    if "jsondecode" in name or "decoding" in name or "responsevalidation" in name:
+        return True
     status = getattr(exc, "status_code", None)
     if status is None:
         status = getattr(exc, "status", None)

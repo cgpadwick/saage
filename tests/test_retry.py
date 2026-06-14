@@ -171,3 +171,26 @@ def test_max_attempts_below_one_failing_reraises_after_one_try():
     with pytest.raises(FakeStatusError):
         call_with_retry(fn, policy=RetryPolicy(max_attempts=0), sleep=lambda d: None)
     assert attempts["n"] == 1
+
+
+def test_malformed_response_body_is_retryable():
+    """A garbage body behind a 200 (proxy page, truncated stream) must retry,
+    not kill the run — seen live: OpenRouter returned non-JSON once and the
+    JSONDecodeError aborted an 18-experiment hill-climb."""
+    import json as _json
+
+    from saage.retry import call_with_retry, is_retryable_error
+
+    exc = _json.JSONDecodeError("Expecting value", "<html>bad gateway</html>", 0)
+    assert is_retryable_error(exc)
+
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise exc
+        return "ok"
+
+    assert call_with_retry(flaky, sleep=lambda s: None) == "ok"
+    assert calls["n"] == 2

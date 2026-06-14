@@ -32,6 +32,35 @@ class LLMResponse:
     tool_calls: list[ToolCall] = field(default_factory=list)
 
 
+@dataclass
+class TokenUsage:
+    """Process-wide running total of LLM token usage. Providers add to it from
+    each response's usage field; the CLI prints it in the run summary. Token
+    counts are reported by the provider (not estimated), so the total is exact
+    when the API returns usage and silently 0 when it doesn't (some local
+    servers omit it)."""
+    calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+    def add(self, usage) -> None:
+        if usage is None:
+            return
+        self.calls += 1
+        # OpenAI: prompt_tokens/completion_tokens; Anthropic: input_/output_tokens
+        self.prompt_tokens += int(getattr(usage, "prompt_tokens", None)
+                                  or getattr(usage, "input_tokens", 0) or 0)
+        self.completion_tokens += int(getattr(usage, "completion_tokens", None)
+                                      or getattr(usage, "output_tokens", 0) or 0)
+
+
+USAGE = TokenUsage()   # the one running total for a `saage run` process
+
+
 class LLMProvider(Protocol):
     def complete(self, system: str, messages: list[dict],
                  tools: list[Tool]) -> LLMResponse: ...
@@ -78,6 +107,7 @@ class AnthropicProvider:
                 model=self.model, max_tokens=self.max_tokens, system=system or " ",
                 tools=self._tools(tools), messages=self._messages(messages)),
             policy=self.retry_policy, what="anthropic.messages.create")
+        USAGE.add(getattr(r, "usage", None))
         text = "".join(b.text for b in r.content if b.type == "text")
         calls = [ToolCall(b.id, b.name, b.input)
                  for b in r.content if b.type == "tool_use"]
@@ -128,10 +158,36 @@ class OpenAIProvider:
                 model=self.model, messages=self._messages(system, messages),
                 tools=self._tools(tools) or None),
             policy=self.retry_policy, what="openai.chat.completions.create")
+        USAGE.add(getattr(r, "usage", None))
         m = r.choices[0].message
-        calls = [ToolCall(tc.id, tc.function.name, json.loads(tc.function.arguments))
+        calls = [ToolCall(tc.id, tc.function.name, _parse_tool_args(tc.function.arguments))
                  for tc in (m.tool_calls or [])]
         return LLMResponse(m.content or "", calls)
+
+
+def _parse_tool_args(raw: str | None) -> dict:
+    """Parse a tool call's arguments WITHOUT trusting the model to emit valid
+    JSON — some (seen live: deepseek) occasionally produce single-quoted
+    pseudo-JSON, which crashed a run at json.loads. Fall back to
+    ast.literal_eval; as a last resort wrap the raw string so tool dispatch
+    fails with an ERROR string the model sees and self-corrects (the same
+    contract as every other tool failure)."""
+    if not raw:
+        return {}
+    try:
+        out = json.loads(raw)
+        if isinstance(out, dict):
+            return out
+    except (json.JSONDecodeError, ValueError):
+        pass
+    try:
+        import ast
+        out = ast.literal_eval(raw)
+        if isinstance(out, dict):
+            return out
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        pass
+    return {"_malformed_arguments": raw}
 
 
 # --------------------------------------------------------------------------- #

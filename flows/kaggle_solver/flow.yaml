@@ -1,0 +1,166 @@
+# Kaggle solver: hill-climbing on an mle-bench competition.
+# Port of mle-beast's benchmark pipeline (docs/kaggle_solver_plan.md §5):
+#
+#   prepare(cmd) -> setup(cmd: git branch + ledger)
+#     -> comp_understanding -> eda          (agent+critic retry_loops)
+#     -> build_baseline (agent; DETERMINISTIC pytest smoke check)
+#     -> baseline short-train (cmd, fixed budget) -> verify -> record
+#     -> hillclimb counting_loop:
+#          [propose -> critic]x3 -> [implement -> pytest]x3
+#          -> reset -> train(cmd) -> verify -> keep_or_revert(cmd)
+#        exits on consecutive failures or target met
+#     -> final train (cmd, long budget) -> make_submission (agent;
+#        DETERMINISTIC validate_submission.py check) -> report -> grade
+#
+# The validation score driving keep/revert comes from eval_results.json
+# (train.py contract) — a deterministic capture, never LLM log-reading.
+# Deterministic checks (pytest, submission validation) use command-step
+# ACTION routing (E2).
+#
+# Run (after `mlebench prepare -c <comp> --data-dir ~/.mlebench/data`):
+#   OPENROUTER_API_KEY=... saage run flows/kaggle_solver/flow.yaml \
+#     --workspace /tmp/kaggle_run --set competition_id=spooky-author-identification
+provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
+workspace: /tmp/saage_kaggle
+shared:
+  competition_id: spooky-author-identification
+  mlebench_data_dir: "$HOME/.mlebench/data"   # shell-expanded in commands
+  device: cpu                  # overwritten by prepare's DEVICE capture
+  device_override: ""          # set to cpu/cuda to skip auto-detection
+  metric_name: "the competition metric"   # refined by agents from the description
+  lower_is_better: false       # SET THIS PER COMPETITION (true for RMSE/logloss)
+  target_score: ""             # optional early-exit score
+  short_epochs: 15             # fixed exploratory budget per experiment
+  final_epochs: 100            # final training (early stopping decides actual)
+  max_consecutive_failures: 10
+  best_score: "nan"            # sentinels: nan never wins a comparison
+  candidate_score: "nan"
+  consecutive_failures: 0
+  target_met: 0
+  sample_submission_cols: ""
+  sample_submission_rows: 0
+  run_branch: ""               # remote handoffs pass the run branch
+  current_proposal: ""
+
+workflow:
+  # ---- stage the competition + git/ledger setup ----
+  - id: prepare
+    type: command
+    run: 'python3 "{{ flow_dir }}/prepare_comp.py" --comp {{ competition_id }} --data-dir "{{ mlebench_data_dir }}" --device "{{ device_override }}"'
+    set:
+      sample_submission_cols: "SAMPLE_COLS=(.*)"
+      sample_submission_rows: "SAMPLE_ROWS=([0-9]+)"
+      device: "DEVICE=(\\S+)"
+  - id: setup
+    type: command
+    run: 'python3 "{{ flow_dir }}/setup_competition.py" --comp {{ competition_id }} --metric "{{ metric_name }}" --lower-is-better {{ lower_is_better }} --short-epochs {{ short_epochs }} --final-epochs {{ final_epochs }} --branch "{{ run_branch }}"'
+
+  # ---- understand, then EDA (agent + critic vetting) ----
+  - id: understand_loop
+    type: retry_loop
+    max_iterations: 3
+    action: { id: comp_understanding, type: agent, skill: comp_understanding, max_steps: 30 }
+    check:  { id: comp_understanding_critic, type: agent, skill: comp_understanding_critic, max_steps: 10 }
+  - id: eda_loop
+    type: retry_loop
+    max_iterations: 3
+    action: { id: eda, type: agent, skill: eda, max_steps: 35 }
+    check:  { id: eda_critic, type: agent, skill: eda_critic, max_steps: 10 }
+
+  # ---- baseline: build (deterministic pytest check), short-train, record ----
+  - id: baseline_build
+    type: retry_loop
+    max_iterations: 3
+    action: { id: build_baseline, type: agent, skill: build_baseline, max_steps: 45 }
+    check:
+      id: baseline_smoke
+      type: command
+      run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+  - id: baseline_train_loop
+    type: retry_loop
+    max_iterations: 2
+    action:
+      id: baseline_train
+      type: command
+      run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+      set: { candidate_score: "VAL_SCORE=(\\S+)" }
+    check: { id: baseline_verify, type: agent, skill: verify_training, max_steps: 12 }
+  - id: baseline_record
+    type: command
+    run: 'python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best nan --failures 0 --lower-is-better {{ lower_is_better }} --target "{{ target_score }}" --baseline true'
+    set:
+      best_score: "BEST_SCORE=(\\S+)"
+      consecutive_failures: "FAILURES=([0-9]+)"
+      target_met: "TARGET_MET=([01])"
+
+  # ---- hill-climb: one experiment per iteration, keep what improves ----
+  - id: hillclimb
+    type: counting_loop
+    max_iterations: 30
+    exit_when: "consecutive_failures >= max_consecutive_failures or target_met == 1"
+    body:
+      - id: propose_loop
+        type: retry_loop
+        max_iterations: 3
+        action:
+          id: propose
+          type: agent
+          skill: propose
+          max_steps: 20
+          set: { current_proposal: "(?s)(.+)" }
+        check: { id: proposal_critic, type: agent, skill: proposal_critic, max_steps: 8 }
+      - id: implement_loop
+        type: retry_loop
+        max_iterations: 3
+        action: { id: implement, type: agent, skill: implement_experiment, max_steps: 45 }
+        check:
+          id: implement_smoke
+          type: command
+          run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+      # a failed train must read as nan (revert), never the previous score
+      - id: reset_candidate
+        type: command
+        run: 'echo "CANDIDATE=nan"'
+        set: { candidate_score: "CANDIDATE=(\\S+)" }
+      - id: train_loop
+        type: retry_loop
+        max_iterations: 2
+        action:
+          id: train
+          type: command
+          run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+          set: { candidate_score: "VAL_SCORE=(\\S+)" }
+        check: { id: verify_train, type: agent, skill: verify_training, max_steps: 12 }
+      - id: keep_or_revert
+        type: command
+        run: 'python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best {{ best_score }} --failures {{ consecutive_failures }} --lower-is-better {{ lower_is_better }} --target "{{ target_score }}"'
+        set:
+          best_score: "BEST_SCORE=(\\S+)"
+          consecutive_failures: "FAILURES=([0-9]+)"
+          target_met: "TARGET_MET=([01])"
+
+  # ---- final training at the long budget, then submit ----
+  - id: final_train_loop
+    type: retry_loop
+    max_iterations: 2
+    action:
+      id: final_train
+      type: command
+      run: 'python3 train.py --device {{ device }} --epochs {{ final_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+      set: { final_score: "VAL_SCORE=(\\S+)" }
+    check: { id: final_verify, type: agent, skill: verify_training, max_steps: 12 }
+  - id: submission_loop
+    type: retry_loop
+    max_iterations: 3
+    action: { id: make_submission, type: agent, skill: make_submission, max_steps: 30 }
+    check:
+      id: validate_submission
+      type: command
+      run: 'python3 "{{ flow_dir }}/validate_submission.py"'
+
+  # ---- report + (optional, tolerant) grading ----
+  - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 20 }
+  - id: grade
+    type: command
+    run: 'python3 "{{ flow_dir }}/grade.py" --comp {{ competition_id }} --data-dir "{{ mlebench_data_dir }}" || true'
+    set: { medal: "MEDAL=(\\S+)" }
