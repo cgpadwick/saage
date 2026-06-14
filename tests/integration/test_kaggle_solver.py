@@ -91,6 +91,7 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
         "mlebench_data_dir": str(data_root),
         "target_score": "0.8",
         "device": "cpu",
+        "device_override": "cpu",   # hermetic: don't probe the host for a GPU
     })
 
     # captures flowed end to end
@@ -168,6 +169,7 @@ def test_failed_experiment_reverts_and_counts(flow_copy, tmp_path):
         "mlebench_data_dir": str(data_root),
         "max_consecutive_failures": 1,            # exit after the one failure
         "device": "cpu",
+        "device_override": "cpu",   # hermetic: don't probe the host for a GPU
     })
 
     assert shared["best_score"] == 0.75           # the worse 0.70 did not win

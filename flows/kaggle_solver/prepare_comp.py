@@ -76,7 +76,10 @@ def fmt_size(n: int) -> str:
 def detect_device(force: str | None) -> str:
     if force:
         return force
-    ok = subprocess.run(["nvidia-smi"], capture_output=True).returncode == 0
+    try:
+        ok = subprocess.run(["nvidia-smi"], capture_output=True).returncode == 0
+    except (FileNotFoundError, OSError):   # no nvidia-smi binary (CPU-only host/CI)
+        ok = False
     return "cuda" if ok else "cpu"
 
 
