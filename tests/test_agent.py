@@ -109,3 +109,20 @@ def test_malformed_tool_args_never_crash_and_surface_to_model():
     out = _parse_tool_args("not a dict at all {")
     assert out == {"_malformed_arguments": "not a dict at all {"}
     assert _parse_tool_args('"just a string"') == {"_malformed_arguments": '"just a string"'}
+
+
+def test_token_usage_accumulates_from_provider():
+    """USAGE sums provider-reported tokens; CLI prints it. Exact (not
+    estimated): providers report usage, so a run finally answers 'how many
+    tokens did this cost' (was silently discarded before)."""
+    from types import SimpleNamespace
+    from saage.llm import TokenUsage
+
+    u = TokenUsage()
+    u.add(SimpleNamespace(prompt_tokens=100, completion_tokens=20))   # OpenAI shape
+    u.add(SimpleNamespace(input_tokens=50, output_tokens=10))         # Anthropic shape
+    u.add(None)                                                       # missing usage: ignored
+    assert u.calls == 2
+    assert u.prompt_tokens == 150
+    assert u.completion_tokens == 30
+    assert u.total_tokens == 180

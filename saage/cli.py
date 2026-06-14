@@ -118,6 +118,10 @@ def _print_summary(result: dict, before: dict, after: dict, root: Path) -> None:
         n = result.get("_iter", {}).get(name)
         print(f"  loop:   {name} → {n} iteration(s) ({reason})")
     print(f"  files:  {', '.join(changed) if changed else '(none changed)'}")
+    from .llm import USAGE
+    if USAGE.calls:
+        print(f"  tokens: {USAGE.total_tokens:,} ({USAGE.prompt_tokens:,} in + "
+              f"{USAGE.completion_tokens:,} out) over {USAGE.calls:,} model call(s)")
     print("────────────────────────────────────────────────")
 
 
