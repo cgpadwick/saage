@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 dependencies = [
-    "pocketflow",
+    "pocketflow<1",   # Subflow._orch hand-mirrors Flow._orch; guard against a major rewrite
     "pyyaml",
     "jinja2",
     "openai",     # also covers OpenRouter + local OpenAI-compatible servers

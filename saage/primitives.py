@@ -50,9 +50,11 @@ class Subflow(Flow):
         return None
 
     def _orch(self, shared, params=None):
-        # PocketFlow's stock orchestration loop, plus a checkpoint write after
-        # each node. Loop bodies run in their own subflow's _orch, so this yields
-        # per-iteration writes inside loops and per-step writes at the top level.
+        # A faithful copy of pocketflow.Flow._orch (pinned to <1.0 in pyproject)
+        # plus a checkpoint write after each node. If pocketflow's _orch changes,
+        # this override must be re-synced or it will silently drop new behaviour.
+        # Loop bodies run in their own subflow's _orch, so this yields per-iteration
+        # writes inside loops and per-step writes at the top level.
         curr = copy.copy(self.start_node)
         p = params or {**self.params}
         last_action = None
