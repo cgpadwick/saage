@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from .hydrate import build_flow
+from .primitives import _SUCCESS
 from . import checkpoint as ckpt
 
 # third-party libs whose INFO chatter (e.g. "HTTP Request: POST ...") is noise
@@ -151,7 +152,9 @@ def _cmd_runs() -> int:
         return 0
     print(f"{'RUN ID':<24} {'STATUS':<10} {'POSITION':<18} FLOW")
     for r in runs:
-        rec = r.load()
+        rec = ckpt._safe_load(r)
+        if rec is None:
+            continue
         print(f"{r.run_id:<24} {rec.get('status',''):<10} "
               f"{_position(rec):<18} {rec.get('flow_path','')}")
     return 0
@@ -166,6 +169,10 @@ def _cmd_resume(args) -> int:
         log.error("%s", e)
         return 1
     rec = cp.load()
+    if rec.get("status") == "completed" and not args.force:
+        log.error("run %s already completed — nothing to resume "
+                  "(use --force to re-run from its last step)", cp.run_id)
+        return 1
     flow_path = rec["flow_path"]
     if not Path(flow_path).is_file():
         log.error("flow file is gone: %s", flow_path)
@@ -225,11 +232,11 @@ def main(argv: list[str] | None = None) -> int:
     log = logging.getLogger("saage")
     log.info("starting run %s", run_id)
     try:
-        flow.run(seed)
+        result = flow.run(seed)
     except BaseException:
         cp.mark("failed")
         raise
-    cp.mark("completed")
+    cp.mark("completed" if result in _SUCCESS else "failed")
     log.info("run complete")
     after = _snapshot(root)
 

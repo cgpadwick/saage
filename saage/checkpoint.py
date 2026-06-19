@@ -106,6 +106,14 @@ class Checkpoint:
         self._write(rec)
 
 
+def _safe_load(cp: "Checkpoint") -> dict | None:
+    try:
+        return cp.load()
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning("checkpoint: skipping unreadable run %s (%s)", cp.run_id, e)
+        return None
+
+
 def list_runs() -> list[Checkpoint]:
     base = runs_dir()
     if not base.exists():
@@ -121,10 +129,11 @@ def find_run(ref: str | None = None) -> Checkpoint:
     if not runs:
         raise FileNotFoundError("no runs recorded yet")
     if ref is None:
-        resumable = [r for r in runs if r.load().get("status") != "completed"]
+        live = [(r, rec) for r in runs if (rec := _safe_load(r)) is not None]
+        resumable = [(r, rec) for r, rec in live if rec.get("status") != "completed"]
         if not resumable:
             raise FileNotFoundError("no resumable runs (all completed)")
-        return max(resumable, key=lambda r: r.load().get("started_at", ""))
+        return max(resumable, key=lambda rr: rr[1].get("started_at", ""))[0]
     matches = [r for r in runs if r.run_id == ref] or \
               [r for r in runs if r.run_id.startswith(ref)]
     if not matches:

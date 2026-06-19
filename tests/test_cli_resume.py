@@ -109,3 +109,38 @@ def test_resume_completes_a_crashed_run(tmp_path, monkeypatch):
     # the resumed run is now marked completed (not left "running")
     runs = ckpt.list_runs()
     assert runs[0].load()["status"] == "completed"
+
+
+def test_run_marks_failed_on_failed_terminal_action(tmp_path, monkeypatch):
+    """A run that ends with a propagated 'failed' action is marked failed,
+    not completed (even though flow.run returns normally)."""
+    import saage.cli as cli
+    f = _command_flow(tmp_path)
+    # force the terminal action to a non-success value without raising
+    monkeypatch.setattr(cli, "_SUCCESS", set())   # nothing counts as success
+    rc = main(["run", str(f), "--workspace", str(tmp_path), "-q"])
+    assert rc == 0
+    assert ckpt.list_runs()[0].load()["status"] == "failed"
+
+
+def test_resume_refuses_completed_run(tmp_path):
+    f = _command_flow(tmp_path)
+    main(["run", str(f), "--workspace", str(tmp_path), "-q"])
+    rc = main(["resume"])           # the only run is completed
+    assert rc == 1                  # find_run(None) -> no resumable -> error path
+    run_id = ckpt.list_runs()[0].run_id
+    rc2 = main(["resume", run_id])  # explicit id, but completed
+    assert rc2 == 1                 # refused (Fix 3)
+
+
+def test_runs_skips_corrupt_checkpoint(tmp_path, capsys):
+    f = _command_flow(tmp_path)
+    main(["run", str(f), "--workspace", str(tmp_path), "-q"])
+    good_id = ckpt.list_runs()[0].run_id
+    # plant a corrupt run dir
+    bad = ckpt.runs_dir() / "corrupt-run"
+    bad.mkdir(parents=True)
+    (bad / "checkpoint.json").write_text("{ not json")
+    rc = main(["runs"])
+    assert rc == 0                              # does not crash
+    assert good_id in capsys.readouterr().out   # the good run still listed
