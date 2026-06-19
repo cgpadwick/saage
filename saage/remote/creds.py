@@ -23,6 +23,10 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# `..` reaches the top-level `saage` package: paths.py lives there (parent of
+# this `saage.remote` subpackage), shared with the engine's checkpoint store.
+from ..paths import saage_home
+
 try:
     import tomllib                      # 3.11+
 except ModuleNotFoundError:             # 3.10
@@ -41,10 +45,6 @@ PROVIDER_ENV = {
 
 class CredsError(RuntimeError):
     pass
-
-
-def saage_home() -> Path:
-    return Path(os.environ.get("SAAGE_HOME", "~/.saage")).expanduser()
 
 
 def cred_path() -> Path:

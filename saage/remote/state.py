@@ -15,15 +15,13 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .creds import saage_home
+# `..` reaches the top-level `saage` package: paths.py lives there (parent of
+# this `saage.remote` subpackage), shared with the engine's checkpoint store.
+from ..paths import runs_dir
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def runs_dir() -> Path:
-    return saage_home() / "runs"
 
 
 class RunState:

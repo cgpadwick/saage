@@ -86,9 +86,42 @@ def build_step(spec: dict, ctx: Context):
     raise ValueError(f"unknown step type: {t!r}")
 
 
+def _tag_step(node, idx: int, seen=None) -> None:
+    """Set `_step_index = idx` on every node reachable from a top-level step
+    (the step itself, a loop subflow, and all body/guard nodes). Must run BEFORE
+    top-level steps are chained, so the walk does not cross into later steps."""
+    seen = set() if seen is None else seen
+    if node is None or id(node) in seen:
+        return
+    seen.add(id(node))
+    node._step_index = idx
+    start = getattr(node, "start_node", None)
+    if start is not None:
+        _tag_step(start, idx, seen)
+    for nxt in getattr(node, "successors", {}).values():
+        _tag_step(nxt, idx, seen)
+
+
+def _all_subflows(node, seen=None, out=None):
+    seen = set() if seen is None else seen
+    out = [] if out is None else out
+    if node is None or id(node) in seen:
+        return out
+    seen.add(id(node))
+    if isinstance(node, Subflow):
+        out.append(node)
+    start = getattr(node, "start_node", None)
+    if start is not None:
+        _all_subflows(start, seen, out)
+    for nxt in getattr(node, "successors", {}).values():
+        _all_subflows(nxt, seen, out)
+    return out
+
+
 def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
                workspace=None, venv: str | None = None,
-               config: "str | Path | EngineConfig | None" = None):
+               config: "str | Path | EngineConfig | None" = None,
+               checkpoint=None, resume_step: int | None = None):
     """Return (flow, shared).
 
     `provider` injects a ready provider object (used by tests). Otherwise the
@@ -131,28 +164,65 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
                   tools=default_tools(ws, venv=venv, command_policy=cfg.command_policy),
                   venv=venv)
     steps = [build_step(s, ctx) for s in spec["workflow"]]
+    for k, step in enumerate(steps):
+        _tag_step(step, k)               # tag BEFORE chaining (walk stays in-step)
     for a, b in zip(steps, steps[1:]):
         a >> b
     log.info("workflow ready: %d top-level step(s)", len(steps))
+    top = Subflow(start=steps[0])
+    if checkpoint is not None:
+        for sf in _all_subflows(top):    # top + every nested loop subflow
+            sf.sink = checkpoint
+    if resume_step is not None:
+        top.start_node = steps[resume_step]
+        if isinstance(steps[resume_step], Subflow):
+            # the resumed loop must keep its restored _iter counter on first entry
+            steps[resume_step]._skip_reset_once = True
     seed = dict(spec.get("shared", {}))
     seed.setdefault("workspace", str(ws))
     seed.setdefault("venv", venv)
     seed.setdefault("flow_dir", str(flow_dir.resolve()))   # for bundled scripts
     # the interpreter launcher for helper scripts: Windows has no `python3`
     seed.setdefault("python", "python" if os.name == "nt" else "python3")
-    return Subflow(start=steps[0]), seed
+    return top, seed
 
 
 def run_flow(flow_yaml, provider=None, shared: dict | None = None,
              provider_overrides: dict | None = None,
              workspace=None, venv: str | None = None,
-             config: "str | Path | EngineConfig | None" = None) -> dict:
+             config: "str | Path | EngineConfig | None" = None,
+             checkpoint=None, resume=None) -> dict:
+    resume_step = None
+    if resume is not None:
+        rec = resume.load()
+        resume_step = rec["resume_step"]
+        checkpoint = checkpoint or resume          # write back into the same run
     flow, seed = build_flow(flow_yaml, provider=provider,
                             provider_overrides=provider_overrides,
-                            workspace=workspace, venv=venv, config=config)
+                            workspace=workspace, venv=venv, config=config,
+                            checkpoint=checkpoint, resume_step=resume_step)
+    if resume is not None:
+        # build_flow just seeded the resume-time workspace/venv/flow_dir/python;
+        # keep them over the restored store so {{ workspace }} matches the real
+        # execution dir even when resuming with a different --workspace.
+        fresh_paths = {k: seed[k] for k in ("workspace", "venv", "flow_dir", "python")
+                       if k in seed}
+        seed = dict(rec["shared"])                 # restore the whole store
+        seed.update(fresh_paths)
+        seed.pop("_poll_start", None)              # monotonic clocks from the
+        seed.pop("_poll_count", None)              # dead process are meaningless
+        log.info("resuming run at step %s", resume_step)
     if shared:
         seed.update(shared)
-    log.info("starting run%s", f" (seed: {seed})" if seed else "")
-    flow.run(seed)
+    log.info("starting run%s", f" (seed: {seed})" if seed and resume is None else "")
+    # The engine stamps the terminal completed/failed status into the final
+    # checkpoint write; here we only need to record a crash (a node that raised
+    # before that final write could happen).
+    try:
+        flow.run(seed)
+    except BaseException:
+        if checkpoint is not None:
+            checkpoint.mark("failed")
+        raise
     log.info("run complete")
     return seed
