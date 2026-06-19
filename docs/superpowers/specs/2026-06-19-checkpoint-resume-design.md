@@ -1,7 +1,7 @@
 # Checkpoint & Resume — Design
 
 **Date:** 2026-06-19
-**Status:** Approved (design); implementation pending
+**Status:** Implemented (branch `checkpoint-resume`)
 **Scope:** v1 — local, engine-level, manually-triggered resume
 
 ## Problem
