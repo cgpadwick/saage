@@ -1,6 +1,7 @@
 # tests/test_checkpoint.py
 """Unit tests for the checkpoint store + run registry."""
 import json
+import re
 
 import pytest
 
@@ -16,7 +17,8 @@ def test_new_run_id_is_unique_and_sorted():
     a = ckpt.new_run_id()
     b = ckpt.new_run_id()
     assert a != b
-    assert len(a) >= 8
+    assert re.match(r"\d{8}-\d{6}-[0-9a-f]{4}$", a)
+    assert re.match(r"\d{8}-\d{6}-[0-9a-f]{4}$", b)
 
 
 def test_create_write_load_roundtrip():
@@ -92,3 +94,10 @@ def test_fingerprint_changes_when_a_skill_changes(tmp_path):
     fp2 = ckpt.fingerprint(flow)
     assert fp1 != fp2
     assert fp1.startswith("sha256:")
+
+
+def test_find_run_ambiguous_prefix_raises():
+    ckpt.Checkpoint.create("20260619-100000-aaaa")
+    ckpt.Checkpoint.create("20260619-100000-bbbb")
+    with pytest.raises(FileNotFoundError, match="ambiguous"):
+        ckpt.find_run("20260619-100000")

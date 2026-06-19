@@ -47,7 +47,11 @@ def fingerprint(flow_path) -> str:
             data = f.read_bytes()
         except OSError:
             continue
-        h.update(f.name.encode())
+        try:
+            rel = f.relative_to(flow_dir).as_posix()
+        except ValueError:
+            rel = f.name
+        h.update(rel.encode())
         h.update(b"\0")
         h.update(data)
         h.update(b"\0")
