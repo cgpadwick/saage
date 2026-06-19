@@ -102,9 +102,26 @@ def _tag_step(node, idx: int, seen=None) -> None:
         _tag_step(nxt, idx, seen)
 
 
+def _all_subflows(node, seen=None, out=None):
+    seen = set() if seen is None else seen
+    out = [] if out is None else out
+    if node is None or id(node) in seen:
+        return out
+    seen.add(id(node))
+    if isinstance(node, Subflow):
+        out.append(node)
+    start = getattr(node, "start_node", None)
+    if start is not None:
+        _all_subflows(start, seen, out)
+    for nxt in getattr(node, "successors", {}).values():
+        _all_subflows(nxt, seen, out)
+    return out
+
+
 def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
                workspace=None, venv: str | None = None,
-               config: "str | Path | EngineConfig | None" = None):
+               config: "str | Path | EngineConfig | None" = None,
+               checkpoint=None):
     """Return (flow, shared).
 
     `provider` injects a ready provider object (used by tests). Otherwise the
@@ -152,13 +169,17 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
     for a, b in zip(steps, steps[1:]):
         a >> b
     log.info("workflow ready: %d top-level step(s)", len(steps))
+    top = Subflow(start=steps[0])
+    if checkpoint is not None:
+        for sf in _all_subflows(top):    # top + every nested loop subflow
+            sf.sink = checkpoint
     seed = dict(spec.get("shared", {}))
     seed.setdefault("workspace", str(ws))
     seed.setdefault("venv", venv)
     seed.setdefault("flow_dir", str(flow_dir.resolve()))   # for bundled scripts
     # the interpreter launcher for helper scripts: Windows has no `python3`
     seed.setdefault("python", "python" if os.name == "nt" else "python3")
-    return Subflow(start=steps[0]), seed
+    return top, seed
 
 
 def run_flow(flow_yaml, provider=None, shared: dict | None = None,

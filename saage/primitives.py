@@ -9,6 +9,8 @@ emits a "Flow ends" warning — termination is part of the graph, by design.
 """
 from __future__ import annotations
 
+import copy
+
 from pocketflow import Flow, Node
 
 from .nodes import GateNode, LoopGuard, TimeoutGuard, WaitNode
@@ -28,19 +30,39 @@ class _End(Node):
 
 
 class Subflow(Flow):
-    def __init__(self, start, reset=()):
+    def __init__(self, start, reset=(), sink=None):
         super().__init__(start=start)
         # (namespace, key) pairs in the shared store to clear on every entry, so
         # a loop nested inside another loop gets a fresh counter each time the
         # outer loop re-enters it. The top-level flow passes nothing.
         self._reset = reset
+        self.sink = sink                 # a checkpoint.Checkpoint, or None
 
     def prep(self, shared):
+        # On resume, the target loop's counter must survive — skip its one reset.
+        if getattr(self, "_skip_reset_once", False):
+            self._skip_reset_once = False
+            return None
         for ns, key in self._reset:
             d = shared.get(ns)
             if key is not None and isinstance(d, dict):
                 d.pop(key, None)
         return None
+
+    def _orch(self, shared, params=None):
+        # PocketFlow's stock orchestration loop, plus a checkpoint write after
+        # each node. Loop bodies run in their own subflow's _orch, so this yields
+        # per-iteration writes inside loops and per-step writes at the top level.
+        curr = copy.copy(self.start_node)
+        p = params or {**self.params}
+        last_action = None
+        while curr:
+            curr.set_params(p)
+            last_action = curr._run(shared)
+            if self.sink is not None:
+                self.sink.write(shared, getattr(curr, "_step_index", None), "running")
+            curr = copy.copy(self.get_next_node(curr, last_action))
+        return last_action
 
     def post(self, shared, prep_res, last_action):
         return "default" if last_action in _SUCCESS else last_action
