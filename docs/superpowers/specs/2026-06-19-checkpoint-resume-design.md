@@ -173,9 +173,12 @@ object, not in the store), so it never pollutes `checkpoint.json`.
 5. **Loop counter-reset suppression.** `Subflow.prep` currently clears `_iter[name]`
    (etc.) on entry so a nested loop restarts each time its outer loop re-enters it. On
    resume we must *not* clear the resumed loop's counter. If `steps[resume_step]` is a
-   loop, set `shared["_resume_step"] = resume_step`; `Subflow.prep` skips its reset
-   exactly when `self._step_index == shared.get("_resume_step")`, then pops the flag.
-   (If `steps[resume_step]` is a plain node, the flag is not set — no reset to suppress.)
+   loop (`Subflow`), set a one-shot `_skip_reset_once = True` attribute directly on that
+   subflow object; `Subflow.prep` skips its reset once and clears the flag. This keeps
+   the transient control flag *off* the persisted `shared` store (so it can never leak
+   into a checkpoint) and naturally handles nested loops — only the outermost subflow
+   skips its reset; inner loops reset as normal. (If `steps[resume_step]` is a plain
+   node, no flag is set — there is no reset to suppress.)
 6. **Polling clocks.** Drop `_poll_start` and `_poll_count` from the restored `shared`.
    They hold `time.monotonic()` values from the dead process, which are meaningless in a
    new process. A resumed `polling_loop` therefore restarts its wall-clock window — it
