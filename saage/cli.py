@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from .hydrate import build_flow
+from . import checkpoint as ckpt
 
 # third-party libs whose INFO chatter (e.g. "HTTP Request: POST ...") is noise
 _NOISY = ("httpx", "httpcore", "openai", "anthropic", "urllib3")
@@ -130,15 +131,32 @@ def main(argv: list[str] | None = None) -> int:
     _setup_logging(args.verbose, args.quiet)
 
     overrides = {"type": args.provider, "model": args.model, "base_url": args.base_url}
+    run_id = ckpt.new_run_id()
+    flow_path = str(Path(args.flow).resolve())
+    cp = ckpt.Checkpoint.create(
+        run_id,
+        flow_path=flow_path,
+        fingerprint=ckpt.fingerprint(flow_path),
+        provider_overrides={k: v for k, v in overrides.items() if v is not None},
+        config_path=str(Path(args.config).resolve()) if args.config else None,
+        venv=args.venv,
+    )
     flow, seed = build_flow(args.flow, provider_overrides=overrides,
-                            workspace=args.workspace, venv=args.venv, config=args.config)
+                            workspace=args.workspace, venv=args.venv,
+                            config=args.config, checkpoint=cp)
     seed.update(_parse_set(args.overrides))
     root = Path(seed["workspace"])               # the resolved workspace
+    cp.write(seed, resume_step=None, status="running")   # record workspace/venv
 
     before = _snapshot(root)
     log = logging.getLogger("saage")
-    log.info("starting run")
-    flow.run(seed)
+    log.info("starting run %s", run_id)
+    try:
+        flow.run(seed)
+    except BaseException:
+        cp.mark("failed")
+        raise
+    cp.mark("completed")
     log.info("run complete")
     after = _snapshot(root)
 
