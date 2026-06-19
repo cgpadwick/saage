@@ -59,6 +59,7 @@ class Subflow(Flow):
         curr = copy.copy(self.start_node)
         p = params or {**self.params}
         last_action = None
+        is_root = getattr(self, "_step_index", None) is None   # the top-level flow
         while curr:
             curr.set_params(p)
             last_action = curr._run(shared)
@@ -70,7 +71,16 @@ class Subflow(Flow):
                 # that next index so a crash there resumes at the right step
                 # rather than re-running the one that just completed.
                 resume_idx = nxt_idx if (nxt_idx is not None and nxt_idx != curr_idx) else curr_idx
-                self.sink.write(shared, resume_idx, "running")
+                # When the TOP-LEVEL flow finishes its final node, stamp the
+                # terminal status in this same atomic write — so a kill between
+                # "last node done" and an external status update can't leave a
+                # 'running' checkpoint that would redo the final step on resume,
+                # and a propagated 'failed' terminal action is recorded as failed.
+                if is_root and nxt_raw is None:
+                    status = "completed" if last_action in _SUCCESS else "failed"
+                else:
+                    status = "running"
+                self.sink.write(shared, resume_idx, status)
             curr = copy.copy(nxt_raw)
         return last_action
 

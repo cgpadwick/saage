@@ -113,11 +113,13 @@ def test_resume_completes_a_crashed_run(tmp_path, monkeypatch):
 
 def test_run_marks_failed_on_failed_terminal_action(tmp_path, monkeypatch):
     """A run that ends with a propagated 'failed' action is marked failed,
-    not completed (even though flow.run returns normally)."""
-    import saage.cli as cli
+    not completed (even though flow.run returns normally). The engine stamps the
+    terminal status in the final checkpoint write, so the status is decided by
+    saage.primitives._SUCCESS."""
+    import saage.primitives as primitives
     f = _command_flow(tmp_path)
     # force the terminal action to a non-success value without raising
-    monkeypatch.setattr(cli, "_SUCCESS", set())   # nothing counts as success
+    monkeypatch.setattr(primitives, "_SUCCESS", set())   # nothing counts as success
     rc = main(["run", str(f), "--workspace", str(tmp_path), "-q"])
     assert rc == 0
     assert ckpt.list_runs()[0].load()["status"] == "failed"

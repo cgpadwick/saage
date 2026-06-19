@@ -16,7 +16,6 @@ import sys
 from pathlib import Path
 
 from .hydrate import build_flow
-from .primitives import _SUCCESS
 from . import checkpoint as ckpt
 
 # third-party libs whose INFO chatter (e.g. "HTTP Request: POST ...") is noise
@@ -184,15 +183,12 @@ def _cmd_resume(args) -> int:
         return 1
     workspace = args.workspace or rec.get("workspace") or rec.get("shared", {}).get("workspace")
     log.info("resuming %s", run.run_id)
-    try:
-        run_flow(flow_path,
-                 provider_overrides=rec.get("provider_overrides") or None,
-                 workspace=workspace, venv=rec.get("venv"),
-                 config=rec.get("config_path"), resume=run)
-    except BaseException:
-        run.mark("failed")
-        raise
-    run.mark("completed")
+    # run_flow marks the run failed if it raises; the engine stamps the terminal
+    # completed/failed status into the final checkpoint write on a clean finish.
+    run_flow(flow_path,
+             provider_overrides=rec.get("provider_overrides") or None,
+             workspace=workspace, venv=rec.get("venv"),
+             config=rec.get("config_path"), resume=run)
     return 0
 
 
@@ -231,12 +227,13 @@ def main(argv: list[str] | None = None) -> int:
     before = _snapshot(root)
     log = logging.getLogger("saage")
     log.info("starting run %s", run_id)
+    # The engine stamps the terminal completed/failed status into the final
+    # checkpoint write; here we only need to record a crash (a raised exception).
     try:
-        result = flow.run(seed)
+        flow.run(seed)
     except BaseException:
         run.mark("failed")
         raise
-    run.mark("completed" if result in _SUCCESS else "failed")
     log.info("run complete")
     after = _snapshot(root)
 

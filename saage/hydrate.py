@@ -215,6 +215,14 @@ def run_flow(flow_yaml, provider=None, shared: dict | None = None,
     if shared:
         seed.update(shared)
     log.info("starting run%s", f" (seed: {seed})" if seed and resume is None else "")
-    flow.run(seed)
+    # The engine stamps the terminal completed/failed status into the final
+    # checkpoint write; here we only need to record a crash (a node that raised
+    # before that final write could happen).
+    try:
+        flow.run(seed)
+    except BaseException:
+        if checkpoint is not None:
+            checkpoint.mark("failed")
+        raise
     log.info("run complete")
     return seed

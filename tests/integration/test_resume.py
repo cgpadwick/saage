@@ -38,6 +38,19 @@ def test_checkpoint_written_during_run(tmp_path):
     assert rec["shared"]["_iter"]["hill"] == 5
 
 
+def test_engine_stamps_completed_status_on_clean_finish(tmp_path):
+    """The engine writes the terminal status in the final checkpoint write — so a
+    kill after the last node (before any external mark) leaves a non-resumable
+    'completed' run rather than a 'running' one that would redo the final step."""
+    f = _loop_flow(tmp_path)
+    c = ckpt.Checkpoint.create(ckpt.new_run_id(), flow_path=str(f),
+                               workspace=str(tmp_path))
+    flow, seed = build_flow(f, provider=object(), workspace=str(tmp_path),
+                            checkpoint=c)
+    flow.run(seed)                       # no CLI, no mark() call anywhere
+    assert c.load()["status"] == "completed"
+
+
 def test_resume_does_not_redo_completed_iterations(tmp_path, monkeypatch):
     import saage.nodes as nodes
     f = _loop_flow(tmp_path)
