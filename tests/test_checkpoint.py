@@ -17,8 +17,8 @@ def test_new_run_id_is_unique_and_sorted():
     a = ckpt.new_run_id()
     b = ckpt.new_run_id()
     assert a != b
-    assert re.match(r"\d{8}-\d{6}-[0-9a-f]{4}$", a)
-    assert re.match(r"\d{8}-\d{6}-[0-9a-f]{4}$", b)
+    assert re.match(r"\d{8}-\d{6}-[0-9a-f]{8}$", a)
+    assert re.match(r"\d{8}-\d{6}-[0-9a-f]{8}$", b)
 
 
 def test_create_write_load_roundtrip():

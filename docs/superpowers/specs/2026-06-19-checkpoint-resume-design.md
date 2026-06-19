@@ -114,7 +114,7 @@ A single focused unit, modeled on the existing `saage/remote/state.py`.
 **Checkpoint record (`checkpoint.json`):**
 ```json
 {
-  "run_id": "20260619-153012-a1b2",
+  "run_id": "20260619-153012-a1b2c3d4",
   "status": "running",
   "flow_path": "/abs/flows/greenfield_ml/flow.yaml",
   "workspace": "/abs/tmp/saage_mnist",

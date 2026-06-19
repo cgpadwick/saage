@@ -164,14 +164,14 @@ def _cmd_resume(args) -> int:
     from .hydrate import run_flow
     log = logging.getLogger("saage")
     try:
-        cp = ckpt.find_run(args.run_id)
+        run = ckpt.find_run(args.run_id)
     except FileNotFoundError as e:
         log.error("%s", e)
         return 1
-    rec = cp.load()
+    rec = run.load()
     if rec.get("status") == "completed" and not args.force:
         log.error("run %s already completed — nothing to resume "
-                  "(use --force to re-run from its last step)", cp.run_id)
+                  "(use --force to re-run from its last step)", run.run_id)
         return 1
     flow_path = rec["flow_path"]
     if not Path(flow_path).is_file():
@@ -180,19 +180,19 @@ def _cmd_resume(args) -> int:
     current_fp = ckpt.fingerprint(flow_path)
     if rec.get("fingerprint") and current_fp != rec["fingerprint"] and not args.force:
         log.error("flow changed since checkpoint (%s); re-run fresh, or "
-                  "`saage resume %s --force` to override", flow_path, cp.run_id)
+                  "`saage resume %s --force` to override", flow_path, run.run_id)
         return 1
     workspace = args.workspace or rec.get("workspace") or rec.get("shared", {}).get("workspace")
-    log.info("resuming %s", cp.run_id)
+    log.info("resuming %s", run.run_id)
     try:
         run_flow(flow_path,
                  provider_overrides=rec.get("provider_overrides") or None,
                  workspace=workspace, venv=rec.get("venv"),
-                 config=rec.get("config_path"), resume=cp)
+                 config=rec.get("config_path"), resume=run)
     except BaseException:
-        cp.mark("failed")
+        run.mark("failed")
         raise
-    cp.mark("completed")
+    run.mark("completed")
     return 0
 
 
@@ -213,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
     overrides = {"type": args.provider, "model": args.model, "base_url": args.base_url}
     run_id = ckpt.new_run_id()
     flow_path = str(Path(args.flow).resolve())
-    cp = ckpt.Checkpoint.create(
+    run = ckpt.Checkpoint.create(
         run_id,
         flow_path=flow_path,
         fingerprint=ckpt.fingerprint(flow_path),
@@ -223,10 +223,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     flow, seed = build_flow(args.flow, provider_overrides=overrides,
                             workspace=args.workspace, venv=args.venv,
-                            config=args.config, checkpoint=cp)
+                            config=args.config, checkpoint=run)
     seed.update(_parse_set(args.overrides))
     root = Path(seed["workspace"])               # the resolved workspace
-    cp.write(seed, resume_step=None, status="running")   # record workspace/venv
+    run.write(seed, resume_step=None, status="running")   # record workspace/venv
 
     before = _snapshot(root)
     log = logging.getLogger("saage")
@@ -234,9 +234,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = flow.run(seed)
     except BaseException:
-        cp.mark("failed")
+        run.mark("failed")
         raise
-    cp.mark("completed" if result in _SUCCESS else "failed")
+    run.mark("completed" if result in _SUCCESS else "failed")
     log.info("run complete")
     after = _snapshot(root)
 

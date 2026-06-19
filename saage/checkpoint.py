@@ -28,9 +28,16 @@ def _now() -> str:
 
 
 def new_run_id() -> str:
-    """Sortable, unique: 'YYYYMMDD-HHMMSS-<4 hex>'."""
+    """Sortable, unique: 'YYYYMMDD-HHMMSS-<8 hex>'.
+
+    The timestamp prefix makes ids sort chronologically and disambiguates runs
+    started in different seconds; the random hex suffix disambiguates runs started
+    in the same second and gives a git-short-sha-style handle. 8 hex chars (32
+    bits) is ample for that — `find_run` also accepts any unique prefix, so the
+    full id is rarely typed in full.
+    """
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    return f"{stamp}-{uuid.uuid4().hex[:4]}"
+    return f"{stamp}-{uuid.uuid4().hex[:8]}"
 
 
 def fingerprint(flow_path) -> str:
@@ -106,11 +113,11 @@ class Checkpoint:
         self._write(rec)
 
 
-def _safe_load(cp: "Checkpoint") -> dict | None:
+def _safe_load(run: "Checkpoint") -> dict | None:
     try:
-        return cp.load()
+        return run.load()
     except (json.JSONDecodeError, OSError) as e:
-        log.warning("checkpoint: skipping unreadable run %s (%s)", cp.run_id, e)
+        log.warning("checkpoint: skipping unreadable run %s (%s)", run.run_id, e)
         return None
 
 

@@ -23,6 +23,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# `..` reaches the top-level `saage` package: paths.py lives there (parent of
+# this `saage.remote` subpackage), shared with the engine's checkpoint store.
 from ..paths import saage_home
 
 try:

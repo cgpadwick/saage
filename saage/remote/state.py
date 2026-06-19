@@ -15,6 +15,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+# `..` reaches the top-level `saage` package: paths.py lives there (parent of
+# this `saage.remote` subpackage), shared with the engine's checkpoint store.
 from ..paths import runs_dir
 
 
