@@ -106,3 +106,34 @@ def test_run_flow_resume_helper(tmp_path, monkeypatch):
                    resume=ckpt.Checkpoint(c.run_id))
     assert counter.read_text().count("x") == 5
     assert out["_iter"]["hill"] == 5
+
+
+def test_resume_honors_new_workspace(tmp_path, monkeypatch):
+    """A --workspace given at resume time wins over the original run's path."""
+    import saage.nodes as nodes
+    from saage.hydrate import run_flow
+    f = _loop_flow(tmp_path)
+
+    real = nodes.run_shell
+    calls = {"n": 0}
+
+    def flaky(cmd, **kw):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise RuntimeError("boom")
+        return real(cmd, **kw)
+
+    monkeypatch.setattr(nodes, "run_shell", flaky)
+    c = ckpt.Checkpoint.create(ckpt.new_run_id(), flow_path=str(f),
+                               workspace=str(tmp_path))
+    with pytest.raises(RuntimeError):
+        run_flow(f, provider=object(), workspace=str(tmp_path), checkpoint=c)
+
+    monkeypatch.setattr(nodes, "run_shell", real)
+    new_ws = tmp_path / "resumed_ws"
+    out = run_flow(f, provider=object(), workspace=str(new_ws),
+                   resume=ckpt.Checkpoint(c.run_id))
+    # the template/seed workspace reflects the resume-time dir, not the original
+    assert out["workspace"] == str(new_ws.resolve())
+    # and the loop still completed from where it left off
+    assert out["_iter"]["hill"] == 5

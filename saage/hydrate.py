@@ -202,7 +202,13 @@ def run_flow(flow_yaml, provider=None, shared: dict | None = None,
                             workspace=workspace, venv=venv, config=config,
                             checkpoint=checkpoint, resume_step=resume_step)
     if resume is not None:
+        # build_flow just seeded the resume-time workspace/venv/flow_dir/python;
+        # keep them over the restored store so {{ workspace }} matches the real
+        # execution dir even when resuming with a different --workspace.
+        fresh_paths = {k: seed[k] for k in ("workspace", "venv", "flow_dir", "python")
+                       if k in seed}
         seed = dict(rec["shared"])                 # restore the whole store
+        seed.update(fresh_paths)
         seed.pop("_poll_start", None)              # monotonic clocks from the
         seed.pop("_poll_count", None)              # dead process are meaningless
         log.info("resuming run at step %s", resume_step)

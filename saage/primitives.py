@@ -40,6 +40,7 @@ class Subflow(Flow):
 
     def prep(self, shared):
         # On resume, the target loop's counter must survive — skip its one reset.
+        # _skip_reset_once is set by build_flow(resume_step=...) on the resumed loop.
         if getattr(self, "_skip_reset_once", False):
             self._skip_reset_once = False
             return None
