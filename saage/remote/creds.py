@@ -23,6 +23,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..paths import saage_home
+
 try:
     import tomllib                      # 3.11+
 except ModuleNotFoundError:             # 3.10
@@ -41,10 +43,6 @@ PROVIDER_ENV = {
 
 class CredsError(RuntimeError):
     pass
-
-
-def saage_home() -> Path:
-    return Path(os.environ.get("SAAGE_HOME", "~/.saage")).expanduser()
 
 
 def cred_path() -> Path:

@@ -15,15 +15,11 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .creds import saage_home
+from ..paths import runs_dir
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def runs_dir() -> Path:
-    return saage_home() / "runs"
 
 
 class RunState:
