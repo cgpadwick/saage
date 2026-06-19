@@ -48,6 +48,20 @@ def _build_parser() -> argparse.ArgumentParser:
                            help="show tool-output detail (DEBUG) + the full results")
     verbosity.add_argument("-q", "--quiet", action="store_true",
                            help="quiet progress logs (WARNING+ only)")
+
+    res = sub.add_parser("resume", help="resume a killed/crashed run")
+    res.add_argument("run_id", nargs="?",
+                     help="run id or unique prefix (default: latest resumable)")
+    res.add_argument("--force", action="store_true",
+                     help="resume even if the flow changed since the checkpoint")
+    res.add_argument("--workspace", metavar="DIR",
+                     help="override the recorded workspace")
+    rv = res.add_mutually_exclusive_group()
+    rv.add_argument("-v", "--verbose", action="store_true")
+    rv.add_argument("-q", "--quiet", action="store_true")
+
+    sub.add_parser("runs", help="list resumable runs")
+
     return parser
 
 
@@ -122,12 +136,66 @@ def _print_summary(result: dict, before: dict, after: dict, root: Path) -> None:
     print("────────────────────────────────────────────────")
 
 
+def _position(rec: dict) -> str:
+    step = rec.get("resume_step")
+    if step is None:
+        return "-"
+    iters = rec.get("shared", {}).get("_iter", {})
+    return f"step {step}" + (f", loop iter {max(iters.values())}" if iters else "")
+
+
+def _cmd_runs() -> int:
+    runs = ckpt.list_runs()
+    if not runs:
+        print("no runs recorded")
+        return 0
+    print(f"{'RUN ID':<24} {'STATUS':<10} {'POSITION':<18} FLOW")
+    for r in runs:
+        rec = r.load()
+        print(f"{r.run_id:<24} {rec.get('status',''):<10} "
+              f"{_position(rec):<18} {rec.get('flow_path','')}")
+    return 0
+
+
+def _cmd_resume(args) -> int:
+    from .hydrate import run_flow
+    log = logging.getLogger("saage")
+    try:
+        cp = ckpt.find_run(args.run_id)
+    except FileNotFoundError as e:
+        log.error("%s", e)
+        return 1
+    rec = cp.load()
+    flow_path = rec["flow_path"]
+    if not Path(flow_path).is_file():
+        log.error("flow file is gone: %s", flow_path)
+        return 1
+    current_fp = ckpt.fingerprint(flow_path)
+    if rec.get("fingerprint") and current_fp != rec["fingerprint"] and not args.force:
+        log.error("flow changed since checkpoint (%s); re-run fresh, or "
+                  "`saage resume %s --force` to override", flow_path, cp.run_id)
+        return 1
+    workspace = args.workspace or rec.get("workspace") or rec.get("shared", {}).get("workspace")
+    log.info("resuming %s", cp.run_id)
+    run_flow(flow_path,
+             provider_overrides=rec.get("provider_overrides") or None,
+             workspace=workspace, venv=rec.get("venv"),
+             config=rec.get("config_path"), resume=cp)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "remote":
         _setup_logging(verbose=False, quiet=False)
         from .remote.cli import dispatch
         return dispatch(args)
+    if args.command == "runs":
+        _setup_logging(verbose=False, quiet=False)
+        return _cmd_runs()
+    if args.command == "resume":
+        _setup_logging(args.verbose, args.quiet)
+        return _cmd_resume(args)
     _setup_logging(args.verbose, args.quiet)
 
     overrides = {"type": args.provider, "model": args.model, "base_url": args.base_url}
