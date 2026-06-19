@@ -145,11 +145,19 @@ This is the only addition to hydrate beyond threading the checkpoint `sink` thro
 
 `Subflow` gains an optional `sink: Checkpoint | None`, attached at build time to **both**
 the top-level flow and every loop subflow. Override `Subflow._orch` with the stock
-PocketFlow loop plus one added line — after each `curr._run(shared)`:
+PocketFlow loop plus a checkpoint write after each `curr._run(shared)`. `resume_step`
+records the **next** node's top-level step index (falling back to the current node's index
+inside a loop body or at the terminal node), so resuming never re-runs a just-completed
+linear step, while a loop body — whose next node shares the loop's `_step_index` — still
+resumes the loop in place:
 
 ```python
+nxt = self.get_next_node(curr, last_action)
 if self.sink is not None:
-    self.sink.write(shared, getattr(curr, "_step_index", None), "running")
+    curr_idx = getattr(curr, "_step_index", None)
+    nxt_idx = getattr(nxt, "_step_index", None) if nxt is not None else None
+    resume_step = nxt_idx if (nxt_idx is not None and nxt_idx != curr_idx) else curr_idx
+    self.sink.write(shared, resume_step, "running")
 ```
 
 Because loop bodies execute inside their own subflow's `_orch`, this yields **per-

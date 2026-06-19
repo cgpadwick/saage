@@ -114,6 +114,25 @@ Use `-v` for tool-output detail and the full per-node results, `-q` to quiet it:
 (Logging is configured by the CLI. As a library, `saage` never installs log
 handlers — your app controls logging via the standard `logging` module.)
 
+## Resumable runs
+
+Every `saage run` records a checkpoint under `~/.saage/runs/<run_id>/` after each
+step (and each loop iteration). If the run is killed — Ctrl-C, a dead battery, an
+ssh drop — pick it up where it left off:
+
+```bash
+saage runs                 # list runs: id, status, position, flow
+saage resume               # resume the most recent unfinished run
+saage resume <id|prefix>   # resume a specific run
+saage resume --force <id>  # resume even if the flow.yaml/skills changed
+```
+
+`saage run` always starts a fresh run. Resume granularity is one iteration of the
+outermost loop: a 12-iteration hill-climb killed during iteration 10 resumes at
+iteration 10, keeping 1–9. The killed iteration is redone from its start, so a
+flow's loop body should be safe to re-run (e.g. clean a checkpoint dir, then
+train) — the example ML flows already follow this pattern.
+
 ## Providers
 
 The native agent loop is provider-agnostic. Set the YAML `provider.type` and the matching

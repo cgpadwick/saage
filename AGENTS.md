@@ -196,6 +196,14 @@ that occurs once), `delete_file`, `run_command`, and git: `git_status`,
   `python3`), and avoid POSIX-absolute paths like `/tmp` inside commands —
   under Git Bash they resolve into the MSYS root, not `C:\tmp`; prefer
   workspace-relative paths or `{{ workspace }}`.
+- **Resumable runs / restart-safe iterations.** `saage run` checkpoints after
+  every step and loop iteration; `saage resume` restarts at the top-level step
+  that was in progress. A killed loop iteration is redone *whole* from the body's
+  first step, so write loop bodies to tolerate re-running the current iteration
+  (e.g. clean the experiment dir at the top of the body before training, as the
+  hill-climb flows do). Completed iterations are never redone. Resume granularity
+  is the *outermost* loop's iteration; a loop nested inside another loop is not
+  independently resumable.
 
 ## Running a flow
 
