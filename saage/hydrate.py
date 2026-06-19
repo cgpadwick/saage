@@ -121,7 +121,7 @@ def _all_subflows(node, seen=None, out=None):
 def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
                workspace=None, venv: str | None = None,
                config: "str | Path | EngineConfig | None" = None,
-               checkpoint=None):
+               checkpoint=None, resume_step: int | None = None):
     """Return (flow, shared).
 
     `provider` injects a ready provider object (used by tests). Otherwise the
@@ -173,6 +173,11 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
     if checkpoint is not None:
         for sf in _all_subflows(top):    # top + every nested loop subflow
             sf.sink = checkpoint
+    if resume_step is not None:
+        top.start_node = steps[resume_step]
+        if isinstance(steps[resume_step], Subflow):
+            # the resumed loop must keep its restored _iter counter on first entry
+            steps[resume_step]._skip_reset_once = True
     seed = dict(spec.get("shared", {}))
     seed.setdefault("workspace", str(ws))
     seed.setdefault("venv", venv)
@@ -185,13 +190,25 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
 def run_flow(flow_yaml, provider=None, shared: dict | None = None,
              provider_overrides: dict | None = None,
              workspace=None, venv: str | None = None,
-             config: "str | Path | EngineConfig | None" = None) -> dict:
+             config: "str | Path | EngineConfig | None" = None,
+             checkpoint=None, resume=None) -> dict:
+    resume_step = None
+    if resume is not None:
+        rec = resume.load()
+        resume_step = rec["resume_step"]
+        checkpoint = checkpoint or resume          # write back into the same run
     flow, seed = build_flow(flow_yaml, provider=provider,
                             provider_overrides=provider_overrides,
-                            workspace=workspace, venv=venv, config=config)
+                            workspace=workspace, venv=venv, config=config,
+                            checkpoint=checkpoint, resume_step=resume_step)
+    if resume is not None:
+        seed = dict(rec["shared"])                 # restore the whole store
+        seed.pop("_poll_start", None)              # monotonic clocks from the
+        seed.pop("_poll_count", None)              # dead process are meaningless
+        log.info("resuming run at step %s", resume_step)
     if shared:
         seed.update(shared)
-    log.info("starting run%s", f" (seed: {seed})" if seed else "")
+    log.info("starting run%s", f" (seed: {seed})" if seed and resume is None else "")
     flow.run(seed)
     log.info("run complete")
     return seed
