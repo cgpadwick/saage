@@ -22,6 +22,15 @@ def _no_ambient_saage_shell(monkeypatch):
     find_bash.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_saage_home(tmp_path, monkeypatch):
+    """Redirect SAAGE_HOME to a temp dir for every test, so run checkpoints
+    (and any other ~/.saage state) never leak into the developer's real home.
+    Tests that need their own SAAGE_HOME (e.g. to share one across steps) set it
+    themselves and override this."""
+    monkeypatch.setenv("SAAGE_HOME", str(tmp_path / ".saage"))
+
+
 @pytest.fixture
 def flow_copy(tmp_path):
     """Copy a flow fixture into a fresh temp dir so runs are hermetic (helper
