@@ -106,3 +106,6 @@ def test_resume_completes_a_crashed_run(tmp_path, monkeypatch):
     assert rc == 0
     # step one not redone; step two completed -> exactly "1\n2"
     assert log.read_text().split() == ["1", "2"]
+    # the resumed run is now marked completed (not left "running")
+    runs = ckpt.list_runs()
+    assert runs[0].load()["status"] == "completed"

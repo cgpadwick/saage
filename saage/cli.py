@@ -177,10 +177,15 @@ def _cmd_resume(args) -> int:
         return 1
     workspace = args.workspace or rec.get("workspace") or rec.get("shared", {}).get("workspace")
     log.info("resuming %s", cp.run_id)
-    run_flow(flow_path,
-             provider_overrides=rec.get("provider_overrides") or None,
-             workspace=workspace, venv=rec.get("venv"),
-             config=rec.get("config_path"), resume=cp)
+    try:
+        run_flow(flow_path,
+                 provider_overrides=rec.get("provider_overrides") or None,
+                 workspace=workspace, venv=rec.get("venv"),
+                 config=rec.get("config_path"), resume=cp)
+    except BaseException:
+        cp.mark("failed")
+        raise
+    cp.mark("completed")
     return 0
 
 

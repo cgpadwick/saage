@@ -62,16 +62,16 @@ class Subflow(Flow):
         while curr:
             curr.set_params(p)
             last_action = curr._run(shared)
+            nxt_raw = self.get_next_node(curr, last_action)
             if self.sink is not None:
                 curr_idx = getattr(curr, "_step_index", None)
-                nxt_raw = self.get_next_node(curr, last_action)
                 nxt_idx = getattr(nxt_raw, "_step_index", None) if nxt_raw is not None else None
                 # If the next node belongs to a different top-level step, record
                 # that next index so a crash there resumes at the right step
                 # rather than re-running the one that just completed.
                 resume_idx = nxt_idx if (nxt_idx is not None and nxt_idx != curr_idx) else curr_idx
                 self.sink.write(shared, resume_idx, "running")
-            curr = copy.copy(self.get_next_node(curr, last_action))
+            curr = copy.copy(nxt_raw)
         return last_action
 
     def post(self, shared, prep_res, last_action):
