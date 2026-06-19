@@ -86,6 +86,22 @@ def build_step(spec: dict, ctx: Context):
     raise ValueError(f"unknown step type: {t!r}")
 
 
+def _tag_step(node, idx: int, seen=None) -> None:
+    """Set `_step_index = idx` on every node reachable from a top-level step
+    (the step itself, a loop subflow, and all body/guard nodes). Must run BEFORE
+    top-level steps are chained, so the walk does not cross into later steps."""
+    seen = set() if seen is None else seen
+    if node is None or id(node) in seen:
+        return
+    seen.add(id(node))
+    node._step_index = idx
+    start = getattr(node, "start_node", None)
+    if start is not None:
+        _tag_step(start, idx, seen)
+    for nxt in getattr(node, "successors", {}).values():
+        _tag_step(nxt, idx, seen)
+
+
 def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
                workspace=None, venv: str | None = None,
                config: "str | Path | EngineConfig | None" = None):
@@ -131,6 +147,8 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
                   tools=default_tools(ws, venv=venv, command_policy=cfg.command_policy),
                   venv=venv)
     steps = [build_step(s, ctx) for s in spec["workflow"]]
+    for k, step in enumerate(steps):
+        _tag_step(step, k)               # tag BEFORE chaining (walk stays in-step)
     for a, b in zip(steps, steps[1:]):
         a >> b
     log.info("workflow ready: %d top-level step(s)", len(steps))
