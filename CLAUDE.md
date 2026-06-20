@@ -72,7 +72,9 @@ control flow is deterministic (code) and only step *content* comes from an LLM.
 - *Resumability rides on the shared store.* `saage/checkpoint.py` JSON-snapshots
   `shared` after each node (via `Subflow._orch`), tagged with `resume_step` (the
   *next* node's `_step_index`, set in `hydrate.py`). `saage resume` restores
-  `shared` and sets the top-level `start_node` to `steps[resume_step]`. Keep
+  `shared` and sets the top-level `start_node` to `steps[resume_step]`. Because
+  `resume_step` is a *top-level* step index, resume re-enters at the outermost
+  loop — a nested inner loop restarts (its `_iter` is not preserved). Keep
   everything written into `shared` JSON-serializable, or checkpoints degrade to
   `str()` coercion.
 
