@@ -8,6 +8,7 @@ from . import observe
 from .creds import (CredsError, add_target, cred_path, ensure_ssh_key,
                     get_target, list_targets, load_creds, storage_config)
 from .handoff import HandoffError, handoff
+from .resume import ResumeError
 from .lambda_api import LambdaAPI, LambdaError, SAAGE_KEY_NAME, pick_instance_type, wait_active, wait_ssh
 from .sshio import SSHError
 from .state import find_run
@@ -15,7 +16,7 @@ from .target import PreflightError, SshTarget
 from .workspace import DirtyWorkspace, WorkspaceError
 
 _ERRORS = (CredsError, HandoffError, PreflightError, WorkspaceError,
-           DirtyWorkspace, SSHError, LambdaError, FileNotFoundError)
+           DirtyWorkspace, SSHError, LambdaError, ResumeError, FileNotFoundError)
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -91,6 +92,12 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
 
     kl = rsub.add_parser("kill", help="stop a run (never the box)")
     kl.add_argument("run", help="run id or prefix")
+
+    rr = rsub.add_parser("resume", help="resume a killed run (in place or on a fresh box)")
+    rr.add_argument("run", help="run id or prefix")
+    rr.add_argument("--target", default=None,
+                    help="resume on this target (required if the original node is gone)")
+    rr.add_argument("--workspace", default=None, help="override the workspace dir")
 
     ft = rsub.add_parser("fetch", help="pull artifacts/ + log back from the node")
     ft.add_argument("run", nargs="?", default=None)
@@ -203,6 +210,12 @@ def _dispatch(args: argparse.Namespace) -> int:
         return observe.kill(args.run)
     if cmd == "fetch":
         return observe.fetch(args.run, args.dest, via_bucket=args.bucket)
+    if cmd == "resume":
+        from .resume import resume_run
+        rs = resume_run(args.run, target_name=args.target, workspace=args.workspace)
+        print(f"run {rs.run_id} resuming on {rs.state().get('target')} — "
+              f"`saage remote status {rs.run_id}`")
+        return 0
     raise CredsError(f"unknown remote command {cmd!r}")
 
 
