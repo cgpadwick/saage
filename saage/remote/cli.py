@@ -97,7 +97,6 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     rr.add_argument("run", help="run id or prefix")
     rr.add_argument("--target", default=None,
                     help="resume on this target (required if the original node is gone)")
-    rr.add_argument("--workspace", default=None, help="override the workspace dir")
 
     ft = rsub.add_parser("fetch", help="pull artifacts/ + log back from the node")
     ft.add_argument("run", nargs="?", default=None)
@@ -212,7 +211,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         return observe.fetch(args.run, args.dest, via_bucket=args.bucket)
     if cmd == "resume":
         from .resume import resume_run
-        rs = resume_run(args.run, target_name=args.target, workspace=args.workspace)
+        rs = resume_run(args.run, target_name=args.target)
         print(f"run {rs.run_id} resuming on {rs.state().get('target')} — "
               f"`saage remote status {rs.run_id}`")
         return 0

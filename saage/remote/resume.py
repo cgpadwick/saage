@@ -53,8 +53,7 @@ def _ws_view(manifest: dict) -> types.SimpleNamespace:
     )
 
 
-def resume_run(run_ref: str | None, *, target_name: str | None = None,
-               workspace: str | None = None) -> "RunState":
+def resume_run(run_ref: str | None, *, target_name: str | None = None) -> "RunState":
     rs = find_run(run_ref)
     manifest = rs.manifest()
     if not manifest:
@@ -111,6 +110,11 @@ def resume_run(run_ref: str | None, *, target_name: str | None = None,
             raise ResumeError(
                 "cross-box resume needs an R2 mirror (the new box restores the "
                 "checkpoint + artifacts from R2) but no [storage] is configured")
+        if ws_view.mode == "bundle":
+            raise ResumeError(
+                "cross-box resume needs a pushed run branch; this run used bundle "
+                "mode (no remote repo) so its workspace can't be reconstructed on "
+                "a new box — resume in place on the original node")
         node = SshTarget(get_target(target_name))
         node.preflight()
         conn = node.conn
@@ -142,11 +146,15 @@ def resume_run(run_ref: str | None, *, target_name: str | None = None,
                 f"{(proc.stderr or proc.stdout)[-2000:]}")
 
         # restore checkpoint + artifacts from R2 onto the fresh box
-        conn.run(
+        r2pull_proc = conn.run(
             f"cd $HOME/{rdir} && set -a; source ./run_env; set +a; "
             f"venv/bin/python -m saage.remote.r2pull "
             f"--run-id {shlex.quote(rs.run_id)} --run-dir $PWD",
-            timeout=900)
+            timeout=900, check=False)
+        if r2pull_proc.returncode != 0:
+            raise ResumeError(
+                f"no checkpoint found in R2 for run {rs.run_id} "
+                f"(r2pull failed) — cannot resume on a fresh box")
 
         # stage restored artifacts (the kept best model etc.) into ws/ at the
         # flow's declared artifact paths, so the resumed engine sees them in place
