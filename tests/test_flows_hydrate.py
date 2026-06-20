@@ -12,8 +12,15 @@ import pytest
 
 from saage.hydrate import build_flow
 
-FLOWS = Path(__file__).resolve().parent.parent / "flows"
-_FLOW_YAMLS = sorted(p for p in FLOWS.iterdir() if (p / "flow.yaml").is_file())
+ROOT = Path(__file__).resolve().parent.parent
+# both the core demos (flows/) and the application flows (contrib/) must hydrate
+_FLOW_YAMLS = sorted(
+    p
+    for base in ("flows", "contrib")
+    if (ROOT / base).is_dir()
+    for p in (ROOT / base).iterdir()
+    if (p / "flow.yaml").is_file()
+)
 
 
 @pytest.mark.parametrize("flow_dir", _FLOW_YAMLS, ids=lambda p: p.name)

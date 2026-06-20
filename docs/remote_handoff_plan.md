@@ -6,7 +6,7 @@
 **Supersedes:** `docs/cloud_one_button_plan.md` (earlier draft; "cloud" framing)
 
 **Use case:** develop and smoke-test a flow locally, then
-`saage remote handoff flows/lewm_hillclimb/flow.yaml --target spark` — the
+`saage remote handoff contrib/lewm_hillclimb/flow.yaml --target spark` — the
 *entire run* (engine + training) moves to a remote GPU node and runs to
 completion unattended. Close the laptop. Easy button.
 
@@ -80,7 +80,7 @@ saage remote init                      # creds file, ssh key, R2 bucket, dataset
 saage remote add-target spark --host spark.local --user saage   # register a node
 
 # the button
-saage remote handoff flows/lewm_hillclimb/flow.yaml --target spark \
+saage remote handoff contrib/lewm_hillclimb/flow.yaml --target spark \
     --set train_epochs=8               # all `saage run` flags pass through verbatim
 
 # trust commands
@@ -205,7 +205,7 @@ Written to `~/.saage/runs/<run_id>/manifest.json` and mirrored to the bucket:
 ```json
 {
   "run_id": "lewm-20260609-a3f2",
-  "flow": "flows/lewm_hillclimb/flow.yaml",
+  "flow": "contrib/lewm_hillclimb/flow.yaml",
   "saage_ref": "git@github.com:cgpadwick/saage.git@9be01f2",
   "target": "spark",
   "set": { "train_epochs": 8, "target_success": 74.0 },

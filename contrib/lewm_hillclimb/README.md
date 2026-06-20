@@ -41,13 +41,13 @@ Tune with `--set train_epochs=N` and `--set target_success=X`.
 cd ~/code/saage && source .venv/bin/activate   # or however saage is installed
 export OPENROUTER_API_KEY=sk-or-...
 # long-lived: run under tmux or nohup
-saage run flows/lewm_hillclimb/flow.yaml
+saage run contrib/lewm_hillclimb/flow.yaml
 ```
 
 Useful overrides:
 
 ```bash
-saage run flows/lewm_hillclimb/flow.yaml \
+saage run contrib/lewm_hillclimb/flow.yaml \
   --set train_epochs=8 \
   --set target_success=74.0
 ```

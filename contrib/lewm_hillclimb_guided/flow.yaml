@@ -1,5 +1,5 @@
 # Brownfield hill-climb on the LeWorldModel (le-wm) repo: tune LeWM training on
-# OGBench-Cube until planning success_rate matches the paper's 74%.
+# OGBench-Cube for the BEST achievable success_rate (guided-proposal variant).
 #
 #   setup(cmd: branch + snapshot + research log)
 #     -> baseline_clean(cmd) -> baseline_train(cmd, FIXED epochs)
@@ -22,7 +22,7 @@
 # CEM budget for cube, App. D); agents may not modify it.
 #
 # Run (long-lived — use tmux/nohup):
-#   OPENROUTER_API_KEY=... saage run flows/lewm_hillclimb/flow.yaml
+#   OPENROUTER_API_KEY=... saage run contrib/lewm_hillclimb_guided/flow.yaml
 #   ... --set train_epochs=8 --set target_success=74.0   # tunable
 provider: { type: openrouter, model: "deepseek/deepseek-v4-flash" }
 workspace: /home/cpadwick/code/le-wm
@@ -33,10 +33,12 @@ shared:
   task: >-
     Improve the training of LeWorldModel (LeWM) — a JEPA world model (ViT-tiny
     encoder + autoregressive transformer predictor, loss = next-embedding MSE +
-    lambda * SIGReg) — on the OGBench-Cube manipulation task, so that planning
-    success_rate on the frozen eval protocol rises toward the paper's 74%.
+    lambda * SIGReg) — on the OGBench-Cube manipulation task. The paper reports
+    74%; our measured baseline (this exact repo state, 8 epochs, A100) is 76.0;
+    DINO-WM reaches 86 on this task. The goal is the BEST achievable
+    success_rate on the frozen eval protocol — every point counts.
     Metric: success_rate in [0, 100] from eval.py (higher is better).
-  target_success: 74.0
+  target_success: 100.0           # best-score mode: never exit early on a target
   best_score: -1.0
   candidate_score: -1.0
   consecutive_failures: 0
@@ -49,6 +51,9 @@ shared:
   exp_name: lewm_cube_exp        # checkpoint dir each experiment trains into
   best_name: lewm_cube_best      # best checkpoint dir, promoted on every keep
   smoke_name: lewm_smoke         # checkpoint dir the verify smoke-run uses
+  confirm_epochs: 10             # final confirmation run at the paper's budget
+  confirm_name: lewm_cube_confirm
+  confirm_score: -1.0
   run_branch: saage-hillclimb    # experiment branch; remote handoff overrides it
                                  # (--set run_branch=saage-run-<id>) so kept
                                  # commits land on the branch the node pushes back
@@ -80,7 +85,7 @@ workflow:
   # ---- hill-climb: one experiment per iteration, keep only what improves ----
   - id: hillclimb
     type: counting_loop
-    max_iterations: 10
+    max_iterations: 8
     exit_when: "best_score >= target_success"
     body:
       # cheap vetting before a ~20 h train run
@@ -120,6 +125,23 @@ workflow:
         set:
           best_score: "BEST_SCORE=(-?[0-9.]+)"
           consecutive_failures: "FAILURES=([0-9]+)"
+
+  # ---- confirmation: the winning config at the paper's 10-epoch budget ----
+  # the working tree is the best kept state (failures were reverted), so this
+  # trains the winner properly before the headline number is reported
+  - id: confirm_clean
+    type: command
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" {{ python }} "{{ flow_dir }}/clean_ckpt.py" --name {{ confirm_name }}'
+  - id: confirm_train
+    type: command
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" python train.py data=ogb output_model_name={{ confirm_name }} subdir={{ confirm_name }} trainer.max_epochs={{ confirm_epochs }} num_workers={{ num_workers }} wandb.enabled=False'
+  - id: confirm_eval
+    type: command
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ confirm_name }}/weights_epoch_{{ confirm_epochs }}.pt solver.n_steps=10'
+    set: { confirm_score: "'success_rate': (-?[0-9.]+)" }
+  - id: confirm_record
+    type: command
+    run: 'echo "- CONFIRMATION: best config retrained at {{ confirm_epochs }} epochs -> success_rate={{ confirm_score }} (best 8-epoch score: {{ best_score }})" >> research_log.md && echo "CONFIRMED={{ confirm_score }}"'
 
   # ---- final report ----
   - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 15 }
