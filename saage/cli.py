@@ -40,6 +40,9 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--config", metavar="engine.yaml",
                      help="engine config YAML tuning the run_command safety policy "
                           "(default: the built-in denylist)")
+    run.add_argument("--run-id", dest="run_id", default=None,
+                     help="pin the checkpoint/run id (default: auto; also honors "
+                          "$SAAGE_RUN_ID — used by `saage remote` for resumability)")
     run.add_argument("--set", dest="overrides", metavar="KEY=VALUE", action="append",
                      default=[], help="seed/override a shared-store value (repeatable; "
                                       "value is parsed as JSON when possible)")
@@ -211,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     _setup_logging(args.verbose, args.quiet)
 
     overrides = {"type": args.provider, "model": args.model, "base_url": args.base_url}
-    run_id = ckpt.new_run_id()
+    run_id = args.run_id or os.environ.get("SAAGE_RUN_ID") or ckpt.new_run_id()
     flow_path = str(Path(args.flow).resolve())
     run = ckpt.Checkpoint.create(
         run_id,
