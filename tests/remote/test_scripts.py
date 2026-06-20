@@ -142,3 +142,21 @@ def test_ws_setup_hook_runs_in_ws_after_clone():
     assert script.index(hook) < script.index("BOOTSTRAP_OK")
     assert "( cd ws &&" not in bootstrap_sh(_spec())             # absent by default
     _bash_n(script)
+
+
+def test_resume_sh_runs_saage_resume():
+    from saage.remote.scripts import RunSpec, resume_sh
+    spec = RunSpec(run_id="r1", flow_file="flow.yaml", ws_mode="branch")
+    s = resume_sh(spec)
+    assert "saage resume" in s
+    assert '"$SAAGE_RUN_ID"' in s or "r1" in s
+    assert "--workspace" in s
+    assert "status running" in s            # same heartbeat wrapper as start.sh
+
+
+def test_start_sh_engine_gets_run_id_from_env():
+    from saage.remote.scripts import RunSpec, start_sh
+    # SAAGE_RUN_ID is sourced from run_env; engine honors it (Task 1). The script
+    # must source run_env before the saage run line.
+    s = start_sh(RunSpec(run_id="r1", flow_file="flow.yaml", ws_mode="ephemeral"))
+    assert s.index("source ./run_env") < s.index("saage run")
