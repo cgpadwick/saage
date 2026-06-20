@@ -133,6 +133,11 @@ iteration 10, keeping 1–9. The killed iteration is redone from its start, so a
 flow's loop body should be safe to re-run (e.g. clean a checkpoint dir, then
 train) — the example ML flows already follow this pattern.
 
+A loop nested inside another loop isn't resumed independently: a crash redoes the
+entire in-progress **outer** iteration, re-running the inner loop from scratch.
+The result stays correct, but keep inner loops cheap (or prefer a single loop
+level) if resumability matters.
+
 ## Providers
 
 The native agent loop is provider-agnostic. Set the YAML `provider.type` and the matching
