@@ -274,7 +274,9 @@ Each is a runnable demo and a deterministic integration test:
 | `poll_job` | command capture + `polling_loop` + wall-clock timeout cap |
 | `guessing_game` | multi-agent feedback loop: guesser + judge (higher/lower) homing in on a hidden target via `counting_loop` + `exit_when` |
 | `greenfield_ml` | full ML auto-research: baseline classifier + hill-climb on MNIST |
-| `lewm_hillclimb` | brownfield auto-research on an existing repo (le-wm), incl. `cloud_setup.sh` for remote GPU boxes |
+
+Heavier, application-specific flows live in [`contrib/`](contrib) — currently the
+le-wm world-model hill-climbs (`lewm_hillclimb`, `lewm_hillclimb_guided`).
 
 ## Remote handoff (`saage remote`)
 
@@ -319,7 +321,7 @@ How it works, briefly:
   fall back to the mirror when the node is gone. A watchdog stops wedged runs.
 - **Flow env setup**: `--ws-setup "bash ../flow/cloud_setup.sh"` runs a
   flow-supplied script inside the workspace at bootstrap (see
-  `flows/lewm_hillclimb/cloud_setup.sh` — curated torch stacks via
+  `contrib/lewm_hillclimb/cloud_setup.sh` — curated torch stacks via
   [ml-frameworks](https://github.com/cgpadwick/ml-frameworks) with
   driver-aware CUDA selection, dataset staging from HF, headless-EGL libs).
 

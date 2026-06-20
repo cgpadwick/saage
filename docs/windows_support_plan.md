@@ -160,7 +160,7 @@ has the same latent translation bug — remote scope (§7).
 | `saage/config.py` | Windows deny patterns (D5) |
 | `saage/remote/creds.py` | POSIX-only mode check (D6) |
 | `saage/remote/handoff.py` | `newline="\n"` on script copies (D7) |
-| `flows/greenfield_ml/`, `flows/lewm_hillclimb/` | `python3` → `{{ python }}`; `setup_env.py` venv-layout awareness (`bin`/`Scripts`) so the ml-frameworks GPU stack installs on Windows too |
+| `flows/greenfield_ml/`, `contrib/lewm_hillclimb/` | `python3` → `{{ python }}`; `setup_env.py` venv-layout awareness (`bin`/`Scripts`) so the ml-frameworks GPU stack installs on Windows too |
 | `tests/` | new `test_shell.py` (discovery + dialect + argv round-trip quoting of embedded `"` and trailing `\` — `list2cmdline` rewrites those edge cases); venv `Scripts` layout cases in `test_workspace.py`; Windows policy cases; binary-stdin + `find_bash` in `tests/remote/test_scripts.py` (D7); `skipif(win32)` on **two** creds tests — the chmod-mode assertion *and* `test_refuses_world_readable_creds` (it only passes on Windows today because the check wrongly fires on every file; D6 removes that) |
 | `README.md`, `AGENTS.md` | Windows requirements note + `{{ python }}` convention |
 
