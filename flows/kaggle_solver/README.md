@@ -19,9 +19,6 @@ log-reading.
 |---|---|---|---|---|---|---|
 | _(results land here as the benchmark sweeps run — M1/M2/M3)_ | | | | | | |
 
-**The brag we're building toward:** medals per dollar — deepseek-class
-models on $0.35–1.99/hr rented GPUs, reproducible from this YAML.
-
 ## Run it
 
 ```bash
