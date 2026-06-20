@@ -297,6 +297,21 @@ saage remote fetch             # pull artifacts back: ./results/<run_id>/
 saage remote kill <run>        # stop the run — never the box
 ```
 
+A killed remote run is resumable. The engine checkpoint (and any file listed in
+the flow's `artifacts:`, e.g. the best model) is mirrored to R2 each sync
+(changed-only — big files upload only when they change). Then:
+
+```bash
+saage remote resume <run>                 # node still up: resume in place
+saage remote resume <run> --target spark  # node gone: fresh box, from the R2 checkpoint
+```
+
+Cross-box resume restores the checkpoint + mirrored artifacts from R2 and
+reconstructs code from the run branch; heavy regenerable inputs (datasets) are
+re-staged by the flow's `cloud_setup`, and the hill-climb continues from its
+recorded `best_score`/iteration. To keep the trained best model across a box
+death, list its (workspace-relative) path in the flow's `artifacts:`.
+
 Targets are just SSH hosts (a LAN box, a hand-launched cloud instance —
 `--port` and `--key` cover NAT'd ports and per-instance keys, e.g. Thunder
 Compute). For Lambda Cloud there's provisioning built in:
