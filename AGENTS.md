@@ -110,7 +110,10 @@ again, until `complete`/`failed` or the `max_wait_seconds` wall-clock cap.
 ```
 
 Loops nest: an `action`/`check`/`body` entry can itself be a loop. A nested loop's
-counter is reset each time the outer loop re-enters it.
+counter is reset each time the outer loop re-enters it. (Resume caveat: `saage
+resume` re-enters only at the *outermost* loop, so a crash redoes the whole
+in-progress outer iteration and reruns nested inner loops from scratch — see
+"Resumable runs / restart-safe iterations" under Conventions & gotchas.)
 
 ## Skills (`skill.md`)
 
@@ -202,8 +205,10 @@ that occurs once), `delete_file`, `run_command`, and git: `git_status`,
   first step, so write loop bodies to tolerate re-running the current iteration
   (e.g. clean the experiment dir at the top of the body before training, as the
   hill-climb flows do). Completed iterations are never redone. Resume granularity
-  is the *outermost* loop's iteration; a loop nested inside another loop is not
-  independently resumable.
+  is the *outermost* loop's iteration: a loop nested inside another loop is **not**
+  resumed independently — a crash redoes the whole in-progress outer iteration and
+  re-runs the inner loop from scratch. It stays correct, but keep inner loops
+  cheap (or avoid nesting) where resume cost matters.
 
 ## Running a flow
 
