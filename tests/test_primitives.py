@@ -156,3 +156,50 @@ def test_subflow_normalizes_success_action():
     shared = {}
     assert flow.post(shared, None, "exit") == "default"
     assert flow.post(shared, None, "failed") == "failed"
+
+
+# --------------------------------------------------------------------------- #
+# action-role nodes must not let stray ACTION prose end the flow
+# --------------------------------------------------------------------------- #
+def test_action_node_stray_action_falls_through_to_default():
+    """An action agent narrating "...run ACTION: python predict.py..." parses
+    to action 'python'. As a retry_loop action it has only a 'default' edge to
+    the check, so it must route there — not silently END the flow (the live
+    kaggle_solver bug: the run died one step before submission)."""
+    from saage.nodes import _route, _parse_action
+    from pocketflow import Node
+
+    class Emitter(Node):
+        """An action node whose post returns a routed, parsed action."""
+        def __init__(self, id, text):
+            super().__init__(); self.id = id; self._text = text
+        def post(self, shared, prep_res, exec_res):
+            shared.setdefault("_trace", []).append(self.id)
+            return _route(self, _parse_action(self._text))
+
+    # the agent's final message contains stray ACTION prose
+    action = Emitter("implement", "Done. Next, run `ACTION: python` predict.py.")
+    check = FailUntil("smoke", pass_on=1)        # passes immediately
+    flow = retry_loop("impl", action, check, max_iterations=3)
+    shared = {}
+    flow.run(shared)
+
+    # the loop completed: action -> check -> done, no silent flow-death
+    # (pre-fix, the flow ended at 'implement' and 'smoke' never ran)
+    assert shared["_trace"] == ["implement", "smoke"]
+
+
+def test_route_leaves_decider_actions_untouched():
+    """A check node with named pass/fail edges and no 'default' keeps its
+    routing — the fallback only applies when a 'default' edge exists."""
+    from saage.nodes import _route
+    from pocketflow import Node
+
+    check = Node()
+    other = Node()
+    check - "pass" >> other
+    check - "fail" >> other
+    assert _route(check, "pass") == "pass"
+    assert _route(check, "fail") == "fail"
+    # no 'default' edge -> unknown action passes through unchanged (not masked)
+    assert _route(check, "weird") == "weird"

@@ -67,6 +67,28 @@ def _parse_action(text: str) -> str:
     return action
 
 
+def _route(node: "Node", action: str) -> str:
+    """Map a node's parsed action to one its wiring actually has a successor for.
+
+    An ACTION is only a routing signal where the graph offers that route. An
+    action-role node (a retry_loop action, a counting_loop body step, a poll
+    step) has a single `default` successor, so a stray `ACTION:` in its
+    free-text — e.g. an `implement` agent narrating "...run `ACTION: python`
+    predict.py..." — must NOT be taken as a route. If the parsed action has no
+    matching successor but a `default` edge exists, fall through to `default`
+    rather than letting PocketFlow silently END the whole flow on an unknown
+    action. Decider nodes (checks/classifiers) have named successors and no
+    `default`, so their routing is unchanged.
+    """
+    succ = getattr(node, "successors", {}) or {}
+    if action in succ or "default" not in succ:
+        return action
+    if action != "default":
+        log.warning("  %s: action %r has no transition; routing via 'default'",
+                    getattr(node, "id", "?"), action)
+    return "default"
+
+
 class AgentNode(Node):
     """Runs an LLM agent (a skill) with the harness tools."""
 
@@ -98,7 +120,7 @@ class AgentNode(Node):
         shared.setdefault("results", {})[self.id] = out
         _trace(shared, self.id)
         capture_into(shared, out, self.captures)
-        action = _parse_action(out)
+        action = _route(self, _parse_action(out))
         log.info("  ✓ %s → %s", self.id, action)
         return action
 
@@ -128,7 +150,10 @@ class CommandNode(Node):
         shared.setdefault("results", {})[self.id] = out
         _trace(shared, self.id)
         capture_into(shared, out["stdout"], self.captures)
-        return "default"
+        # commands can drive loop checks deterministically by printing
+        # `ACTION: pass|fail|...` (same convention as agent skills); without
+        # one, behavior is unchanged ("default")
+        return _route(self, _parse_action(out["stdout"]))
 
 
 class WaitNode(Node):

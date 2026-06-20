@@ -30,3 +30,10 @@ flows/*/story.md
 flows/*/review.md
 flows/*/history.txt
 flows/*/job_*.count
+
+# diskcache / sqlite caches written at runtime in the CWD (e.g. mlebench,
+# pulled in by the kaggle_solver flow, creates <cwd>/cache/cache.db)
+cache/
+*.db
+*.sqlite
+*.sqlite3
