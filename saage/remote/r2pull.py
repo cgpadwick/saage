@@ -57,7 +57,11 @@ def main() -> int:
 
     # list artifact keys under the prefix
     names = ["checkpoint.json"]
-    resp = client.list_objects_v2(Bucket=bucket, Prefix=f"{prefix}/artifacts/")
+    try:
+        resp = client.list_objects_v2(Bucket=bucket, Prefix=f"{prefix}/artifacts/")
+    except Exception as exc:
+        print(f"r2pull: list failed: {exc}", file=sys.stderr)
+        return 1
     for obj in resp.get("Contents", []):
         names.append("artifacts/" + obj["Key"].rsplit("/", 1)[-1])
 
