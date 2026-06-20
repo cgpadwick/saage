@@ -111,3 +111,10 @@ def test_changed_only_skips_unchanged(tmp_path):
     assert changed(pairs, man) == []    # unchanged: skip
     big.write_bytes(b"y" * 2000)               # changed size
     assert changed(pairs, man) == pairs # changed: upload again
+
+
+def test_plan_downloads_checkpoint_and_artifacts():
+    from saage.remote import r2pull
+    keys = r2pull.plan_downloads("runs/r1", ["checkpoint.json", "artifacts/model.pt"])
+    assert ("runs/r1/checkpoint.json", "checkpoint") in keys
+    assert ("runs/r1/artifacts/model.pt", "artifact") in keys
