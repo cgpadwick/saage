@@ -92,7 +92,12 @@ def make_plot(baseline: float | None, experiments: list[dict]) -> str | None:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-    except Exception:
+    except Exception as e:
+        # never lose the plot silently — surface why (a transient first-import
+        # font-cache build has dropped the plot from an otherwise-good report)
+        import sys
+        print(f"make_plot: matplotlib unavailable ({e!r}) — no hill-climb plot",
+              file=sys.stderr)
         return None
 
     xs_best = ([0] if baseline is not None else []) + [e["step"] for e in experiments]

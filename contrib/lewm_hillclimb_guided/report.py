@@ -88,7 +88,12 @@ def make_plot(experiments: list[dict], target: float | None) -> str | None:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-    except Exception:
+    except Exception as e:
+        # never lose the plot silently — surface why (a transient first-import
+        # font-cache build has dropped the plot from an otherwise-good report)
+        import sys
+        print(f"make_plot: matplotlib unavailable ({e!r}) — no hill-climb plot",
+              file=sys.stderr)
         return None
     if not experiments:
         return None
