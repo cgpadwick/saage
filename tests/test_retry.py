@@ -59,6 +59,12 @@ def test_unknown_error_is_not_retryable():
     assert is_retryable_error(ValueError("nope")) is False
 
 
+def test_empty_response_is_retryable():
+    # a 200 with an error body / no choices (OpenRouter) — classified by type name
+    from saage.llm import EmptyResponseError
+    assert is_retryable_error(EmptyResponseError("no choices")) is True
+
+
 # --------------------------------------------------------------------------- #
 # call_with_retry
 # --------------------------------------------------------------------------- #
