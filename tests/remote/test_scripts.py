@@ -160,3 +160,75 @@ def test_start_sh_engine_gets_run_id_from_env():
     # must source run_env before the saage run line.
     s = start_sh(RunSpec(run_id="r1", flow_file="flow.yaml", ws_mode="ephemeral"))
     assert s.index("source ./run_env") < s.index("saage run")
+
+
+def test_collect_uses_posix_nt_guard_not_stat():
+    """collect() must use only POSIX operators — no GNU stat -c%s (fails on BSD/macOS)."""
+    spec = _spec(artifacts=("experiments.jsonl", "report.html"))
+    script = start_sh(spec)
+    assert "stat -c%s" not in script, "collect() must not use GNU stat -c%s"
+    assert "-nt" in script, "collect() must use POSIX -nt operator for skip guard"
+    _bash_n(script)
+
+
+def test_manifest_roundtrip_run_settings():
+    """RunSpec fields sync_interval / max_run_days / venv_arg survive a manifest
+    round-trip via the keys handoff.py writes and resume.py reads."""
+    from saage.remote.scripts import RunSpec
+
+    # simulate what handoff.py writes into the manifest
+    spec_orig = RunSpec(
+        run_id="rt-test", flow_file="flow.yaml", ws_mode="ephemeral",
+        sync_interval=120, max_run_days=3.5, venv_arg=".custom-venv",
+    )
+    manifest = {
+        "set": {},
+        "ws_setup": None,
+        "artifacts": list(spec_orig.artifacts),
+        "sync_interval": spec_orig.sync_interval,
+        "max_run_days": spec_orig.max_run_days,
+        "venv": spec_orig.venv_arg,
+    }
+
+    # simulate what resume.py reads back
+    spec_resumed = RunSpec(
+        run_id=spec_orig.run_id,
+        flow_file=spec_orig.flow_file,
+        ws_mode="ephemeral",
+        set_args=manifest.get("set") or {},
+        ws_setup=manifest.get("ws_setup"),
+        artifacts=tuple(manifest.get("artifacts") or ()),
+        sync_interval=manifest.get("sync_interval", 300),
+        max_run_days=manifest.get("max_run_days", 12.0),
+        venv_arg=manifest.get("venv"),
+    )
+
+    assert spec_resumed.sync_interval == 120
+    assert spec_resumed.max_run_days == 3.5
+    assert spec_resumed.venv_arg == ".custom-venv"
+
+
+def test_manifest_roundtrip_run_settings_old_manifest_defaults():
+    """Old manifests without sync_interval/max_run_days/venv fall back to defaults."""
+    from saage.remote.scripts import RunSpec
+
+    manifest: dict = {
+        "set": {},
+        "ws_setup": None,
+        "artifacts": [],
+        # deliberately omitting sync_interval, max_run_days, venv
+    }
+
+    spec = RunSpec(
+        run_id="old-rt", flow_file="flow.yaml", ws_mode="ephemeral",
+        set_args=manifest.get("set") or {},
+        ws_setup=manifest.get("ws_setup"),
+        artifacts=tuple(manifest.get("artifacts") or ()),
+        sync_interval=manifest.get("sync_interval", 300),
+        max_run_days=manifest.get("max_run_days", 12.0),
+        venv_arg=manifest.get("venv"),
+    )
+
+    assert spec.sync_interval == 300
+    assert spec.max_run_days == 12.0
+    assert spec.venv_arg is None

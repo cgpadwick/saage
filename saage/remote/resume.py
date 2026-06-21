@@ -85,6 +85,9 @@ def resume_run(run_ref: str | None, *, target_name: str | None = None) -> "RunSt
         r2=storage is not None,
         ws_setup=manifest.get("ws_setup"),
         artifacts=tuple(manifest.get("artifacts") or ()),
+        sync_interval=manifest.get("sync_interval", 300),
+        max_run_days=manifest.get("max_run_days", 12.0),
+        venv_arg=manifest.get("venv"),
     )
     secrets = _collect_secrets(provider_type, ws_view, {}, rs.run_id, storage)
     env_text = "".join(f"{k}={shlex.quote(v)}\n" for k, v in secrets.items())

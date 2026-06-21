@@ -58,12 +58,8 @@ def _collect_fn(spec: RunSpec) -> str:
     for f in ws/$pat; do                 # unquoted: patterns may be globs
       [ -f "$f" ] || continue
       dst="artifacts/$(basename "$f")"
-      # skip re-copying an unchanged artifact (avoids redundant copy of big models)
-      if [ -f "$dst" ] && [ "$(stat -c%s "$f")" = "$(stat -c%s "$dst")" ] && \\
-         [ "$f" -ot "$dst" -o ! "$f" -nt "$dst" ]; then
-        continue
-      fi
-      cp -f "$f" artifacts/ 2>/dev/null
+      [ -f "$dst" ] && [ ! "$f" -nt "$dst" ] && continue   # unchanged -> skip
+      cp -f "$f" "$dst" 2>/dev/null
     done
   done
   # branch mode: push kept commits out on every sync, so a node death loses at

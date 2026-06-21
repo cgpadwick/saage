@@ -159,3 +159,20 @@ def test_run_id_env_pins_checkpoint_id(tmp_path, monkeypatch):
     monkeypatch.setenv("SAAGE_RUN_ID", "env-456")
     main(["run", str(f), "--workspace", str(tmp_path), "-q"])
     assert ckpt.Checkpoint("env-456").load()["status"] == "completed"
+
+
+def test_run_refuses_reusing_completed_run_id(tmp_path):
+    """saage run --run-id <id> must refuse when that id is already completed."""
+    f = _command_flow(tmp_path)
+    # first run completes successfully
+    rc = main(["run", str(f), "--workspace", str(tmp_path), "-q", "--run-id", "dup-run"])
+    assert rc == 0
+    assert ckpt.Checkpoint("dup-run").load()["status"] == "completed"
+
+    # second run with the same id must be refused (returns 1)
+    rc2 = main(["run", str(f), "--workspace", str(tmp_path), "-q", "--run-id", "dup-run"])
+    assert rc2 == 1
+
+    # the original completed checkpoint must NOT be clobbered
+    rec = ckpt.Checkpoint("dup-run").load()
+    assert rec["status"] == "completed", "completed checkpoint was clobbered"

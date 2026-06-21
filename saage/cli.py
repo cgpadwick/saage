@@ -212,9 +212,17 @@ def main(argv: list[str] | None = None) -> int:
         _setup_logging(args.verbose, args.quiet)
         return _cmd_resume(args)
     _setup_logging(args.verbose, args.quiet)
+    log = logging.getLogger("saage")
 
     overrides = {"type": args.provider, "model": args.model, "base_url": args.base_url}
     run_id = args.run_id or os.environ.get("SAAGE_RUN_ID") or ckpt.new_run_id()
+
+    existing = ckpt.Checkpoint(run_id)
+    if existing.file.exists() and existing.load().get("status") == "completed":
+        log.error("run id %r already completed (%s) — use `saage resume %s` to "
+                  "continue it, or a different --run-id", run_id, existing.dir, run_id)
+        return 1
+
     flow_path = str(Path(args.flow).resolve())
     run = ckpt.Checkpoint.create(
         run_id,
@@ -232,7 +240,6 @@ def main(argv: list[str] | None = None) -> int:
     run.write(seed, resume_step=None, status="running")   # record workspace/venv
 
     before = _snapshot(root)
-    log = logging.getLogger("saage")
     log.info("starting run %s", run_id)
     # The engine stamps the terminal completed/failed status into the final
     # checkpoint write; here we only need to record a crash (a raised exception).
