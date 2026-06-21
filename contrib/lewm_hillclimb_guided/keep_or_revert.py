@@ -40,7 +40,7 @@ def git_out(*args: str) -> str:
     return r.stdout.strip()
 
 
-_LEDGER_FILES = {"research_log.md", "experiments.jsonl"}
+_LEDGER_FILES = {"research_log.md", "experiments.jsonl", "eval_results.json"}
 
 
 def _changed_files() -> list[str]:
@@ -95,10 +95,12 @@ def main() -> None:
         if not promoted and not baseline:
             improved = False    # train never produced a checkpoint -> treat as failed
 
-    # capture the implement footprint AND the proposal BEFORE we commit or
-    # revert — a revert's `git clean` wipes the untracked proposals/ dir
+    # capture the implement footprint, the proposal, and its one-paragraph
+    # summary BEFORE we commit or revert — a revert's `git clean` wipes the
+    # untracked proposals/ dir
     files_changed = _changed_files()
     proposal = _read_proposal()
+    summary = _read_summary()
 
     if improved:
         git("add", "-A")
@@ -119,12 +121,14 @@ def main() -> None:
         commit_sha = None                       # reverted: nothing committed
         fails, status = fails + 1, "revert"
 
-    # Rich per-experiment record: BOTH the report's experiments.jsonl row AND
-    # the research_log.md entry the next propose/critic agent reads — proposal
-    # text + what changed + outcome — so they see what was already tried and
-    # build on it instead of repeating (the sparse `- candidate=.. -> revert`
-    # log gave the proposer nothing to reason about).
-    _record_experiment(cand, best, status, commit_sha, files_changed, proposal)
+    # Two records, two audiences:
+    #  - research_log.md: the proposer's working memory — a ONE-paragraph summary
+    #    + what changed + outcome. Kept terse so re-reading it every iteration
+    #    does not blow the proposer's context.
+    #  - experiments.jsonl: the human record / report.html — full proposal text,
+    #    summary, files, commit. Not read by the proposer, so size is fine.
+    _record_experiment(cand, best, status, commit_sha, files_changed,
+                       proposal, summary)
 
     print(f"RESULT={status} BEST_SCORE={best} FAILURES={fails}")
 
@@ -134,36 +138,35 @@ def _read_proposal() -> str:
     return open(p).read().strip() if os.path.exists(p) else ""
 
 
-# proposals can be long; cap what goes into research_log so the proposer's read
-# stays bounded while still carrying the hypothesis + the concrete change
-_PROPOSAL_LOG_CHARS = 2000
+def _read_summary() -> str:
+    """The summarize agent's one-paragraph digest of the proposal."""
+    p = "proposals/summary.md"
+    return open(p).read().strip() if os.path.exists(p) else ""
 
 
 def _append_research_log(step: int, candidate: float, best: float, status: str,
                          commit_sha: str | None, files_changed: list[str],
-                         proposal: str) -> None:
-    """Append a rich entry the next propose/critic agent reads: proposal text +
-    the files actually changed + the outcome. Mirrors the final report's
-    per-experiment row so the agents reason over real history, not bare scores."""
+                         summary: str) -> None:
+    """Append the terse entry the next propose/critic agent reads: a one-paragraph
+    change summary + the files actually changed + the outcome. The summary (not
+    the full proposal) keeps this log small enough to re-read every iteration."""
     result = "KEPT ✅" if status == "keep" else "reverted ❌"
     files = ", ".join(files_changed) or "none"
     sha = (commit_sha or "")[:8]
-    prop = proposal or "(no proposal recorded)"
-    if len(prop) > _PROPOSAL_LOG_CHARS:
-        prop = prop[:_PROPOSAL_LOG_CHARS].rstrip() + "\n…(proposal truncated)"
+    body = summary or "(no summary written)"
     with open("research_log.md", "a") as f:
         f.write(
             f"\n## Experiment {step} — {result} "
             f"(candidate={candidate:g}, best={best:g})\n"
-            f"- files changed: {files}\n"
+            f"- changed: {files}\n"
             + (f"- commit: {sha}\n" if sha else "")
-            + f"\n{prop}\n"
+            + f"\n{body}\n"
         )
 
 
 def _record_experiment(candidate: float, best: float, status: str,
                        commit_sha: str | None, files_changed: list[str],
-                       proposal: str) -> None:
+                       proposal: str, summary: str) -> None:
     """Structured ledger for the final report. experiments.jsonl is excluded
     from git, so it survives the revert above and accumulates across the run.
     Anchors each row to the ACTUAL change (commit_sha for kept, files_changed
@@ -177,12 +180,12 @@ def _record_experiment(candidate: float, best: float, status: str,
     parent_step = next((r["step"] for r in reversed(rows)
                         if r.get("status") == "keep"), 0)
     _append_research_log(step, candidate, best, status, commit_sha,
-                         files_changed, proposal)
+                         files_changed, summary)
     with open("experiments.jsonl", "a") as f:
         f.write(json.dumps({"step": step, "parent_step": parent_step,
                             "candidate": candidate, "best": best, "status": status,
                             "commit_sha": commit_sha, "files_changed": files_changed,
-                            "proposal": proposal}) + "\n")
+                            "summary": summary, "proposal": proposal}) + "\n")
 
 
 if __name__ == "__main__":

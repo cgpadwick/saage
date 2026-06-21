@@ -125,42 +125,50 @@ def test_revert_records_files_but_null_sha(repo):
 
 def test_files_changed_excludes_bookkeeping(repo):
     (repo / "model.py").write_text("v = 2\n")
-    (repo / "research_log.md").write_text("- prior\n")   # untracked bookkeeping
+    (repo / "research_log.md").write_text("- prior\n")    # untracked bookkeeping
+    (repo / "eval_results.json").write_text('{"value": 0.9}\n')  # eval output, not a change
     _run(repo, candidate=0.9, best=0.8)
     rec = _last_experiment(repo)
     assert "research_log.md" not in rec["files_changed"]
     assert "experiments.jsonl" not in rec["files_changed"]
+    assert "eval_results.json" not in rec["files_changed"]
 
 
-# ---- rich research_log: the proposer/critic read research_log.md to see what was
-# already tried; it must carry the proposal text + outcome, not just bare scores ----
+# ---- research_log is the proposer's working memory: it carries the one-paragraph
+# SUMMARY + outcome (terse, re-read every iteration); the FULL proposal goes only to
+# experiments.jsonl for the human report ----
 
 
-def test_research_log_includes_proposal_and_outcome(repo):
+def test_research_log_has_summary_and_full_proposal_goes_to_jsonl(repo):
     (repo / "proposals").mkdir()
     (repo / "proposals" / "latest.md").write_text(
-        "HYPOTHESIS: widen the classifier head.\nCHANGE: hidden 128 -> 256.\n")
+        "HYPOTHESIS: widen the classifier head.\nCHANGE: hidden 128 -> 256.\n"
+        "RATIONALE: lots and lots of detail that should NOT bloat the log.\n")
+    (repo / "proposals" / "summary.md").write_text(
+        "Widen the classifier head 128->256 to add capacity.")
     (repo / "model.py").write_text("v = 2\n")
     _run(repo, candidate=0.9, best=0.8)                  # keep
     log = (repo / "research_log.md").read_text()
-    assert "## Experiment 1" in log
-    assert "KEPT" in log
-    assert "widen the classifier head" in log            # the proposal text is there
-    assert "hidden 128 -> 256" in log
+    assert "## Experiment 1" in log and "KEPT" in log
+    assert "Widen the classifier head 128->256" in log   # the SUMMARY is in the log
     assert "model.py" in log                             # the actual change
+    assert "RATIONALE: lots and lots" not in log         # full proposal NOT in the log
+    rec = _last_experiment(repo)
+    assert "RATIONALE: lots and lots" in rec["proposal"]  # full proposal -> jsonl
+    assert rec["summary"] == "Widen the classifier head 128->256 to add capacity."
 
 
-def test_research_log_records_proposal_on_revert(repo):
-    # proposals/ is untracked, so the revert's `git clean` wipes it — the proposal
+def test_summary_recorded_on_revert(repo):
+    # proposals/ is untracked, so the revert's `git clean` wipes it — the summary
     # must be captured BEFORE the revert so a failed idea is still in the log
     (repo / "proposals").mkdir()
-    (repo / "proposals" / "latest.md").write_text("CHANGE: try lr=0.5 (too high).\n")
+    (repo / "proposals" / "summary.md").write_text("Try lr=0.5 (too high) on SGD.")
     (repo / "model.py").write_text("v = 9\n")
     _run(repo, candidate=0.3, best=0.9)                  # revert
     log = (repo / "research_log.md").read_text()
     assert "reverted" in log
-    assert "try lr=0.5" in log                           # the failed idea is recorded
-    assert not (repo / "proposals" / "latest.md").exists()  # git clean wiped it
+    assert "Try lr=0.5 (too high)" in log               # the failed idea's summary is recorded
+    assert not (repo / "proposals" / "summary.md").exists()  # git clean wiped it
 
 
 def test_parent_step_points_to_last_kept(repo):

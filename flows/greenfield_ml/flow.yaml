@@ -77,6 +77,11 @@ workflow:
           max_steps: 15
           set: { current_proposal: "(?s)(.+)" }   # capture the whole proposal text
         check: { id: proposal_critic, type: agent, skill: proposal_critic, max_steps: 10 }
+      # one-paragraph digest of the accepted proposal -> proposals/summary.md, which
+      # keep_or_revert writes into research_log.md (kept terse so the proposer can
+      # re-read the whole log cheaply every iteration; the full proposal goes only
+      # to experiments.jsonl for the human report)
+      - { id: summarize, type: agent, skill: summarize, max_steps: 6 }
       - id: hc_build
         type: retry_loop
         max_iterations: 3
