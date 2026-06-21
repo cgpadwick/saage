@@ -99,11 +99,16 @@ def main() -> None:
             print(f"ERROR: could not switch to {branch}: {r.stderr}", file=sys.stderr)
             sys.exit(1)
 
-    if not Path("research_log.md").exists():
-        direction = "lower" if str(args.lower_is_better).lower() == "true" else "higher"
-        Path("research_log.md").write_text(LOG_HEADER.format(
-            comp=args.comp, metric=args.metric, direction=direction,
-            short_epochs=args.short_epochs, final_epochs=args.final_epochs))
+    # Reset the ledger so each run starts clean. research_log.md / experiments.jsonl
+    # are git-excluded and persist on a REUSED workspace, so a prior run's rows would
+    # otherwise concatenate into this run's report AND the proposer's context (the
+    # non-monotonic "best"). setup is a one-shot top-level step; a resumed run
+    # re-enters at a later step, so its in-progress ledger is preserved.
+    direction = "lower" if str(args.lower_is_better).lower() == "true" else "higher"
+    Path("research_log.md").write_text(LOG_HEADER.format(
+        comp=args.comp, metric=args.metric, direction=direction,
+        short_epochs=args.short_epochs, final_epochs=args.final_epochs))
+    Path("experiments.jsonl").unlink(missing_ok=True)
 
     git("add", "-A")
     git("commit", "-q", "-m", "saage: kaggle solver setup snapshot")
