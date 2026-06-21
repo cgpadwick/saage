@@ -75,6 +75,12 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
         "propose": [resp("HYPOTHESIS: better feature helps.\n"
                          "CHANGE: train.py, improve encoding.\nRATIONALE: EDA.")],
         "proposal_critic": [resp("ACTION: pass")],
+        "summarize": [
+            resp(calls=[call("read_file", path="proposals/latest.md"),
+                        call("write_file", path="proposals/summary.md",
+                             content="Experiment improves encoding in train.py to use better features, hypothesizing higher accuracy.")]),
+            resp("Experiment improves encoding in train.py to use better features, hypothesizing higher accuracy."),
+        ],
         "implement_experiment": [
             resp(calls=[call("write_file", path="train.py", content=TRAIN_V2)]),
             resp("implemented the change"),
@@ -153,6 +159,12 @@ def test_failed_experiment_reverts_and_counts(flow_copy, tmp_path):
         "verify_training": [resp("ACTION: pass")] * 3,   # baseline, exp1, final
         "propose": [resp("HYPOTHESIS: x CHANGE: y RATIONALE: z")],
         "proposal_critic": [resp("ACTION: pass")],
+        "summarize": [
+            resp(calls=[call("read_file", path="proposals/latest.md"),
+                        call("write_file", path="proposals/summary.md",
+                             content="Experiment changes train.py, hypothesizing improvement.")]),
+            resp("Experiment changes train.py, hypothesizing improvement."),
+        ],
         "implement_experiment": [
             resp(calls=[call("write_file", path="train.py", content=train_worse)]),
             resp("worse change"),

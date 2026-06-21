@@ -22,6 +22,8 @@
 #     --workspace /tmp/kaggle_run --set competition_id=spooky-author-identification
 provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 workspace: /tmp/saage_kaggle
+# what the remote sidecar collects from the workspace (local runs ignore this)
+artifacts: [experiments.jsonl, research_log.md, report_narrative.md]
 shared:
   competition_id: spooky-author-identification
   mlebench_data_dir: "$HOME/.mlebench/data"   # shell-expanded in commands
@@ -109,6 +111,11 @@ workflow:
           max_steps: 20
           set: { current_proposal: "(?s)(.+)" }
         check: { id: proposal_critic, type: agent, skill: proposal_critic, max_steps: 8 }
+      # one-paragraph digest of the accepted proposal -> proposals/summary.md, which
+      # keep_or_revert writes into research_log.md (kept terse so the proposer can
+      # re-read the whole log cheaply every iteration; the full proposal goes only
+      # to experiments.jsonl for the human report)
+      - { id: summarize, type: agent, skill: summarize, max_steps: 6 }
       - id: implement_loop
         type: retry_loop
         max_iterations: 3
