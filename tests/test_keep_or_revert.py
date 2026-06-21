@@ -83,7 +83,7 @@ def test_research_log_survives_revert(repo):
     _run(repo, candidate=0.5, best=0.9)                  # not improved -> revert
     log = (repo / "research_log.md").read_text()
     assert "- earlier history" in log                    # preserved across git clean
-    assert "-> revert" in log                            # plus this round's entry
+    assert "reverted" in log                             # plus this round's entry
 
 
 # ---- ledger anchoring: the record must reflect the ACTUAL change (commit_sha /
@@ -130,6 +130,37 @@ def test_files_changed_excludes_bookkeeping(repo):
     rec = _last_experiment(repo)
     assert "research_log.md" not in rec["files_changed"]
     assert "experiments.jsonl" not in rec["files_changed"]
+
+
+# ---- rich research_log: the proposer/critic read research_log.md to see what was
+# already tried; it must carry the proposal text + outcome, not just bare scores ----
+
+
+def test_research_log_includes_proposal_and_outcome(repo):
+    (repo / "proposals").mkdir()
+    (repo / "proposals" / "latest.md").write_text(
+        "HYPOTHESIS: widen the classifier head.\nCHANGE: hidden 128 -> 256.\n")
+    (repo / "model.py").write_text("v = 2\n")
+    _run(repo, candidate=0.9, best=0.8)                  # keep
+    log = (repo / "research_log.md").read_text()
+    assert "## Experiment 1" in log
+    assert "KEPT" in log
+    assert "widen the classifier head" in log            # the proposal text is there
+    assert "hidden 128 -> 256" in log
+    assert "model.py" in log                             # the actual change
+
+
+def test_research_log_records_proposal_on_revert(repo):
+    # proposals/ is untracked, so the revert's `git clean` wipes it — the proposal
+    # must be captured BEFORE the revert so a failed idea is still in the log
+    (repo / "proposals").mkdir()
+    (repo / "proposals" / "latest.md").write_text("CHANGE: try lr=0.5 (too high).\n")
+    (repo / "model.py").write_text("v = 9\n")
+    _run(repo, candidate=0.3, best=0.9)                  # revert
+    log = (repo / "research_log.md").read_text()
+    assert "reverted" in log
+    assert "try lr=0.5" in log                           # the failed idea is recorded
+    assert not (repo / "proposals" / "latest.md").exists()  # git clean wiped it
 
 
 def test_parent_step_points_to_last_kept(repo):

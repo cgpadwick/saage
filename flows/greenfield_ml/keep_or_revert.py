@@ -76,8 +76,10 @@ def main() -> None:
     # plateau counter advances rather than churning an equal-score commit.
     improved = (cand < best) if lower_is_better else (cand > best)
 
-    # capture the implement footprint BEFORE we commit or revert it away
+    # capture the implement footprint AND the proposal BEFORE we commit or
+    # revert — a revert's `git clean` wipes the untracked proposals/ dir
     files_changed = _changed_files()
+    proposal = _read_proposal()
 
     if improved:
         git("add", "-A")
@@ -94,18 +96,51 @@ def main() -> None:
         commit_sha = None                       # reverted: nothing committed
         fails, status = fails + 1, "revert"
 
-    with open("research_log.md", "a") as f:
-        f.write(f"- candidate={cand} best={best} -> {status}\n")
-
-    # structured per-experiment record for the final report. experiments.jsonl is
-    # gitignored, so it survives the `git clean` above and accumulates across the run.
-    _record_experiment(cand, best, improved, commit_sha, files_changed)
+    # Rich per-experiment record: BOTH the report's experiments.jsonl row AND
+    # the research_log.md entry the next propose/critic agent reads — proposal
+    # text + what changed + outcome — so they see what was already tried and
+    # build on it instead of repeating (the sparse `- candidate=.. -> revert`
+    # log gave the proposer nothing to reason about).
+    _record_experiment(cand, best, improved, commit_sha, files_changed, proposal)
 
     print(f"RESULT={status} BEST_SCORE={best} FAILURES={fails}")
 
 
+def _read_proposal() -> str:
+    p = "proposals/latest.md"
+    return open(p).read().strip() if os.path.exists(p) else ""
+
+
+# proposals can be long; cap what goes into research_log so the proposer's read
+# stays bounded while still carrying the hypothesis + the concrete change
+_PROPOSAL_LOG_CHARS = 2000
+
+
+def _append_research_log(step: int, candidate: float, best: float, kept: bool,
+                         commit_sha: str | None, files_changed: list[str],
+                         proposal: str) -> None:
+    """Append a rich entry the next propose/critic agent reads: proposal text +
+    the files actually changed + the outcome. Mirrors the final report's
+    per-experiment row so the agents reason over real history, not bare scores."""
+    result = "KEPT ✅" if kept else "reverted ❌"
+    files = ", ".join(files_changed) or "none"
+    sha = (commit_sha or "")[:8]
+    prop = proposal or "(no proposal recorded)"
+    if len(prop) > _PROPOSAL_LOG_CHARS:
+        prop = prop[:_PROPOSAL_LOG_CHARS].rstrip() + "\n…(proposal truncated)"
+    with open("research_log.md", "a") as f:
+        f.write(
+            f"\n## Experiment {step} — {result} "
+            f"(candidate={candidate:.4f}, best={best:.4f})\n"
+            f"- files changed: {files}\n"
+            + (f"- commit: {sha}\n" if sha else "")
+            + f"\n{prop}\n"
+        )
+
+
 def _record_experiment(candidate: float, best: float, kept: bool,
-                       commit_sha: str | None, files_changed: list[str]) -> None:
+                       commit_sha: str | None, files_changed: list[str],
+                       proposal: str) -> None:
     rows = []
     if os.path.exists("experiments.jsonl"):
         with open("experiments.jsonl") as f:
@@ -114,9 +149,8 @@ def _record_experiment(candidate: float, best: float, kept: bool,
     # parent_step = the most recent KEPT step (the experiment this one branched
     # off), so the report can render the experiment tree. 0 = the baseline.
     parent_step = next((r["step"] for r in reversed(rows) if r.get("kept")), 0)
-    proposal = ""
-    if os.path.exists("proposals/latest.md"):
-        proposal = open("proposals/latest.md").read().strip()
+    _append_research_log(step, candidate, best, kept, commit_sha,
+                         files_changed, proposal)
     with open("experiments.jsonl", "a") as f:
         f.write(json.dumps({
             "step": step,
