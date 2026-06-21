@@ -42,3 +42,9 @@ def test_orphan_detection_is_per_target():
 def test_done_run_with_no_session_is_quiet():
     rows = reconcile([_run("r1", "done")], {"spark": []})
     assert rows[0]["note"] == ""
+
+
+def test_orphan_warning_suggests_resume(capsys):
+    # reuse the module's existing orphan path; assert the hint text
+    import saage.remote.observe as observe
+    assert "saage remote resume" in observe._ORPHAN_HINT

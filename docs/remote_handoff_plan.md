@@ -678,3 +678,8 @@ plan above, decided during the build:
   node's clone/push) but has not been exercised against real GitHub yet.
 - **Engine changes required: none** held true — `saage/cli.py` only gained
   the `remote` subcommand dispatch; `tomli` was added as a <3.11 dependency.
+- **Remote resume + R2 checkpoint/model mirroring** are now implemented
+  (`saage remote resume <run> [--target <box>]`): the sidecar mirrors the
+  engine checkpoint and any flow `artifacts:` entries to R2 on each sync
+  (changed-only), enabling cross-box resume from the R2 checkpoint when the
+  original node is gone.

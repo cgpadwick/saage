@@ -20,6 +20,9 @@ log = logging.getLogger("saage.remote")
 # node phases that mean "the run is over"
 _FINAL = {"done", "failed", "timeout", "killed"}
 
+_ORPHAN_HINT = ("⚠  node status says running but the tmux session is gone — the "
+                "run likely crashed; `saage remote resume <run>` to continue it")
+
 
 def _bucket_client(storage: Storage):
     try:
@@ -126,8 +129,7 @@ def status(run_ref: str | None) -> int:
     print(f"session    {'alive' if alive else 'gone'}")
     print(f"started    {state.get('started_at', '?')}{cost}")
     if heartbeat and node_status.get("phase") == "running" and not alive:
-        print("⚠  node status says running but the tmux session is gone — "
-              "the run likely died; check `saage remote logs`")
+        print(_ORPHAN_HINT)
     exp = node.conn.run(
         f"wc -l < $HOME/{node.run_dir(rs.run_id)}/artifacts/experiments.jsonl",
         check=False)
