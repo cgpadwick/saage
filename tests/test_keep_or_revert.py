@@ -22,9 +22,12 @@ def _git(repo, *args):
 
 @pytest.fixture
 def repo(tmp_path):
-    """A git repo with one committed file = the 'last kept' baseline."""
+    """A git repo with one committed file = the 'last kept' baseline. Mirrors
+    production by gitignoring experiments.jsonl so it survives `git clean` on a
+    revert (the ledger must accumulate across the run)."""
     _git(tmp_path, "init", "-q")
     (tmp_path / "model.py").write_text("v = 1\n")
+    (tmp_path / ".gitignore").write_text("experiments.jsonl\n")
     _git(tmp_path, "add", "-A")
     _git(tmp_path, "commit", "-q", "-m", "baseline")
     return tmp_path
@@ -81,3 +84,62 @@ def test_research_log_survives_revert(repo):
     log = (repo / "research_log.md").read_text()
     assert "- earlier history" in log                    # preserved across git clean
     assert "-> revert" in log                            # plus this round's entry
+
+
+# ---- ledger anchoring: the record must reflect the ACTUAL change (commit_sha /
+# parent_step / files_changed), not just the proposal (the lewm/MLE-beast bug) ----
+
+import json
+
+
+def _last_experiment(repo):
+    rows = [json.loads(l) for l in (repo / "experiments.jsonl").read_text().splitlines() if l.strip()]
+    return rows[-1]
+
+
+def _head_sha(repo):
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def test_keep_records_commit_sha_and_files(repo):
+    (repo / "model.py").write_text("v = 2\n")
+    _run(repo, candidate=0.9, best=0.8)
+    rec = _last_experiment(repo)
+    assert rec["kept"] is True
+    assert rec["commit_sha"] == _head_sha(repo)          # anchored to the real commit
+    assert "model.py" in rec["files_changed"]            # the actual change is recorded
+    assert rec["step"] == 1 and rec["parent_step"] == 0
+
+
+def test_revert_records_files_but_null_sha(repo):
+    (repo / "model.py").write_text("v = 999\n")
+    (repo / "extra.py").write_text("x = 1\n")            # untracked candidate file
+    _run(repo, candidate=0.7, best=0.8)                  # revert
+    rec = _last_experiment(repo)
+    assert rec["kept"] is False
+    assert rec["commit_sha"] is None                     # nothing committed on revert
+    # what the failed experiment TRIED is still recorded
+    assert "model.py" in rec["files_changed"] and "extra.py" in rec["files_changed"]
+
+
+def test_files_changed_excludes_bookkeeping(repo):
+    (repo / "model.py").write_text("v = 2\n")
+    (repo / "research_log.md").write_text("- prior\n")   # untracked bookkeeping
+    _run(repo, candidate=0.9, best=0.8)
+    rec = _last_experiment(repo)
+    assert "research_log.md" not in rec["files_changed"]
+    assert "experiments.jsonl" not in rec["files_changed"]
+
+
+def test_parent_step_points_to_last_kept(repo):
+    (repo / "model.py").write_text("v = 2\n")
+    _run(repo, candidate=0.9, best=0.8)                  # step 1: keep
+    (repo / "model.py").write_text("v = 3\n")
+    _run(repo, candidate=0.85, best=0.9)                 # step 2: revert
+    (repo / "model.py").write_text("v = 4\n")
+    _run(repo, candidate=0.95, best=0.9)                 # step 3: keep
+    rows = [json.loads(l) for l in (repo / "experiments.jsonl").read_text().splitlines() if l.strip()]
+    assert [r["step"] for r in rows] == [1, 2, 3]
+    assert rows[1]["parent_step"] == 1                   # revert branched off the kept step 1
+    assert rows[2]["parent_step"] == 1                   # step 2 reverted, so parent is still step 1
