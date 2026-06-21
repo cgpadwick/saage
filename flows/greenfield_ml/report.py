@@ -182,13 +182,21 @@ def render_html(task, target, lower_is_better, baseline, experiments, plot_b64,
 
     rows = []
     for e in experiments:
-        tag = ('<span style="color:#16a34a;font-weight:600">kept</span>' if e.get("kept")
+        kept = e.get("kept") if "kept" in e else e.get("status") == "keep"
+        tag = ('<span style="color:#16a34a;font-weight:600">kept</span>' if kept
                else '<span style="color:#dc2626">reverted</span>')
         prop = html.escape((e.get("proposal") or "").strip())[:600] or "—"
+        # the ACTUAL change (not just the proposal): files touched + commit
+        changed = ", ".join(e.get("files_changed") or [])
+        changed = f"<code>{html.escape(changed)}</code>" if changed else \
+            "<span style='color:#dc2626'>none</span>"   # empty = no-op implement!
+        sha = (e.get("commit_sha") or "")[:8]
+        sha = f"<code>{sha}</code>" if sha else "—"
         rows.append(
             f"<tr><td>{e['step']}</td><td><pre class='prop'>{prop}</pre></td>"
-            f"<td>{e['candidate']:.4f}</td><td>{e['best']:.4f}</td><td>{tag}</td></tr>")
-    table = "\n".join(rows) or "<tr><td colspan=5>(no hill-climb experiments — baseline met the target)</td></tr>"
+            f"<td>{changed}</td><td>{e['candidate']:.4f}</td><td>{e['best']:.4f}</td>"
+            f"<td>{tag}</td><td>{sha}</td></tr>")
+    table = "\n".join(rows) or "<tr><td colspan=7>(no hill-climb experiments — baseline met the target)</td></tr>"
 
     plot_html = (f'<img src="data:image/png;base64,{plot_b64}" alt="hill-climb plot">'
                  if plot_b64 else "<p><em>(plot unavailable)</em></p>")
@@ -225,7 +233,7 @@ def render_html(task, target, lower_is_better, baseline, experiments, plot_b64,
 <h2>Hill-climb progress</h2>
 {plot_html}
 <h2>Experiments</h2>
-<table><thead><tr><th>#</th><th>Proposal</th><th>candidate</th><th>best</th><th>result</th></tr></thead>
+<table><thead><tr><th>#</th><th>Proposal</th><th>changed files</th><th>candidate</th><th>best</th><th>result</th><th>commit</th></tr></thead>
 <tbody>{table}</tbody></table>
 <h2>Best architecture</h2>
 <pre>{cell(arch_summary)}</pre>

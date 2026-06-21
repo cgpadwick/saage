@@ -35,6 +35,29 @@ def git(*args: str) -> None:
                    check=False)
 
 
+def git_out(*args: str) -> str:
+    r = subprocess.run(["git", *args], capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+_LEDGER_FILES = {"research_log.md", "experiments.jsonl"}
+
+
+def _changed_files() -> list[str]:
+    """The experiment's code footprint vs the last kept commit, minus harness
+    bookkeeping. Captured BEFORE commit/revert so a reverted attempt still
+    records what it tried."""
+    tracked = git_out("diff", "--name-only", "HEAD").splitlines()
+    untracked = git_out("ls-files", "--others", "--exclude-standard").splitlines()
+    files = set()
+    for path in tracked + untracked:
+        path = path.strip()
+        if not path or path in _LEDGER_FILES or path.startswith("proposals/"):
+            continue
+        files.add(path)
+    return sorted(files)
+
+
 def cache_dir() -> Path:
     return Path(os.environ.get("STABLEWM_HOME", Path.home() / ".stable-wm"))
 
@@ -72,9 +95,13 @@ def main() -> None:
         if not promoted and not baseline:
             improved = False    # train never produced a checkpoint -> treat as failed
 
+    # capture the implement footprint BEFORE we commit or revert it away
+    files_changed = _changed_files()
+
     if improved:
         git("add", "-A")
         git("commit", "-m", f"saage: keep experiment, success_rate {cand}")
+        commit_sha = git_out("rev-parse", "HEAD") or None
         best, fails, status = (cand if cand > best else best), 0, "keep"
         if baseline:
             best = cand
@@ -87,28 +114,39 @@ def main() -> None:
         git("clean", "-fd")
         if saved:
             log.write_text(saved)
+        commit_sha = None                       # reverted: nothing committed
         fails, status = fails + 1, "revert"
 
     with open("research_log.md", "a") as f:
         f.write(f"- candidate={cand} best={best} -> {status}\n")
 
-    _record_experiment(cand, best, status)
+    _record_experiment(cand, best, status, commit_sha, files_changed)
 
     print(f"RESULT={status} BEST_SCORE={best} FAILURES={fails}")
 
 
-def _record_experiment(candidate: float, best: float, status: str) -> None:
+def _record_experiment(candidate: float, best: float, status: str,
+                       commit_sha: str | None, files_changed: list[str]) -> None:
     """Structured ledger for the final report. experiments.jsonl is excluded
-    from git, so it survives the revert above and accumulates across the run."""
-    step = 1
+    from git, so it survives the revert above and accumulates across the run.
+    Anchors each row to the ACTUAL change (commit_sha for kept, files_changed
+    for every attempt) — not just the proposal — so a no-op/divergent implement
+    is visible rather than silently logged as a real experiment."""
+    rows = []
     if os.path.exists("experiments.jsonl"):
-        step = 1 + sum(1 for _ in open("experiments.jsonl"))
+        with open("experiments.jsonl") as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+    step = len(rows) + 1
+    parent_step = next((r["step"] for r in reversed(rows)
+                        if r.get("status") == "keep"), 0)
     proposal = ""
     if os.path.exists("proposals/latest.md"):
         proposal = open("proposals/latest.md").read().strip()
     with open("experiments.jsonl", "a") as f:
-        f.write(json.dumps({"step": step, "candidate": candidate, "best": best,
-                            "status": status, "proposal": proposal}) + "\n")
+        f.write(json.dumps({"step": step, "parent_step": parent_step,
+                            "candidate": candidate, "best": best, "status": status,
+                            "commit_sha": commit_sha, "files_changed": files_changed,
+                            "proposal": proposal}) + "\n")
 
 
 if __name__ == "__main__":

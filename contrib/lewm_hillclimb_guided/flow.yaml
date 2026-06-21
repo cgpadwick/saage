@@ -28,7 +28,7 @@ provider: { type: openrouter, model: "deepseek/deepseek-v4-flash" }
 workspace: /home/cpadwick/code/le-wm
 venv: .venv
 # what the remote sidecar collects from the workspace (local runs ignore this)
-artifacts: [experiments.jsonl, research_log.md, report_narrative.md]
+artifacts: [experiments.jsonl, research_log.md, report_narrative.md, report.html]
 shared:
   task: >-
     Improve the training of LeWorldModel (LeWM) — a JEPA world model (ViT-tiny
@@ -143,8 +143,11 @@ workflow:
     type: command
     run: 'echo "- CONFIRMATION: best config retrained at {{ confirm_epochs }} epochs -> success_rate={{ confirm_score }} (best 8-epoch score: {{ best_score }})" >> research_log.md && echo "CONFIRMED={{ confirm_score }}"'
 
-  # ---- final report ----
+  # ---- final report: LLM narrative, then the deterministic HTML report ----
   - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 15 }
+  - id: report
+    type: command
+    run: '{{ python }} "{{ flow_dir }}/report.py" --task "{{ task }}" --target {{ target_success }}'
   - id: report_commit
     type: command
-    run: 'git -c user.email=saage@local -c user.name=saage add research_log.md report_narrative.md && git -c user.email=saage@local -c user.name=saage commit -m "saage: hillclimb report"'
+    run: 'git -c user.email=saage@local -c user.name=saage add research_log.md report_narrative.md report.html && git -c user.email=saage@local -c user.name=saage commit -m "saage: hillclimb report"'
