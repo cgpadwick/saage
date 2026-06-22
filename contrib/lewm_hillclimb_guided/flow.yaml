@@ -7,7 +7,7 @@
 #     -> hillclimb counting_loop (until target or max_iterations):
 #          [propose -> proposal_critic]x3 -> [implement -> verify]x3
 #          -> reset_candidate -> clean -> train -> eval -> keep_or_revert
-#     -> report_narrative(agent) -> report_commit(cmd)
+#     -> report(agent: self-contained report.html) -> report_commit(cmd)
 #
 # The workspace IS the existing le-wm repo (brownfield): agents edit its config
 # YAMLs / model code in place; keep_or_revert uses git on a dedicated branch
@@ -28,7 +28,7 @@ provider: { type: openrouter, model: "deepseek/deepseek-v4-flash" }
 workspace: /home/cpadwick/code/le-wm
 venv: .venv
 # what the remote sidecar collects from the workspace (local runs ignore this)
-artifacts: [experiments.jsonl, research_log.md, report_narrative.md, report.html]
+artifacts: [experiments.jsonl, research_log.md, report.html]
 shared:
   task: >-
     Improve the training of LeWorldModel (LeWM) — a JEPA world model (ViT-tiny
@@ -148,11 +148,10 @@ workflow:
     type: command
     run: 'echo "- CONFIRMATION: best config retrained at {{ confirm_epochs }} epochs -> success_rate={{ confirm_score }} (best 8-epoch score: {{ best_score }})" >> research_log.md && echo "CONFIRMED={{ confirm_score }}"'
 
-  # ---- final report: LLM narrative, then the deterministic HTML report ----
-  - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 15 }
-  - id: report
-    type: command
-    run: '{{ python }} "{{ flow_dir }}/report.py" --task "{{ task }}" --target {{ target_success }}'
+  # ---- final report: one LLM agent writes the whole self-contained report.html
+  # (outcome/winner prose, per-experiment table, inline-SVG hill-climb chart),
+  # then commit it. Reads whatever upstream files exist (no hardcoded schema).
+  - { id: report, type: agent, skill: report, max_steps: 25 }
   - id: report_commit
     type: command
-    run: 'git -c user.email=saage@local -c user.name=saage add research_log.md report_narrative.md report.html && git -c user.email=saage@local -c user.name=saage commit -m "saage: hillclimb report"'
+    run: 'git -c user.email=saage@local -c user.name=saage add research_log.md report.html && git -c user.email=saage@local -c user.name=saage commit -m "saage: hillclimb report"'
