@@ -83,6 +83,25 @@ def _setup_logging(verbose: bool, quiet: bool) -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
+def _attach_run_log(run_dir: Path) -> None:
+    """Tee the run's logs to <run_dir>/run.log so a local run leaves a persistent
+    log file (parity with remote runs). Inherits the configured console level
+    (-v/-q), so the file mirrors what the console shows.
+
+    main()/resume can be called repeatedly in one process (tests, embedding), so
+    first drop+close any run-log handler a previous run attached — otherwise logs
+    duplicate across files and file descriptors leak."""
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        if getattr(h, "_saage_run_log", False):
+            root.removeHandler(h)
+            h.close()
+    fh = logging.FileHandler(run_dir / "run.log", encoding="utf-8")
+    fh._saage_run_log = True
+    fh.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S"))
+    root.addHandler(fh)
+
+
 def _parse_set(items: list[str]) -> dict:
     """Turn ['k=v', ...] into {'k': v}, parsing each value as JSON when possible."""
     shared: dict = {}
@@ -125,7 +144,8 @@ def _collapse(trace: list) -> str:
     return ", ".join(f"{k} ×{v}" if v > 1 else k for k, v in counts.items())
 
 
-def _print_summary(result: dict, before: dict, after: dict, root: Path) -> None:
+def _print_summary(result: dict, before: dict, after: dict, root: Path,
+                   run_dir: Path | None = None) -> None:
     changed = sorted(p.relative_to(root).as_posix()
                      for p in after if after[p] != before.get(p))
     print("\n── run summary ─────────────────────────────────")
@@ -140,6 +160,8 @@ def _print_summary(result: dict, before: dict, after: dict, root: Path) -> None:
     if USAGE.calls:
         print(f"  tokens: {USAGE.total_tokens:,} ({USAGE.prompt_tokens:,} in + "
               f"{USAGE.completion_tokens:,} out) over {USAGE.calls:,} model call(s)")
+    if run_dir is not None:
+        print(f"  run dir: {run_dir}  (run.log · ledger.jsonl · shared.json)")
     print("────────────────────────────────────────────────")
 
 
@@ -189,7 +211,8 @@ def _cmd_resume(args) -> int:
                   "`saage resume %s --force` to override", flow_path, run.run_id)
         return 1
     workspace = args.workspace or rec.get("workspace") or rec.get("shared", {}).get("workspace")
-    log.info("resuming %s", run.run_id)
+    _attach_run_log(run.dir)                      # append to the same run.log on resume
+    log.info("resuming %s (run dir: %s)", run.run_id, run.dir)
     # run_flow marks the run failed if it raises; the engine stamps the terminal
     # completed/failed status into the final checkpoint write on a clean finish.
     run_flow(flow_path,
@@ -232,6 +255,8 @@ def main(argv: list[str] | None = None) -> int:
         config_path=str(Path(args.config).resolve()) if args.config else None,
         venv=args.venv,
     )
+    _attach_run_log(run.dir)                      # local run dir gets run.log too
+    logging.getLogger("saage").info("run dir: %s", run.dir)
     flow, seed = build_flow(args.flow, provider_overrides=overrides,
                             workspace=args.workspace, venv=args.venv,
                             config=args.config, checkpoint=run)
@@ -251,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     log.info("run complete")
     after = _snapshot(root)
 
-    _print_summary(seed, before, after, root)
+    _print_summary(seed, before, after, root, run.dir)
     if args.verbose:                              # full agent/command outputs
         print("\nresults:")
         print(json.dumps(seed.get("results", {}), indent=2, default=str))

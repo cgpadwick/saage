@@ -10,10 +10,13 @@ emits a "Flow ends" warning — termination is part of the graph, by design.
 from __future__ import annotations
 
 import copy
+import logging
 
 from pocketflow import Flow, Node
 
 from .nodes import GateNode, LoopGuard, TimeoutGuard, WaitNode
+
+log = logging.getLogger(__name__)
 
 _SUCCESS = {None, "default", "pass", "complete", "exit", "stop"}
 
@@ -80,9 +83,39 @@ class Subflow(Flow):
                     status = "completed" if last_action in _SUCCESS else "failed"
                 else:
                     status = "running"
+                self._ledger(shared, curr, curr_idx, last_action)
                 self.sink.write(shared, resume_idx, status)
+                # final shared snapshot when the top-level flow finishes —
+                # best-effort: shared.json is a debug artifact (checkpoint.json
+                # already holds shared), so a disk/permission error here must not
+                # abort an otherwise-complete run.
+                if is_root and nxt_raw is None:
+                    try:
+                        self.sink.write_shared(shared)
+                    except Exception as e:                    # noqa: BLE001
+                        log.debug("write_shared failed (non-fatal): %s", e)
             curr = copy.copy(nxt_raw)
         return last_action
+
+    def _ledger(self, shared, node, step_idx, action) -> None:
+        """Append a per-node line to the run's ledger.jsonl: which node ran, its
+        routing action, and a short outcome (command exit + stdout tail, or an
+        agent's output tail) pulled from the result it just recorded. Best-effort:
+        the ledger is a debug trace, so any failure here is logged and swallowed
+        rather than aborting the run."""
+        try:
+            nid = getattr(node, "id", None) or type(node).__name__
+            entry = {"step": step_idx, "node": nid, "action": action}
+            results = shared.get("results")
+            res = results.get(nid) if isinstance(results, dict) else None
+            if isinstance(res, dict) and "exit" in res:      # CommandNode
+                entry["exit"] = res["exit"]
+                entry["stdout_tail"] = (res.get("stdout") or "")[-400:]
+            elif isinstance(res, str):                        # AgentNode
+                entry["output_tail"] = res[-400:]
+            self.sink.append_ledger(entry)
+        except Exception as e:                                # noqa: BLE001
+            log.debug("ledger append failed (non-fatal): %s", e)
 
     def post(self, shared, prep_res, last_action):
         return "default" if last_action in _SUCCESS else last_action
