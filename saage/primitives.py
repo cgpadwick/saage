@@ -80,9 +80,27 @@ class Subflow(Flow):
                     status = "completed" if last_action in _SUCCESS else "failed"
                 else:
                     status = "running"
+                self._ledger(shared, curr, curr_idx, last_action)
                 self.sink.write(shared, resume_idx, status)
+                # final shared snapshot when the top-level flow finishes
+                if is_root and nxt_raw is None:
+                    self.sink.write_shared(shared)
             curr = copy.copy(nxt_raw)
         return last_action
+
+    def _ledger(self, shared, node, step_idx, action) -> None:
+        """Append a per-node line to the run's ledger.jsonl: which node ran, its
+        routing action, and a short outcome (command exit + stdout tail, or an
+        agent's output tail) pulled from the result it just recorded."""
+        nid = getattr(node, "id", None) or type(node).__name__
+        entry = {"step": step_idx, "node": nid, "action": action}
+        res = shared.get("results", {}).get(nid)
+        if isinstance(res, dict) and "exit" in res:          # CommandNode
+            entry["exit"] = res["exit"]
+            entry["stdout_tail"] = (res.get("stdout") or "")[-400:]
+        elif isinstance(res, str):                            # AgentNode
+            entry["output_tail"] = res[-400:]
+        self.sink.append_ledger(entry)
 
     def post(self, shared, prep_res, last_action):
         return "default" if last_action in _SUCCESS else last_action

@@ -112,6 +112,20 @@ class Checkpoint:
         rec["status"] = status
         self._write(rec)
 
+    def append_ledger(self, entry: dict) -> None:
+        """Append one JSON line to ledger.jsonl — a per-node debug trace (node id,
+        action, exit code / output tail) accumulated as the run progresses, so a
+        local run leaves the same kind of inspectable record a remote run does."""
+        line = json.dumps(entry, default=str)
+        with open(self.dir / "ledger.jsonl", "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+    def write_shared(self, shared: dict) -> None:
+        """Snapshot the final shared store to shared.json (human-readable). The
+        resume checkpoint already holds `shared`; this is a stable, standalone
+        artifact for offline inspection."""
+        (self.dir / "shared.json").write_text(_dumps(shared), encoding="utf-8")
+
 
 def _safe_load(run: "Checkpoint") -> dict | None:
     try:
