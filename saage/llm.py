@@ -32,6 +32,13 @@ class LLMResponse:
     tool_calls: list[ToolCall] = field(default_factory=list)
 
 
+class EmptyResponseError(RuntimeError):
+    """A provider returned HTTP 200 with no usable `choices` (an error body
+    behind a 200 — seen live from OpenRouter). Named so retry.is_retryable_error
+    classifies it as transient, so call_with_retry backs off instead of the
+    agent loop crashing on `r.choices[0]`."""
+
+
 @dataclass
 class TokenUsage:
     """Process-wide running total of LLM token usage. Providers add to it from
@@ -153,11 +160,20 @@ class OpenAIProvider:
         return out
 
     def complete(self, system, messages, tools):
-        r = call_with_retry(
-            lambda: self.client.chat.completions.create(
+        def _do():
+            r = self.client.chat.completions.create(
                 model=self.model, messages=self._messages(system, messages),
-                tools=self._tools(tools) or None),
-            policy=self.retry_policy, what="openai.chat.completions.create")
+                tools=self._tools(tools) or None)
+            # OpenRouter/proxies sometimes return HTTP 200 with an error body
+            # (choices is None/empty) instead of raising. Raise INSIDE the
+            # retried call so call_with_retry backs off, rather than crashing on
+            # r.choices[0] below (which killed live runs).
+            if not getattr(r, "choices", None):
+                raise EmptyResponseError(
+                    f"no choices in response: {getattr(r, 'error', None) or r!r}")
+            return r
+        r = call_with_retry(_do, policy=self.retry_policy,
+                            what="openai.chat.completions.create")
         USAGE.add(getattr(r, "usage", None))
         m = r.choices[0].message
         calls = [ToolCall(tc.id, tc.function.name, _parse_tool_args(tc.function.arguments))

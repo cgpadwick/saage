@@ -34,3 +34,20 @@ def test_missing_key_is_rejected(tmp_path):
 
 def test_missing_file_is_rejected(tmp_path):
     assert "SCORE_MISSING" in _run(tmp_path, None)
+
+
+# --- key aliases: a differently-named eval output still yields the score, so a
+# new model writing `accuracy`/`score` instead of `value` isn't a silent failure
+
+
+def test_accuracy_alias(tmp_path):
+    assert _run(tmp_path, '{"metric_name": "accuracy", "accuracy": 0.91}') == "SCORE=0.91"
+
+
+def test_score_alias(tmp_path):
+    assert _run(tmp_path, '{"score": 0.88}') == "SCORE=0.88"
+
+
+def test_canonical_value_wins_over_alias(tmp_path):
+    # prefer the canonical `value` when multiple keys are present
+    assert _run(tmp_path, '{"value": 0.9, "accuracy": 0.1}') == "SCORE=0.9"
