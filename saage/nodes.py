@@ -53,7 +53,7 @@ def capture_into(shared: dict, text: str, captures: dict | None) -> None:
         shared[key] = v
 
 
-def _resolve_int(value, shared: dict, what: str) -> int:
+def _resolve_int(value: "int | str", shared: dict, what: str) -> int:
     """Resolve a loop bound to an int at RUN time, against the live shared store:
     accepts an int (as-is), a numeric string ("5"), or a template ("{{ n }}",
     resolved from shared — including --set overrides applied after build). Raises a
@@ -63,7 +63,11 @@ def _resolve_int(value, shared: dict, what: str) -> int:
         raise ValueError(f"{what} must be an integer, got bool {value!r}")
     if isinstance(value, int):
         return value
-    rendered = render(str(value), shared).strip()
+    try:
+        rendered = render(str(value), shared).strip()
+    except Exception as e:                       # invalid Jinja (TemplateSyntaxError, ...)
+        raise ValueError(
+            f"{what} is not a valid number or template ({value!r}): {e}")
     try:
         return int(rendered)
     except (TypeError, ValueError):
@@ -242,7 +246,9 @@ class TimeoutGuard(Node):
 class GateNode(Node):
     """counting_loop counter + optional exit predicate over the shared store."""
 
-    def __init__(self, name: str, max_iters: int, exit_when: str | None):
+    def __init__(self, name: str, max_iters: "int | str", exit_when: str | None):
+        # max_iters may be an int, a numeric string, or a template — it is
+        # resolved against the live shared store in post() (see _resolve_int)
         super().__init__()
         self.name = name
         self.max_iters = max_iters

@@ -109,6 +109,15 @@ def test_counting_loop_max_iterations_unresolvable_raises_clear_error():
         flow.run({})
 
 
+def test_counting_loop_max_iterations_invalid_template_raises_clear_error():
+    # a malformed Jinja template must surface the clear config error, not a raw
+    # TemplateSyntaxError
+    import pytest
+    flow = counting_loop("c", [Tracer("a")], max_iterations="{{ bad")
+    with pytest.raises(ValueError, match="not a valid number or template"):
+        flow.run({})
+
+
 def test_counting_loop_exits_on_predicate():
     flow = counting_loop("c", [Bump("a")], max_iterations=10, exit_when="score >= 3")
     shared = {}
