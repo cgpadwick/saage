@@ -15,8 +15,7 @@
 provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 workspace: /tmp/saage_mnist
 # what the remote sidecar collects from the workspace (local runs ignore this)
-artifacts: [experiments.jsonl, research_log.md, eval_results.json,
-            report.html, report_narrative.md]
+artifacts: [experiments.jsonl, research_log.md, eval_results.json, report.html]
 shared:
   task: "Build an image classifier for the MNIST handwritten digit dataset (10 classes, 28x28 grayscale). Metric: classification accuracy on a held-out test split (higher is better)."
   target_accuracy: 0.97
@@ -100,9 +99,7 @@ workflow:
           consecutive_failures: "FAILURES=([0-9]+)"
 
   # ---- final research report ----
-  # an LLM writes the prose summary (how the model works + winning experiments), then a
-  # deterministic script assembles the HTML (summary + plot + table + architecture).
-  - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 12 }
-  - id: report
-    type: command
-    run: '{{ python }} "{{ flow_dir }}/report.py" --task "{{ task }}" --target "{{ target_accuracy }}" --lower-is-better "{{ lower_is_better }}"'
+  # one LLM agent writes the whole self-contained report.html: outcome/winner prose,
+  # per-experiment table, and an inline-SVG hill-climb chart. Reads whatever upstream
+  # files exist (flexible — no hardcoded schema assumptions).
+  - { id: report, type: agent, skill: report, max_steps: 25 }
