@@ -20,10 +20,12 @@ You are a code reviewer + tester. The venv is auto-activated for commands.
 2. Read `model.py`, `train.py`, `evaluate.py` and check the contract:
    - `train.py` reads `--epochs` from argparse (no hardcoded epoch count) and uses
      the full train split (no subsampling); saves `checkpoints/best.pt`.
-   - `evaluate.py` prints `Test accuracy: <num>` and writes `eval_results.json`
-     with the held-out accuracy as a number in [0,1] under a `value` key (the
-     harness reads `value`, falling back to `accuracy`/`score`). The written
-     score MUST be the real computed test accuracy, not a hardcoded/placeholder
+   - `evaluate.py` takes `--split {val,test}` (default `val`), evaluates
+     `checkpoints/best.pt` on that split, prints `Accuracy (<split>): <num>` and
+     writes `eval_results.json` with the accuracy as a number in [0,1] under a
+     `value` key (+ `"split"`). The `val` split MUST be the SAME seeded 80/20 split
+     `train.py` holds out; `test` is the held-out test set. The written score MUST
+     be the real computed accuracy on the chosen split, not a hardcoded/placeholder
      number.
 3. Run ONLY the smoke tests: `python -B -m pytest tests/ -q`. Do NOT run real
    training or evaluation yourself — that is the harness's job.
