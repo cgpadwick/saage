@@ -154,10 +154,11 @@ def polling_loop(name: str, poll, classify, interval_seconds: float,
                    reset=[("_iter", name), ("_poll_start", name), ("_poll_count", name)])
 
 
-def counting_loop(name: str, body: list, max_iterations: int = 10,
+def counting_loop(name: str, body: list, max_iterations: "int | str" = 10,
                   exit_when: str | None = None) -> Subflow:
     """Run body[0] -> ... -> body[-1] -> gate; loop while under max_iterations
-    and exit_when is false."""
+    and exit_when is false. max_iterations may be an int, a numeric string, or a
+    `{{ template }}` resolved against the shared store at run time."""
     if not body:
         raise ValueError("counting_loop body must have at least one node")
     gate = GateNode(name, max_iterations, exit_when)
