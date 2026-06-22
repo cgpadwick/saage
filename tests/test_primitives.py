@@ -84,6 +84,40 @@ def test_counting_loop_runs_max_iterations():
     assert shared["_exit_reason"]["c"] == "max_iterations"
 
 
+def test_counting_loop_max_iterations_quoted_string():
+    # a YAML-quoted "3" must coerce to int, not crash GateNode with int >= str
+    flow = counting_loop("c", [Tracer("a")], max_iterations="3")
+    shared = {}
+    flow.run(shared)
+    assert shared["_iter"]["c"] == 3
+    assert shared["_exit_reason"]["c"] == "max_iterations"
+
+
+def test_counting_loop_max_iterations_template_resolved_from_shared():
+    # a templated bound is resolved at run time against the live shared store
+    flow = counting_loop("c", [Tracer("a")], max_iterations="{{ num_runs }}")
+    shared = {"num_runs": 2}
+    flow.run(shared)
+    assert shared["_iter"]["c"] == 2
+    assert shared["_exit_reason"]["c"] == "max_iterations"
+
+
+def test_counting_loop_max_iterations_unresolvable_raises_clear_error():
+    import pytest
+    flow = counting_loop("c", [Tracer("a")], max_iterations="not-a-number")
+    with pytest.raises(ValueError, match="max_iterations must resolve to an integer"):
+        flow.run({})
+
+
+def test_counting_loop_max_iterations_invalid_template_raises_clear_error():
+    # a malformed Jinja template must surface the clear config error, not a raw
+    # TemplateSyntaxError
+    import pytest
+    flow = counting_loop("c", [Tracer("a")], max_iterations="{{ bad")
+    with pytest.raises(ValueError, match="not a valid number or template"):
+        flow.run({})
+
+
 def test_counting_loop_exits_on_predicate():
     flow = counting_loop("c", [Bump("a")], max_iterations=10, exit_when="score >= 3")
     shared = {}

@@ -127,9 +127,15 @@ def main() -> None:
     shutil.copy(Path(__file__).parent / "autoresearch_ideas.md",
                 "saage_autoresearch_ideas.md")
 
-    if not Path("research_log.md").exists():
-        Path("research_log.md").write_text(
-            LOG_HEADER.format(target=args.target, epochs=args.train_epochs))
+    # Reset the ledger so each run starts clean. experiments.jsonl and
+    # research_log.md are git-excluded, so on a REUSED workspace (le-wm is a
+    # persistent repo) they would otherwise carry a prior run's rows into this
+    # run's report AND the proposer's context — the non-monotonic "best" you get
+    # when two runs concatenate. Setup runs once per fresh run; a resumed run
+    # skips already-completed steps, so its in-progress ledger is preserved.
+    Path("research_log.md").write_text(
+        LOG_HEADER.format(target=args.target, epochs=args.train_epochs))
+    Path("experiments.jsonl").unlink(missing_ok=True)
 
     # snapshot tracked changes (+ the research log) so experiments diff cleanly
     git("add", "-u")

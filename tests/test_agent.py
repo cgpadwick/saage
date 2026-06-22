@@ -1,5 +1,7 @@
 import logging
 
+import pytest
+
 from saage_testkit import call, resp
 
 from saage.agent import run_agent
@@ -58,6 +60,35 @@ class _CapturingProvider:
 
 def _skill(body, description="do the thing"):
     return Skill(name="t", description=description, system=body, dir=".", tools=[])
+
+
+# --------------------------------------------------------------------------- #
+# AgentNode must not SILENTLY drop unknown tool names from a skill's allow-list
+# --------------------------------------------------------------------------- #
+def _skill_tools(names):
+    return Skill(name="t", description="d", system="b", dir=".", tools=names)
+
+
+def test_agentnode_warns_and_filters_unknown_tool(tmp_path, caplog):
+    available = file_tools(tmp_path)             # real tools incl. read_file
+    with caplog.at_level(logging.WARNING):
+        node = AgentNode("t", _skill_tools(["read_file", "bogus_tool"]), None, available)
+    names = {t.name for t in node.tools}
+    assert "read_file" in names and "bogus_tool" not in names   # known kept, unknown dropped
+    assert "bogus_tool" in caplog.text                          # but the drop is WARNED, not silent
+
+
+def test_agentnode_all_unknown_tools_raises(tmp_path):
+    # if the allow-list intersects nothing, the agent would run tool-less — hard error
+    with pytest.raises(ValueError, match="unknown tool"):
+        AgentNode("t", _skill_tools(["bogus", "nope"]), None, file_tools(tmp_path))
+
+
+def test_agentnode_empty_tools_list_means_all_tools(tmp_path):
+    # tools: [] (falsy) is the established "no allow-list -> all tools" case; unchanged
+    available = file_tools(tmp_path)
+    node = AgentNode("t", _skill_tools([]), None, available)
+    assert {t.name for t in node.tools} == {t.name for t in available}
 
 
 def test_agentnode_templates_the_skill_body():

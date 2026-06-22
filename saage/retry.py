@@ -59,7 +59,8 @@ def is_retryable_error(exc: BaseException) -> bool:
     # behind a 200): json.JSONDecodeError / httpx.DecodingError / the SDKs'
     # response-validation errors. Transient by nature — killed a live 18-step
     # run when OpenRouter returned non-JSON once.
-    if "jsondecode" in name or "decoding" in name or "responsevalidation" in name:
+    if ("jsondecode" in name or "decoding" in name or "responsevalidation" in name
+            or "emptyresponse" in name):   # 200 with an error body / no choices
         return True
     status = getattr(exc, "status_code", None)
     if status is None:

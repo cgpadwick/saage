@@ -15,8 +15,7 @@
 provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 workspace: /tmp/saage_mnist
 # what the remote sidecar collects from the workspace (local runs ignore this)
-artifacts: [experiments.jsonl, research_log.md, eval_results.json,
-            report.html, report_narrative.md]
+artifacts: [experiments.jsonl, research_log.md, eval_results.json, report.html]
 shared:
   task: "Build an image classifier for the MNIST handwritten digit dataset (10 classes, 28x28 grayscale). Metric: classification accuracy on a held-out test split (higher is better)."
   target_accuracy: 0.97
@@ -77,11 +76,24 @@ workflow:
           max_steps: 15
           set: { current_proposal: "(?s)(.+)" }   # capture the whole proposal text
         check: { id: proposal_critic, type: agent, skill: proposal_critic, max_steps: 10 }
+      # one-paragraph digest of the accepted proposal -> proposals/summary.md, which
+      # keep_or_revert writes into research_log.md (kept terse so the proposer can
+      # re-read the whole log cheaply every iteration; the full proposal goes only
+      # to experiments.jsonl for the human report)
+      - { id: summarize, type: agent, skill: summarize, max_steps: 6 }
       - id: hc_build
         type: retry_loop
         max_iterations: 3
         action: { id: hc_implement, type: agent, skill: implement, max_steps: 40 }
         check:  { id: hc_verify,    type: agent, skill: verify,    max_steps: 20 }
+      # a crashed train/eval must read as a REVERT, not the previous iteration's
+      # score: `set:` leaves a var unchanged when its regex finds no match, so
+      # pre-seed nan (compares False in BOTH directions -> never beats best) before
+      # train; a successful eval overwrites it with the real SCORE=.
+      - id: reset_candidate
+        type: command
+        run: 'echo "CANDIDATE=nan"'
+        set: { candidate_score: "CANDIDATE=(\\S+)" }
       - { id: hc_train, type: command, run: "python train.py --epochs {{ train_epochs }}" }
       - id: hc_eval
         type: command
@@ -95,9 +107,7 @@ workflow:
           consecutive_failures: "FAILURES=([0-9]+)"
 
   # ---- final research report ----
-  # an LLM writes the prose summary (how the model works + winning experiments), then a
-  # deterministic script assembles the HTML (summary + plot + table + architecture).
-  - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 12 }
-  - id: report
-    type: command
-    run: '{{ python }} "{{ flow_dir }}/report.py" --task "{{ task }}" --target "{{ target_accuracy }}" --lower-is-better "{{ lower_is_better }}"'
+  # one LLM agent writes the whole self-contained report.html: outcome/winner prose,
+  # per-experiment table, and an inline-SVG hill-climb chart. Reads whatever upstream
+  # files exist (flexible — no hardcoded schema assumptions).
+  - { id: report, type: agent, skill: report, max_steps: 25 }

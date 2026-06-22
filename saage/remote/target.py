@@ -68,10 +68,13 @@ class SshTarget:
         return warnings
 
     def start(self, run_id: str) -> None:
+        self.start_script(run_id, "start.sh")
+
+    def start_script(self, run_id: str, script: str) -> None:
         session = shlex.quote(f"saage-{run_id}")
         self.conn.run(
             f"tmux new-session -d -s {session} "
-            f"{shlex.quote(f'bash $HOME/{self.run_dir(run_id)}/start.sh')}"
+            f"{shlex.quote(f'bash $HOME/{self.run_dir(run_id)}/{script}')}"
         )
 
     def stop(self, run_id: str) -> None:

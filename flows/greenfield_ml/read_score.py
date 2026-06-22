@@ -17,6 +17,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+# The implement skill mandates `value`, but a new model's evaluate.py may name the
+# score differently. Accept common aliases (canonical `value` first) so a benign
+# key-name drift surfaces the real score instead of silently failing.
+_SCORE_KEYS = ("value", "accuracy", "score", "test_accuracy", "acc")
+
 
 def main() -> None:
     p = Path("eval_results.json")
@@ -24,8 +29,14 @@ def main() -> None:
         print("SCORE_MISSING: eval_results.json not found")
         return
     try:
-        value = float(json.loads(p.read_text())["value"])
-    except Exception as e:                       # malformed JSON / missing key / non-numeric
+        data = json.loads(p.read_text())
+        key = next((k for k in _SCORE_KEYS if k in data), None)
+        if key is None:
+            print(f"SCORE_ERROR: no score key in {sorted(data)} "
+                  f"(expected one of {list(_SCORE_KEYS)})")
+            return
+        value = float(data[key])
+    except Exception as e:                       # malformed JSON / non-numeric value
         print(f"SCORE_ERROR: {e}")
         return
     if not (value == value and 0.0 <= value <= 1.0):   # finite and in [0, 1]

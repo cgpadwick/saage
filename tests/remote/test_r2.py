@@ -3,11 +3,12 @@
 All offline. A live roundtrip against a real bucket is in
 test_r2_live.py (gated on SAAGE_R2_TESTS=1 + configured [storage]).
 """
+import json
 from pathlib import Path
 
 from saage.remote.creds import cred_path, storage_config
 from saage.remote.handoff import _collect_secrets
-from saage.remote.r2push import plan_uploads
+from saage.remote.r2push import changed, plan_uploads, record
 from saage.remote.scripts import RunSpec, bootstrap_sh, start_sh, stop_sh
 from saage.remote.workspace import WorkspacePlan
 
@@ -84,3 +85,36 @@ def test_secrets_include_r2_only_when_configured(saage_home):
     env = _collect_secrets("local", plan, {}, "r1", None)
     assert "SAAGE_R2_BUCKET" not in env
     assert "AWS_ACCESS_KEY_ID" not in env
+
+
+def test_plan_uploads_includes_checkpoint(tmp_path, monkeypatch):
+    # node layout: run dir + ~/.saage/runs/<id>/checkpoint.json
+    run = tmp_path / "rundir"; (run / "artifacts").mkdir(parents=True)
+    (run / "status.json").write_text("{}")
+    home = tmp_path / "home"
+    monkeypatch.setenv("SAAGE_HOME", str(home / ".saage"))
+    ckdir = home / ".saage" / "runs" / "r1"; ckdir.mkdir(parents=True)
+    (ckdir / "checkpoint.json").write_text('{"status":"running"}')
+    keys = [k for _, k in plan_uploads(run, "runs/r1", run_id="r1")]
+    assert "runs/r1/checkpoint.json" in keys
+    assert "runs/r1/status.json" in keys
+
+
+def test_changed_only_skips_unchanged(tmp_path):
+    run = tmp_path / "rundir"; (run / "artifacts").mkdir(parents=True)
+    big = run / "artifacts" / "model.pt"; big.write_bytes(b"x" * 1000)
+    man = run / ".r2push_manifest.json"
+    pairs = [(big, "runs/r1/artifacts/model.pt")]
+    todo1 = changed(pairs, man)
+    assert todo1 == pairs                      # first time: upload
+    record(todo1, man)
+    assert changed(pairs, man) == []    # unchanged: skip
+    big.write_bytes(b"y" * 2000)               # changed size
+    assert changed(pairs, man) == pairs # changed: upload again
+
+
+def test_plan_downloads_checkpoint_and_artifacts():
+    from saage.remote import r2pull
+    keys = r2pull.plan_downloads("runs/r1", ["checkpoint.json", "artifacts/model.pt"])
+    assert ("runs/r1/checkpoint.json", "checkpoint") in keys
+    assert ("runs/r1/artifacts/model.pt", "artifact") in keys
