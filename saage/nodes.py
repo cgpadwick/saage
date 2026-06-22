@@ -102,6 +102,22 @@ class AgentNode(Node):
         self.max_steps = max_steps
         allow = set(skill.tools) if skill.tools else None
         self.tools = [t for t in tools if allow is None or t.name in allow]
+        if allow is not None:
+            # a tools: allow-list with names that don't exist is a config error —
+            # warn (so a typo is visible) and hard-fail if it leaves the agent with
+            # no tools, rather than silently running tool-less.
+            available = {t.name for t in tools}
+            unknown = allow - available
+            if unknown:
+                log.warning("skill %r lists unknown tool(s) in tools: %s "
+                            "(available: %s)", skill.name, ", ".join(sorted(unknown)),
+                            ", ".join(sorted(available)) or "(none)")
+            if not self.tools:
+                raise ValueError(
+                    f"skill {skill.name!r} tools: lists only unknown tool(s) "
+                    f"{sorted(allow)}; none match the available tools "
+                    f"{sorted(available)} — fix the names in the skill's "
+                    f"frontmatter")
 
     def prep(self, shared):
         task = render(self.skill.description or self.skill.name, shared)
