@@ -55,15 +55,20 @@ def _changed_files() -> list[str]:
     return sorted(files)
 
 
+def _read_file(path: str) -> str:
+    if not os.path.exists(path):
+        return ""
+    with open(path) as f:
+        return f.read().strip()
+
+
 def _read_proposal() -> str:
-    p = "proposals/latest.md"
-    return open(p).read().strip() if os.path.exists(p) else ""
+    return _read_file("proposals/latest.md")
 
 
 def _read_summary() -> str:
     """The summarize agent's one-paragraph digest of the proposal."""
-    p = "proposals/summary.md"
-    return open(p).read().strip() if os.path.exists(p) else ""
+    return _read_file("proposals/summary.md")
 
 
 def main() -> None:
@@ -103,14 +108,16 @@ def main() -> None:
             commit_sha = git_out("rev-parse", "HEAD") or None
             best, fails, status, kept = cand, 0, "keep", True
         else:
-            # preserve the research log across the revert (excluded files —
-            # data, ledger, proposals — are untouched by checkout/clean)
-            saved = (open("research_log.md").read()
-                     if os.path.exists("research_log.md") else "")
+            # research_log.md is tracked, so `git checkout -- .` would roll it
+            # back to the last kept commit — save its current text and restore it
+            # after the revert so this attempt's entry survives. (experiments.jsonl
+            # / proposals/ are git-excluded, so checkout/clean leave them alone.)
+            saved = _read_file("research_log.md")
             git("checkout", "--", ".")
             git("clean", "-fd")
             if saved:
-                open("research_log.md", "w").write(saved)
+                with open("research_log.md", "w") as f:
+                    f.write(saved + "\n")
             commit_sha = None
             fails, status, kept = fails + 1, "revert", False
 

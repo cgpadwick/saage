@@ -99,11 +99,12 @@ def main() -> None:
             print(f"ERROR: could not switch to {branch}: {r.stderr}", file=sys.stderr)
             sys.exit(1)
 
-    # Reset the ledger so each run starts clean. research_log.md / experiments.jsonl
-    # are git-excluded and persist on a REUSED workspace, so a prior run's rows would
-    # otherwise concatenate into this run's report AND the proposer's context (the
-    # non-monotonic "best"). setup is a one-shot top-level step; a resumed run
-    # re-enters at a later step, so its in-progress ledger is preserved.
+    # Reset the ledger so each run starts clean on a REUSED workspace, or a prior
+    # run's rows would concatenate into this run's report AND the proposer's context
+    # (the non-monotonic "best"). research_log.md is tracked (committed in the setup
+    # snapshot below, restored across reverts); experiments.jsonl is git-excluded and
+    # survives `git clean`, so it is removed explicitly here. setup is a one-shot
+    # top-level step; a resumed run re-enters later, so its in-progress ledger stays.
     direction = "lower" if str(args.lower_is_better).lower() == "true" else "higher"
     Path("research_log.md").write_text(LOG_HEADER.format(
         comp=args.comp, metric=args.metric, direction=direction,
