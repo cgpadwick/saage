@@ -44,6 +44,10 @@ files; never invent results.
      call out the biggest win(s) and several notable failures with the experiment
      number + a short description (from `summary`) on a small `<text>` label with a
      thin leader line. Aim for ~4–8 annotations total.
+   - Skip any experiment whose `candidate` is missing/None/nan or an off-scale
+     failure sentinel (e.g. a negative score) from the chart markers and line —
+     those are failed train/eval runs, not real data points (the best-so-far line
+     is unaffected). An empty ledger still yields a valid (if sparse) report.
 
 ## Style
 Beautiful and professional but concise. Self-contained: inline CSS + inline SVG
