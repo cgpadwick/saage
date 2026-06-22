@@ -38,6 +38,58 @@ def test_checkpoint_written_during_run(tmp_path):
     assert rec["shared"]["_iter"]["hill"] == 5
 
 
+def test_run_leaves_ledger_and_shared_json(tmp_path):
+    # a run with a checkpoint sink writes a per-node ledger.jsonl + a final
+    # shared.json into the run dir, for offline debugging (issue #21)
+    import json
+    f = _loop_flow(tmp_path)
+    c = ckpt.Checkpoint.create(ckpt.new_run_id(), flow_path=str(f),
+                               workspace=str(tmp_path))
+    flow, seed = build_flow(f, provider=object(), workspace=str(tmp_path),
+                            checkpoint=c)
+    flow.run(seed)
+
+    ledger = (c.dir / "ledger.jsonl").read_text().splitlines()
+    assert ledger, "ledger.jsonl should have a line per node executed"
+    rows = [json.loads(x) for x in ledger]
+    assert all("node" in r and "action" in r for r in rows)
+    # the loop body's `tick` command ran 5 times -> its exit code is recorded
+    ticks = [r for r in rows if r["node"] == "tick"]
+    assert len(ticks) == 5 and all(r["exit"] == 0 for r in ticks)
+
+    shared = json.loads((c.dir / "shared.json").read_text())
+    assert shared["_iter"]["hill"] == 5
+
+
+def _boom(*a, **k):
+    raise OSError("simulated disk error")
+
+
+def test_ledger_write_failure_is_non_fatal(tmp_path, monkeypatch):
+    # the ledger is a debug trace — a write failure must not abort the run
+    f = _loop_flow(tmp_path)
+    c = ckpt.Checkpoint.create(ckpt.new_run_id(), flow_path=str(f),
+                               workspace=str(tmp_path))
+    monkeypatch.setattr(c, "append_ledger", _boom)
+    flow, seed = build_flow(f, provider=object(), workspace=str(tmp_path),
+                            checkpoint=c)
+    flow.run(seed)                       # must NOT raise
+    assert seed["_iter"]["hill"] == 5    # run completed normally
+
+
+def test_shared_json_write_failure_is_non_fatal(tmp_path, monkeypatch):
+    # shared.json is a debug artifact (checkpoint.json already holds shared) —
+    # a write failure after the flow finishes must not abort the run
+    f = _loop_flow(tmp_path)
+    c = ckpt.Checkpoint.create(ckpt.new_run_id(), flow_path=str(f),
+                               workspace=str(tmp_path))
+    monkeypatch.setattr(c, "write_shared", _boom)
+    flow, seed = build_flow(f, provider=object(), workspace=str(tmp_path),
+                            checkpoint=c)
+    flow.run(seed)                       # must NOT raise
+    assert c.load()["status"] == "completed"
+
+
 def test_engine_stamps_completed_status_on_clean_finish(tmp_path):
     """The engine writes the terminal status in the final checkpoint write — so a
     kill after the last node (before any external mark) leaves a non-resumable

@@ -57,12 +57,23 @@ def parse_skill(md: Path) -> Skill:
                 log.warning("skill %s: frontmatter is %s, expected a mapping "
                             "(name:/description:/tools:); ignoring it.",
                             md, type(loaded).__name__)
+    tools = meta.get("tools")
+    # `tools:` is an allow-list of tool-name strings. A non-list (e.g.
+    # `tools: read_file` -> str, or a mapping) would make `set(tools)` behave
+    # oddly downstream (a string becomes a set of characters); fail clearly at
+    # load time with the fix, rather than mis-filtering tools at run time.
+    if tools is not None and not (isinstance(tools, list)
+                                  and all(isinstance(t, str) for t in tools)):
+        raise ValueError(
+            f"skill {md.parent.name!r}: `tools:` must be a YAML list of tool-name "
+            f"strings (e.g. `tools: [read_file, write_file]`) or omitted; got "
+            f"{type(tools).__name__} {tools!r}")
     return Skill(
         name=meta.get("name", md.parent.name),
         description=meta.get("description", ""),
         system=body.strip(),
         dir=md.parent,
-        tools=meta.get("tools"),
+        tools=tools,
     )
 
 

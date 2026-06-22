@@ -53,6 +53,29 @@ def capture_into(shared: dict, text: str, captures: dict | None) -> None:
         shared[key] = v
 
 
+def _resolve_int(value: "int | str", shared: dict, what: str) -> int:
+    """Resolve a loop bound to an int at RUN time, against the live shared store:
+    accepts an int (as-is), a numeric string ("5"), or a template ("{{ n }}",
+    resolved from shared — including --set overrides applied after build). Raises a
+    clear config error otherwise, instead of a bare `int >= str` TypeError deep in a
+    guard node."""
+    if isinstance(value, bool):                  # bool is an int subclass; reject
+        raise ValueError(f"{what} must be an integer, got bool {value!r}")
+    if isinstance(value, int):
+        return value
+    try:
+        rendered = render(str(value), shared).strip()
+    except Exception as e:                       # invalid Jinja (TemplateSyntaxError, ...)
+        raise ValueError(
+            f"{what} is not a valid number or template ({value!r}): {e}")
+    try:
+        return int(rendered)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"{what} must resolve to an integer, got {value!r} -> {rendered!r}; "
+            f"set it to a number or a shared var that holds one")
+
+
 def _trace(shared: dict, node_id: str) -> None:
     shared.setdefault("_trace", []).append(node_id)
 
@@ -102,6 +125,22 @@ class AgentNode(Node):
         self.max_steps = max_steps
         allow = set(skill.tools) if skill.tools else None
         self.tools = [t for t in tools if allow is None or t.name in allow]
+        if allow is not None:
+            # a tools: allow-list with names that don't exist is a config error —
+            # warn (so a typo is visible) and hard-fail if it leaves the agent with
+            # no tools, rather than silently running tool-less.
+            available = {t.name for t in tools}
+            unknown = allow - available
+            if unknown:
+                log.warning("skill %r lists unknown tool(s) in tools: %s "
+                            "(available: %s)", skill.name, ", ".join(sorted(unknown)),
+                            ", ".join(sorted(available)) or "(none)")
+            if not self.tools:
+                raise ValueError(
+                    f"skill {skill.name!r} tools: lists only unknown tool(s) "
+                    f"{sorted(allow)}; none match the available tools "
+                    f"{sorted(available)} — fix the names in the skill's "
+                    f"frontmatter")
 
     def prep(self, shared):
         task = render(self.skill.description or self.skill.name, shared)
@@ -223,27 +262,33 @@ class TimeoutGuard(Node):
 class GateNode(Node):
     """counting_loop counter + optional exit predicate over the shared store."""
 
-    def __init__(self, name: str, max_iters: int, exit_when: str | None):
+    def __init__(self, name: str, max_iters: "int | str", exit_when: str | None):
+        # max_iters may be an int, a numeric string, or a template — it is
+        # resolved against the live shared store in post() (see _resolve_int)
         super().__init__()
         self.name = name
         self.max_iters = max_iters
         self.exit_when = exit_when
 
     def post(self, shared, prep_res, out):
+        # resolve max_iterations at run time: a template ("{{ num_runs }}") or a
+        # quoted "5" only become a usable int now, against the live shared store
+        max_iters = _resolve_int(self.max_iters, shared,
+                                 f"counting_loop {self.name!r} max_iterations")
         counts = shared.setdefault("_iter", {})
         counts[self.name] = counts.get(self.name, 0) + 1
         n = counts[self.name]
-        if n >= self.max_iters:
+        if n >= max_iters:
             shared.setdefault("_exit_reason", {})[self.name] = "max_iterations"
             log.info("✓ %s: reached max_iterations (%d) — exiting loop",
-                     self.name, self.max_iters)
+                     self.name, max_iters)
             return "exit"
         if self.exit_when and _safe_eval(self.exit_when, shared):
             shared.setdefault("_exit_reason", {})[self.name] = "exit_when"
             log.info("✓ %s: exit_when satisfied (%s) after %d iteration(s)",
                      self.name, self.exit_when, n)
             return "exit"
-        log.info("↻ %s: iteration %d/%d done — continuing", self.name, n, self.max_iters)
+        log.info("↻ %s: iteration %d/%d done — continuing", self.name, n, max_iters)
         return "continue"
 
 

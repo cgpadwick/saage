@@ -40,6 +40,9 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--config", metavar="engine.yaml",
                      help="engine config YAML tuning the run_command safety policy "
                           "(default: the built-in denylist)")
+    run.add_argument("--run-id", dest="run_id", default=None,
+                     help="pin the checkpoint/run id (default: auto; also honors "
+                          "$SAAGE_RUN_ID — used by `saage remote` for resumability)")
     run.add_argument("--set", dest="overrides", metavar="KEY=VALUE", action="append",
                      default=[], help="seed/override a shared-store value (repeatable; "
                                       "value is parsed as JSON when possible)")
@@ -78,6 +81,25 @@ def _setup_logging(verbose: bool, quiet: bool) -> None:
     logging.basicConfig(level=level, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
     for name in _NOISY:
         logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def _attach_run_log(run_dir: Path) -> None:
+    """Tee the run's logs to <run_dir>/run.log so a local run leaves a persistent
+    log file (parity with remote runs). Inherits the configured console level
+    (-v/-q), so the file mirrors what the console shows.
+
+    main()/resume can be called repeatedly in one process (tests, embedding), so
+    first drop+close any run-log handler a previous run attached — otherwise logs
+    duplicate across files and file descriptors leak."""
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        if getattr(h, "_saage_run_log", False):
+            root.removeHandler(h)
+            h.close()
+    fh = logging.FileHandler(run_dir / "run.log", encoding="utf-8")
+    fh._saage_run_log = True
+    fh.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S"))
+    root.addHandler(fh)
 
 
 def _parse_set(items: list[str]) -> dict:
@@ -122,7 +144,8 @@ def _collapse(trace: list) -> str:
     return ", ".join(f"{k} ×{v}" if v > 1 else k for k, v in counts.items())
 
 
-def _print_summary(result: dict, before: dict, after: dict, root: Path) -> None:
+def _print_summary(result: dict, before: dict, after: dict, root: Path,
+                   run_dir: Path | None = None) -> None:
     changed = sorted(p.relative_to(root).as_posix()
                      for p in after if after[p] != before.get(p))
     print("\n── run summary ─────────────────────────────────")
@@ -137,6 +160,8 @@ def _print_summary(result: dict, before: dict, after: dict, root: Path) -> None:
     if USAGE.calls:
         print(f"  tokens: {USAGE.total_tokens:,} ({USAGE.prompt_tokens:,} in + "
               f"{USAGE.completion_tokens:,} out) over {USAGE.calls:,} model call(s)")
+    if run_dir is not None:
+        print(f"  run dir: {run_dir}  (run.log · ledger.jsonl · shared.json)")
     print("────────────────────────────────────────────────")
 
 
@@ -186,7 +211,8 @@ def _cmd_resume(args) -> int:
                   "`saage resume %s --force` to override", flow_path, run.run_id)
         return 1
     workspace = args.workspace or rec.get("workspace") or rec.get("shared", {}).get("workspace")
-    log.info("resuming %s", run.run_id)
+    _attach_run_log(run.dir)                      # append to the same run.log on resume
+    log.info("resuming %s (run dir: %s)", run.run_id, run.dir)
     # run_flow marks the run failed if it raises; the engine stamps the terminal
     # completed/failed status into the final checkpoint write on a clean finish.
     run_flow(flow_path,
@@ -209,9 +235,17 @@ def main(argv: list[str] | None = None) -> int:
         _setup_logging(args.verbose, args.quiet)
         return _cmd_resume(args)
     _setup_logging(args.verbose, args.quiet)
+    log = logging.getLogger("saage")
 
     overrides = {"type": args.provider, "model": args.model, "base_url": args.base_url}
-    run_id = ckpt.new_run_id()
+    run_id = args.run_id or os.environ.get("SAAGE_RUN_ID") or ckpt.new_run_id()
+
+    existing = ckpt.Checkpoint(run_id)
+    if existing.file.exists() and existing.load().get("status") == "completed":
+        log.error("run id %r already completed (%s) — use `saage resume %s` to "
+                  "continue it, or a different --run-id", run_id, existing.dir, run_id)
+        return 1
+
     flow_path = str(Path(args.flow).resolve())
     run = ckpt.Checkpoint.create(
         run_id,
@@ -221,6 +255,8 @@ def main(argv: list[str] | None = None) -> int:
         config_path=str(Path(args.config).resolve()) if args.config else None,
         venv=args.venv,
     )
+    _attach_run_log(run.dir)                      # local run dir gets run.log too
+    logging.getLogger("saage").info("run dir: %s", run.dir)
     flow, seed = build_flow(args.flow, provider_overrides=overrides,
                             workspace=args.workspace, venv=args.venv,
                             config=args.config, checkpoint=run)
@@ -229,7 +265,6 @@ def main(argv: list[str] | None = None) -> int:
     run.write(seed, resume_step=None, status="running")   # record workspace/venv
 
     before = _snapshot(root)
-    log = logging.getLogger("saage")
     log.info("starting run %s", run_id)
     # The engine stamps the terminal completed/failed status into the final
     # checkpoint write; here we only need to record a crash (a raised exception).
@@ -241,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     log.info("run complete")
     after = _snapshot(root)
 
-    _print_summary(seed, before, after, root)
+    _print_summary(seed, before, after, root, run.dir)
     if args.verbose:                              # full agent/command outputs
         print("\nresults:")
         print(json.dumps(seed.get("results", {}), indent=2, default=str))

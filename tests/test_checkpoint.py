@@ -41,6 +41,23 @@ def test_write_is_atomic_no_partial_file():
     assert json.loads((c.dir / "checkpoint.json").read_text())["shared"]["k"] == "v"
 
 
+def test_append_ledger_one_json_line_per_call():
+    c = ckpt.Checkpoint.create("run_led")
+    c.append_ledger({"step": 0, "node": "a", "action": "default", "exit": 0})
+    c.append_ledger({"step": 1, "node": "b", "action": "pass"})
+    lines = (c.dir / "ledger.jsonl").read_text().splitlines()
+    assert len(lines) == 2
+    assert json.loads(lines[0]) == {"step": 0, "node": "a", "action": "default", "exit": 0}
+    assert json.loads(lines[1])["node"] == "b"
+
+
+def test_write_shared_is_valid_json():
+    c = ckpt.Checkpoint.create("run_sh")
+    c.write_shared({"best_score": 0.9, "_iter": {"hill": 3}})
+    data = json.loads((c.dir / "shared.json").read_text())
+    assert data["best_score"] == 0.9 and data["_iter"]["hill"] == 3
+
+
 def test_mark_updates_only_status():
     c = ckpt.Checkpoint.create("run3")
     c.write({"k": 1}, resume_step=2)

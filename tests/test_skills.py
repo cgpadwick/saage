@@ -1,6 +1,8 @@
 """Skill loading: frontmatter parsing + warnings on malformed skill files."""
 import logging
 
+import pytest
+
 from saage.skills import load_skills, parse_skill
 
 
@@ -19,6 +21,25 @@ def test_valid_frontmatter(tmp_path):
     assert s.description == "check it"
     assert s.tools == ["read_file"]
     assert s.system == "Do the review."
+
+
+def test_tools_as_bare_string_raises_clear_error(tmp_path):
+    # `tools: read_file` (a str, not a list) would become a set of characters
+    # downstream — fail clearly at parse time instead
+    md = _skill(tmp_path, "bad", "---\nname: bad\ntools: read_file\n---\nbody\n")
+    with pytest.raises(ValueError, match="must be a YAML list"):
+        parse_skill(md)
+
+
+def test_tools_as_mapping_raises_clear_error(tmp_path):
+    md = _skill(tmp_path, "bad2", "---\nname: bad2\ntools:\n  read_file: true\n---\nbody\n")
+    with pytest.raises(ValueError, match="must be a YAML list"):
+        parse_skill(md)
+
+
+def test_tools_omitted_is_none(tmp_path):
+    md = _skill(tmp_path, "ok", "---\nname: ok\ndescription: d\n---\nbody\n")
+    assert parse_skill(md).tools is None
 
 
 def test_no_frontmatter_uses_defaults_silently(tmp_path, caplog):
