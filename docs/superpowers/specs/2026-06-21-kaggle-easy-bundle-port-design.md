@@ -2,6 +2,15 @@
 
 **Status:** approved (2026-06-21)
 
+> **Update — report agent added in this PR.** The HTML report is no longer
+> deferred: `flows/kaggle_solver` now uses a `report` LLM agent (per the
+> report-as-agent design, `2026-06-21-report-agent-design.md`). The flow's final
+> step is `report` (replacing `report_narrative`, which is deleted), and it
+> collects `report.html`. The "Deferred #6 / no `artifacts:` / `report_narrative`"
+> mentions below describe the **pre-PR baseline** and are kept for historical
+> context — the implemented artifacts are `[experiments.jsonl, research_log.md,
+> report.html]`.
+
 ## Goal
 
 Port the proven hill-climb-ledger fixes already shipped on `flows/greenfield_ml`
@@ -83,8 +92,8 @@ paragraph. `tools: [read_file, write_file]`.
 
 - Insert `- { id: summarize, type: agent, skill: summarize, max_steps: 6 }`
   between `propose_loop` and `implement_loop`.
-- Add `artifacts: [experiments.jsonl, research_log.md, report_narrative.md]`
-  (report.html added when #6 lands).
+- Add `artifacts: [experiments.jsonl, research_log.md, report.html]` (the report
+  agent — see the Update banner above — replaced `report_narrative` in this PR).
 
 ### 4. `flows/kaggle_solver/setup_competition.py` — per-run reset
 

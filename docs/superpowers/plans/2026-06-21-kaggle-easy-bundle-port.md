@@ -2,6 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Update — report agent added after this plan.** The HTML report (#6) was
+> originally deferred here, but a `report` LLM agent was subsequently added to the
+> same PR (per `2026-06-21-report-agent-design.md`): the flow's final step is now
+> `report` (replacing `report_narrative`) and it collects `report.html`. So the
+> implemented `artifacts:` are `[experiments.jsonl, research_log.md, report.html]`
+> — the `report_narrative.md` snippet in Task 2 below is superseded.
+
 **Goal:** Port the hill-climb ledger fixes (anchoring, terse summary research_log, a `summarize` agent, per-run reset, generated-output filtering, artifacts) from `greenfield_ml`/`lewm_hillclimb_guided` to `flows/kaggle_solver`.
 
 **Architecture:** Mirror the just-shipped reference implementations. `keep_or_revert.py` records `commit_sha`/`parent_step`/`files_changed` + a one-paragraph summary (terse research_log) while the full proposal goes to `experiments.jsonl`; a new single-purpose `summarize` agent writes `proposals/summary.md`; `setup_competition.py` resets the ledger per run. No engine changes.
@@ -387,7 +394,8 @@ In `flows/kaggle_solver/flow.yaml`, add an `artifacts:` key at the top level (af
 ```yaml
 workspace: /tmp/saage_kaggle
 # what the remote sidecar collects from the workspace (local runs ignore this)
-artifacts: [experiments.jsonl, research_log.md, report_narrative.md]
+# (superseded — the report agent makes this report.html, not report_narrative.md)
+artifacts: [experiments.jsonl, research_log.md, report.html]
 shared:
 ```
 
