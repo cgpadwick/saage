@@ -53,14 +53,50 @@ convention):
   `report_narrative` (e.g. `{{ task }}`, target, direction).
 - **instructions:** read `experiments.jsonl` (one JSON object per line),
   `research_log.md`, and the winning config/model files (whatever exists); then
-  write `report.html` with: the overview, the per-experiment table, the
-  winning-experiment prose, and the inline-SVG hill-climb chart. The skill gives
-  a concrete **SVG styling recipe** (viewBox ~720×360, margins, map step→x and
-  score→y over the data's actual range, best-so-far `<polyline>`, kept/revert
-  `<circle>` markers, axis ticks + gridlines, a legend, a title) so output is
-  consistent and professional while the agent stays flexible on the data.
-  Degrade gracefully: nan/`None` scores are skipped from the line; an empty
-  ledger still yields a valid (if sparse) report. Self-contained HTML only.
+  write a self-contained `report.html`. See the prompt directions below for the
+  exact persona, input description, and output structure. Degrade gracefully:
+  nan/`None` scores are skipped from the chart line; an empty ledger still
+  yields a valid (if sparse) report.
+
+## Report agent prompt (skill body substance)
+
+The skill body should read roughly:
+
+> *You are an excellent scientific report writer. Generate a beautiful, concise,
+> and informative scientific report (`report.html`) from the inputs below.*
+
+**Inputs (describe these to the agent):**
+- `experiments.jsonl` — one experiment per line; fields include `step`,
+  `parent_step`, `candidate`, `best`, `kept` (or `status`), `commit_sha`,
+  `files_changed`, `summary`, `proposal`.
+- `research_log.md` — the running narrative of the run.
+- the winning config / model files (e.g. `model.py`, the tuned config YAMLs) —
+  the architecture / details that ended up working.
+
+**The report must contain, in order:**
+
+1. **Up front — the winner.** A prose description of which experiment succeeded:
+   the final best score (vs baseline / target), and *what the winning experiment
+   actually was* — the architecture or approach + key details that ended up
+   working.
+2. **Per-experiment table** — one row per experiment: step, a short description
+   of the change, candidate vs best score, **kept or reverted**, commit.
+3. **Hill-climb graph (inline SVG):**
+   - X axis = experiment number, Y axis = performance (score).
+   - **Keeps = green dots; reverts = red X marks** (distinct shapes, not just
+     colors).
+   - best-so-far line, axes, gridlines, legend, title.
+   - **Selective annotations** — NOT every point (keeps the graph uncluttered):
+     annotate the **biggest win(s)** and **several notable failures** with the
+     experiment name + a short description that fits on the graph.
+
+**Style:** beautiful, professional, concise; self-contained HTML (inline CSS +
+inline SVG only, no external resources). Concrete SVG guidance for consistency:
+viewBox ~860×420 with margins for axis labels + annotations, map step→x and
+score→y over the data's actual range, `<polyline>` for best-so-far, `<circle>`
+(green) for keeps and an X glyph (two red `<line>`s or a red `✕`) for reverts,
+axis ticks + gridlines, a legend, and short `<text>` callouts with thin leader
+lines for the annotated points.
 
 ## Flow changes (per flow)
 
