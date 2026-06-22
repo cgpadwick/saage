@@ -83,10 +83,20 @@ def _setup_logging(verbose: bool, quiet: bool) -> None:
 def _attach_run_log(run_dir: Path) -> None:
     """Tee the run's logs to <run_dir>/run.log so a local run leaves a persistent
     log file (parity with remote runs). Inherits the configured console level
-    (-v/-q), so the file mirrors what the console shows."""
+    (-v/-q), so the file mirrors what the console shows.
+
+    main()/resume can be called repeatedly in one process (tests, embedding), so
+    first drop+close any run-log handler a previous run attached — otherwise logs
+    duplicate across files and file descriptors leak."""
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        if getattr(h, "_saage_run_log", False):
+            root.removeHandler(h)
+            h.close()
     fh = logging.FileHandler(run_dir / "run.log", encoding="utf-8")
+    fh._saage_run_log = True
     fh.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S"))
-    logging.getLogger().addHandler(fh)
+    root.addHandler(fh)
 
 
 def _parse_set(items: list[str]) -> dict:

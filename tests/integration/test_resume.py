@@ -61,6 +61,35 @@ def test_run_leaves_ledger_and_shared_json(tmp_path):
     assert shared["_iter"]["hill"] == 5
 
 
+def _boom(*a, **k):
+    raise OSError("simulated disk error")
+
+
+def test_ledger_write_failure_is_non_fatal(tmp_path, monkeypatch):
+    # the ledger is a debug trace — a write failure must not abort the run
+    f = _loop_flow(tmp_path)
+    c = ckpt.Checkpoint.create(ckpt.new_run_id(), flow_path=str(f),
+                               workspace=str(tmp_path))
+    monkeypatch.setattr(c, "append_ledger", _boom)
+    flow, seed = build_flow(f, provider=object(), workspace=str(tmp_path),
+                            checkpoint=c)
+    flow.run(seed)                       # must NOT raise
+    assert seed["_iter"]["hill"] == 5    # run completed normally
+
+
+def test_shared_json_write_failure_is_non_fatal(tmp_path, monkeypatch):
+    # shared.json is a debug artifact (checkpoint.json already holds shared) —
+    # a write failure after the flow finishes must not abort the run
+    f = _loop_flow(tmp_path)
+    c = ckpt.Checkpoint.create(ckpt.new_run_id(), flow_path=str(f),
+                               workspace=str(tmp_path))
+    monkeypatch.setattr(c, "write_shared", _boom)
+    flow, seed = build_flow(f, provider=object(), workspace=str(tmp_path),
+                            checkpoint=c)
+    flow.run(seed)                       # must NOT raise
+    assert c.load()["status"] == "completed"
+
+
 def test_engine_stamps_completed_status_on_clean_finish(tmp_path):
     """The engine writes the terminal status in the final checkpoint write — so a
     kill after the last node (before any external mark) leaves a non-resumable
