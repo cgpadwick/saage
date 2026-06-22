@@ -86,6 +86,14 @@ workflow:
         max_iterations: 3
         action: { id: hc_implement, type: agent, skill: implement, max_steps: 40 }
         check:  { id: hc_verify,    type: agent, skill: verify,    max_steps: 20 }
+      # a crashed train/eval must read as a REVERT, not the previous iteration's
+      # score: `set:` leaves a var unchanged when its regex finds no match, so
+      # pre-seed nan (compares False in BOTH directions -> never beats best) before
+      # train; a successful eval overwrites it with the real SCORE=.
+      - id: reset_candidate
+        type: command
+        run: 'echo "CANDIDATE=nan"'
+        set: { candidate_score: "CANDIDATE=(\\S+)" }
       - { id: hc_train, type: command, run: "python train.py --epochs {{ train_epochs }}" }
       - id: hc_eval
         type: command

@@ -171,6 +171,24 @@ def test_summary_recorded_on_revert(repo):
     assert not (repo / "proposals" / "summary.md").exists()  # git clean wiped it
 
 
+# ---- nan candidate sentinel: a crashed train/eval (the flow seeds candidate=nan)
+# must REVERT in both metric directions and record a null score, never beat best ----
+
+
+def test_nan_candidate_reverts_and_records_null(repo):
+    (repo / "model.py").write_text("v = 2\n")
+    out = _run(repo, candidate="nan", best=0.9)          # higher-is-better
+    assert out["RESULT"] == "revert"
+    rec = _last_experiment(repo)
+    assert rec["kept"] is False and rec["candidate"] is None
+
+
+def test_nan_candidate_reverts_lower_is_better(repo):
+    (repo / "model.py").write_text("v = 2\n")
+    out = _run(repo, candidate="nan", best=0.2, lower_is_better="true")
+    assert out["RESULT"] == "revert"                     # nan must not "win" either direction
+
+
 def test_parent_step_points_to_last_kept(repo):
     (repo / "model.py").write_text("v = 2\n")
     _run(repo, candidate=0.9, best=0.8)                  # step 1: keep

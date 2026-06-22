@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 
@@ -135,11 +136,16 @@ def _append_research_log(step: int, candidate: float, best: float, kept: bool,
     with open("research_log.md", "a") as f:
         f.write(
             f"\n## Experiment {step} — {result} "
-            f"(candidate={candidate:.4f}, best={best:.4f})\n"
+            f"(candidate={_fmt(candidate)}, best={_fmt(best)})\n"
             f"- changed: {files}\n"
             + (f"- commit: {sha}\n" if sha else "")
             + f"\n{body}\n"
         )
+
+
+def _fmt(x: float) -> str:
+    """Render a score for the research log; a nan (crashed train/eval) reads n/a."""
+    return "n/a" if (isinstance(x, float) and math.isnan(x)) else f"{x:.4f}"
 
 
 def _record_experiment(candidate: float, best: float, kept: bool,
@@ -159,8 +165,10 @@ def _record_experiment(candidate: float, best: float, kept: bool,
         f.write(json.dumps({
             "step": step,
             "parent_step": parent_step,
-            "candidate": candidate,
-            "best": best,
+            # nan (crashed train/eval) -> null, so experiments.jsonl stays valid
+            # strict JSON for the report agent + any downstream reader
+            "candidate": None if math.isnan(candidate) else candidate,
+            "best": None if math.isnan(best) else best,
             "kept": kept,
             "commit_sha": commit_sha,
             "files_changed": files_changed,
