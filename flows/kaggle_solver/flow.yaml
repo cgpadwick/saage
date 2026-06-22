@@ -23,7 +23,7 @@
 provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 workspace: /tmp/saage_kaggle
 # what the remote sidecar collects from the workspace (local runs ignore this)
-artifacts: [experiments.jsonl, research_log.md, report_narrative.md]
+artifacts: [experiments.jsonl, research_log.md, report.html]
 shared:
   competition_id: spooky-author-identification
   mlebench_data_dir: "$HOME/.mlebench/data"   # shell-expanded in commands
@@ -166,7 +166,10 @@ workflow:
       run: 'python3 "{{ flow_dir }}/validate_submission.py"'
 
   # ---- report + (optional, tolerant) grading ----
-  - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 20 }
+  # one LLM agent writes the whole self-contained report.html (outcome/winner prose,
+  # per-experiment table, inline-SVG hill-climb chart); reads whatever upstream files
+  # exist (no hardcoded schema). grade still runs after to capture the medal.
+  - { id: report, type: agent, skill: report, max_steps: 25 }
   - id: grade
     type: command
     run: 'python3 "{{ flow_dir }}/grade.py" --comp {{ competition_id }} --data-dir "{{ mlebench_data_dir }}" || true'

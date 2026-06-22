@@ -89,7 +89,13 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
             resp(calls=[call("write_file", path="submission.csv", content=SUBMISSION)]),
             resp("submission written"),
         ],
-        "report_narrative": [resp("The run story.")],
+        "report": [
+            resp(calls=[call("read_file", path="experiments.jsonl"),
+                        call("write_file", path="report.html",
+                             content="<!doctype html><html><body><h1>Report</h1>"
+                                     "<svg></svg></body></html>")]),
+            resp("report written"),
+        ],
     })
 
     shared = run_flow(flow_yaml, provider=provider, workspace=ws, shared={
@@ -173,7 +179,13 @@ def test_failed_experiment_reverts_and_counts(flow_copy, tmp_path):
             resp(calls=[call("write_file", path="submission.csv", content=SUBMISSION)]),
             resp("done"),
         ],
-        "report_narrative": [resp("story")],
+        "report": [
+            resp(calls=[call("read_file", path="experiments.jsonl"),
+                        call("write_file", path="report.html",
+                             content="<!doctype html><html><body><h1>Report</h1>"
+                                     "<svg></svg></body></html>")]),
+            resp("report written"),
+        ],
     })
 
     shared = run_flow(flow_yaml, provider=provider, workspace=ws, shared={

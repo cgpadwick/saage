@@ -56,4 +56,4 @@ prepare(cmd) → setup(cmd: git branch + ledger)
 ```
 
 Artifacts per run: `experiments.jsonl`, `research_log.md`,
-`report_narrative.md`, `submission.csv`, git history of kept experiments.
+`report.html`, `submission.csv`, git history of kept experiments.
