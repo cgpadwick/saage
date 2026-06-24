@@ -9,6 +9,7 @@ import logging
 import os
 import shlex
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -216,7 +217,37 @@ def search_tools() -> list[Tool]:
     ]
 
 
+def ask_user(prompt: str, *, _input=input, _isatty=None) -> str:
+    """Pause and ask the human a question on the console; return the line they
+    type. If stdin is NOT an interactive TTY (a backgrounded / piped / CI run),
+    return an `ERROR:` string instead of blocking forever on EOF — so a
+    non-interactive run never hangs. (Helpers are injectable for testing.)"""
+    isatty = _isatty if _isatty is not None else sys.stdin.isatty
+    if not isatty():
+        return ("ERROR: ask_user needs an interactive console, but stdin is not a "
+                "TTY (this run is backgrounded / piped / non-interactive). Re-run "
+                "in a terminal, or seed the value via `--set` / the shared store.")
+    try:
+        return _input(f"\n{prompt}\n> ").strip()
+    except EOFError:
+        return "ERROR: ask_user reached end-of-input with no answer"
+
+
+def user_tools() -> list[Tool]:
+    """The console user-input tool. Pauses the workflow for a human answer.
+    Opt-in per skill via `tools:`; safe (returns an ERROR) in non-interactive runs."""
+    return [
+        Tool("ask_user",
+             "Pause the workflow and ask the human a question on the console; "
+             "returns the single line they type (after Enter). Use for "
+             "confirmations, plan approval, or clarifications. In a "
+             "non-interactive run it returns an ERROR instead of blocking.",
+             _obj(["prompt"], prompt=_STR),
+             lambda prompt: ask_user(prompt)),
+    ]
+
+
 def default_tools(root: Path, venv: str | None = None,
                   command_policy: "CommandPolicy | None" = None) -> list[Tool]:
     return (file_tools(root, venv=venv, command_policy=command_policy)
-            + git_tools(root) + search_tools())
+            + git_tools(root) + search_tools() + user_tools())

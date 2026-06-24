@@ -163,8 +163,8 @@ Key facts:
 
 `read_file`, `write_file`, `append_file`, `edit_file` (replace an exact substring
 that occurs once), `delete_file`, `run_command`, git (`git_status`, `git_diff`,
-`git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_log`), and
-`web_search`.
+`git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_log`), `web_search`,
+and `ask_user`.
 
 - **File tools are sandboxed** to the workspace (`..`/absolute escapes rejected).
 - **`web_search`** (`query`, `max_results=5`, clamped to [1, 20]) returns top
@@ -177,6 +177,11 @@ that occurs once), `delete_file`, `run_command`, git (`git_status`, `git_diff`,
     so a skill with **no `tools:` allow-list can call it**. To keep a skill off the
     network, give it a `tools:` allow-list that omits `web_search` (and
     `run_command`). It's not implicitly sandboxed — the allow-list is the control.
+- **`ask_user`** (`prompt`) pauses the workflow and reads one line the human types
+  on the console (after Enter) — for confirmations, plan approval, or
+  clarifications. In a **non-interactive run** (backgrounded / piped / CI, i.e.
+  stdin is not a TTY) it returns an `ERROR:` string instead of blocking, so such
+  runs never hang. Opt-in per skill via `tools:`.
 - **`run_command` is NOT sandboxed** (real shell, cwd = workspace) but is screened
   by a denylist policy (rm -rf, sudo, curl|sh, …); a refused command returns an
   `ERROR:` string instead of running. The venv is auto-activated once it exists.
