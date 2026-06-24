@@ -2,7 +2,10 @@
 name: report
 description: |
   Task: {{ task }}
-  Final best test accuracy: {{ best_score }} (target {{ target_accuracy }}, higher is better).
+  Best VALIDATION accuracy (the hill-climb selection metric): {{ best_score }}
+  (target {{ target_accuracy }}, higher is better).
+  Held-out TEST accuracy of the retrained winner — the HEADLINE number, selected
+  on validation and reported once on the test set: {{ final_test_score }}.
   Write the final HTML research report for this ML auto-research run.
 tools: [read_file, write_file, run_command]
 ---
@@ -15,26 +18,33 @@ files; never invent results.
 
 ## Inputs (read these first)
 - `experiments.jsonl` — one experiment per line. Fields: `step`, `parent_step`,
-  `candidate` (this experiment's test accuracy), `best` (running best after it),
-  `kept` (true = it improved the score and was committed; false = reverted),
-  `commit_sha`, `files_changed`, `summary` (one-paragraph change summary),
-  `proposal` (full proposal text).
+  `candidate` (this experiment's VALIDATION accuracy — the selection metric),
+  `best` (running best validation after it), `kept` (true = it improved + was
+  committed; false = reverted), `commit_sha`, `files_changed`, `summary`
+  (one-paragraph change summary), `proposal` (full proposal text).
+  NOTE: these scores are VALIDATION accuracy. The held-out TEST number is the
+  retrained winner's `{{ final_test_score }}` (the headline), not in this file.
 - `research_log.md` — the running narrative of the run.
 - the final `model.py` (the best architecture that survived) and `train.py` — the
   details of what ended up working. `git log --oneline` lists the kept commits.
 
 ## The report (`report.html`) must contain, IN THIS ORDER
 
-1. **Outcome — up front.** A short prose section naming the winning result: the
-   final best accuracy vs the baseline and the target ({{ target_accuracy }}), and
-   a clear description of the winning experiment(s) — the architecture/approach and
-   key details that ended up working (read `model.py` for the REAL architecture).
+1. **Outcome — up front.** Lead with the **held-out TEST accuracy of the retrained
+   winner: {{ final_test_score }}** — the headline. Make the protocol explicit:
+   experiments were selected on a VALIDATION split (best val {{ best_score }}) and
+   this number is the model retrained and evaluated ONCE on the held-out test set
+   (so it is unbiased — no test-set selection). Compare vs the baseline and target
+   ({{ target_accuracy }}), and describe the winning experiment(s) — the
+   architecture/approach + key details that worked (read `model.py` for the REAL
+   architecture).
 
 2. **Experiment table.** One row per experiment: step, a short description of the
-   change (use `summary`), candidate vs best accuracy, KEPT or REVERTED, short commit.
+   change (use `summary`), candidate vs best VALIDATION accuracy, KEPT or REVERTED,
+   short commit.
 
 3. **Hill-climb graph — an inline `<svg>`** (no external libraries):
-   - X axis = experiment number, Y axis = test accuracy.
+   - X axis = experiment number, Y axis = validation accuracy (the selection metric).
    - Plot best-so-far as a line; mark each experiment: **keeps = green filled
      dots, reverts = red ✕ marks** (a red X — two crossed red lines — a distinct
      shape, not just color).

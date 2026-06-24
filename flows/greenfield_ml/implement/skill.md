@@ -36,11 +36,16 @@ Files at the workspace root, following this contract exactly:
   print train+val accuracy each epoch, append per-epoch lines to `logs/training.log`,
   save the best model by val accuracy to `checkpoints/best.pt`.
 - `evaluate.py` — argparse (allow_abbrev=False): `--checkpoint` (default
-  "checkpoints/best.pt"), `--data-path` (default "data"), `--device`. Load the
-  checkpoint, run on the HELD-OUT TEST split, print `Test accuracy: 0.9123`, and
-  write `eval_results.json` = `{"metric_name": "accuracy", "value": 0.9123}`. The
-  `value` is the AUTHORITATIVE score the harness reads — it MUST be the real
-  held-out accuracy as a fraction in [0, 1] (e.g. 0.9123, never 91.23).
+  "checkpoints/best.pt"), `--split` (`val` or `test`, default `val`), `--data-path`
+  (default "data"), `--device`. Load the checkpoint and evaluate it on the chosen
+  split: `val` = the SAME seeded 80/20 validation split `train.py` holds out (use
+  an identical fixed seed + fraction so it is the exact same examples — the harness
+  selects experiments on this); `test` = the dataset's held-out TEST set (used
+  ONCE at the end for the final headline number, never for selection). Print
+  `Accuracy (<split>): 0.9123`, and write `eval_results.json` =
+  `{"metric_name": "accuracy", "value": 0.9123, "split": "<split>"}`. The `value`
+  is the AUTHORITATIVE score the harness reads — it MUST be the real accuracy on
+  the chosen split as a fraction in [0, 1] (e.g. 0.9123, never 91.23).
 - `tests/test_smoke.py` — imports `model.py` and runs `train.py --help` /
   `evaluate.py --help` via subprocess (asserts exit 0). It must NOT run real training.
 
