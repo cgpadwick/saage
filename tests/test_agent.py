@@ -185,3 +185,16 @@ def test_token_usage_cost_none_for_unknown_model():
     u.add(SimpleNamespace(prompt_tokens=100, completion_tokens=100), "local/unknown")
     assert u.cost is None                             # no rate -> no guessed cost
     assert u.as_dict()["estimated_cost_usd"] is None
+
+
+def test_token_usage_reset_clears_all():
+    # reset at run start -> a process that runs twice reports each run separately,
+    # not the cumulative-since-start total
+    from types import SimpleNamespace
+    from saage.llm import TokenUsage
+
+    u = TokenUsage()
+    u.add(SimpleNamespace(prompt_tokens=10, completion_tokens=5), "deepseek/x")
+    u.reset()
+    assert u.calls == 0 and u.total_tokens == 0 and u.by_model == {}
+    assert u.cost is None

@@ -63,6 +63,15 @@ class TokenUsage:
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
 
+    def reset(self) -> None:
+        """Zero the running total — called at the start of each `saage run` so a
+        process that runs more than once (resume, tests, embedding) reports this
+        run's usage, not the sum since process start."""
+        self.calls = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.by_model = {}
+
     def add(self, usage, model: str = "?") -> None:
         if usage is None:
             return
@@ -74,7 +83,9 @@ class TokenUsage:
         self.calls += 1
         self.prompt_tokens += p
         self.completion_tokens += c
-        mu = self.by_model.setdefault(model, _ModelUsage())
+        mu = self.by_model.get(model)
+        if mu is None:                           # don't build a throwaway each call
+            mu = self.by_model[model] = _ModelUsage()
         mu.calls += 1
         mu.prompt_tokens += p
         mu.completion_tokens += c

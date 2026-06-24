@@ -40,19 +40,28 @@ def _overrides() -> dict[str, tuple[float, float]]:
         return {}
     try:
         with open(path) as f:
-            return {k: (float(v[0]), float(v[1])) for k, v in json.load(f).items()}
-    except Exception:                            # malformed override file: ignore
+            raw = json.load(f)
+    except Exception:                            # unreadable / non-JSON file: ignore
         return {}
+    out: dict[str, tuple[float, float]] = {}
+    for k, v in (raw.items() if isinstance(raw, dict) else ()):
+        try:                                     # skip ONE malformed entry rather
+            out[k] = (float(v[0]), float(v[1]))  # than dropping ALL overrides
+        except (TypeError, ValueError, IndexError, KeyError):
+            continue
+    return out
 
 
 def rates(model: str) -> tuple[float, float] | None:
     """(usd_per_1M_input, usd_per_1M_output) for a model id, or None if unknown.
-    The longest matching substring key wins."""
+    The longest matching substring key wins; on a length tie the later key in the
+    merged table wins — overrides are merged last, so a SAAGE_PRICES entry wins a
+    tie against a built-in (the documented 'overrides win ties')."""
     table = {**_PRICES, **_overrides()}
     m = (model or "").lower()
     best_key = None
     for key in table:
-        if key in m and (best_key is None or len(key) > len(best_key)):
+        if key in m and (best_key is None or len(key) >= len(best_key)):
             best_key = key
     return table[best_key] if best_key is not None else None
 

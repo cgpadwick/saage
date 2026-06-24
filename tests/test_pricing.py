@@ -38,8 +38,23 @@ def test_env_override_wins(tmp_path, monkeypatch):
     assert cost("mystery", 1_000_000, 0) == 1.0
 
 
-def test_malformed_override_is_ignored(tmp_path, monkeypatch):
+def test_unreadable_override_is_ignored(tmp_path, monkeypatch):
     p = tmp_path / "bad.json"
     p.write_text("{not json")
     monkeypatch.setenv("SAAGE_PRICES", str(p))
     assert rates("deepseek/x") == (0.27, 1.10)   # falls back to the built-in table
+
+
+def test_override_replaces_builtin(tmp_path, monkeypatch):
+    p = tmp_path / "o.json"
+    p.write_text(json.dumps({"deepseek": [9.0, 9.0]}))
+    monkeypatch.setenv("SAAGE_PRICES", str(p))
+    assert rates("deepseek/deepseek-v4-flash") == (9.0, 9.0)   # override wins
+
+
+def test_one_malformed_entry_keeps_the_rest(tmp_path, monkeypatch):
+    p = tmp_path / "o.json"
+    p.write_text(json.dumps({"good-model": [1.0, 2.0], "bad-model": [3.0]}))  # 1-elem
+    monkeypatch.setenv("SAAGE_PRICES", str(p))
+    assert rates("good-model-x") == (1.0, 2.0)   # well-formed entry survives
+    assert rates("bad-model-x") is None          # malformed entry skipped, not fatal

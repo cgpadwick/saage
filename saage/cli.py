@@ -275,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(seed["workspace"])               # the resolved workspace
     run.write(seed, resume_step=None, status="running")   # record workspace/venv
 
+    from .llm import USAGE
+    USAGE.reset()                                 # this run's usage, not cumulative
     before = _snapshot(root)
     log.info("starting run %s", run_id)
     # The engine stamps the terminal completed/failed status into the final
@@ -287,11 +289,10 @@ def main(argv: list[str] | None = None) -> int:
     log.info("run complete")
     after = _snapshot(root)
 
-    from .llm import USAGE                          # token usage + estimated cost
-    try:
+    try:                                           # token usage + estimated cost
         (run.dir / "usage.json").write_text(
             json.dumps(USAGE.as_dict(), indent=2), encoding="utf-8")
-    except OSError as e:                            # debug artifact — never fatal
+    except Exception as e:                          # debug artifact — never fatal
         log.debug("usage.json write failed (non-fatal): %s", e)
 
     _print_summary(seed, before, after, root, run.dir)
