@@ -88,6 +88,19 @@ def test_web_search_formats_results(monkeypatch):
     assert "Answer: ans" in out and "1. T" in out and "http://u" in out
 
 
+def test_web_search_clamps_and_coerces_max_results(monkeypatch):
+    seen = {}
+    def fake(q, n):
+        seen["n"] = n
+        return [], ""
+    monkeypatch.setenv("SAAGE_SEARCH_BACKEND", "ddg")
+    monkeypatch.setitem(search._BACKENDS, "ddg", fake)
+    web_search("q", max_results="5.0"); assert seen["n"] == 5     # non-int -> default
+    web_search("q", max_results=None);  assert seen["n"] == 5     # null -> default
+    web_search("q", max_results=999);   assert seen["n"] == 20    # huge -> clamp
+    web_search("q", max_results=0);     assert seen["n"] == 1     # <1 -> clamp
+
+
 def test_web_search_unknown_backend_errors(monkeypatch):
     monkeypatch.setenv("SAAGE_SEARCH_BACKEND", "bogus")
     assert web_search("q").startswith("ERROR: unknown SAAGE_SEARCH_BACKEND")

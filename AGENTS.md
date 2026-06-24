@@ -167,12 +167,16 @@ that occurs once), `delete_file`, `run_command`, git (`git_status`, `git_diff`,
 `web_search`.
 
 - **File tools are sandboxed** to the workspace (`..`/absolute escapes rejected).
-- **`web_search`** (`query`, `max_results=5`) returns top results (title/url/snippet).
-  Keyless by default via DuckDuckGo (`pip install saage[search]`); set
-  `TAVILY_API_KEY` or `BRAVE_API_KEY` for a reliable keyed backend, or pin one with
-  `SAAGE_SEARCH_BACKEND=ddg|tavily|brave` (default `auto`). Network egress, so it's
-  opt-in — list it in a skill's `tools:`. Any failure (no key/lib, rate-limit,
-  network) returns an `ERROR:` string, never crashing the run.
+- **`web_search`** (`query`, `max_results=5`, clamped to [1, 20]) returns top
+  results (title/url/snippet). Keyless by default via DuckDuckGo
+  (`pip install saage[search]`); set `TAVILY_API_KEY` or `BRAVE_API_KEY` for a
+  reliable keyed backend, or pin one with `SAAGE_SEARCH_BACKEND=ddg|tavily|brave`
+  (default `auto`). Any failure (no key/lib, rate-limit, network) returns an
+  `ERROR:` string, never crashing the run.
+  - **Network egress:** like all harness tools, `web_search` is in the default set,
+    so a skill with **no `tools:` allow-list can call it**. To keep a skill off the
+    network, give it a `tools:` allow-list that omits `web_search` (and
+    `run_command`). It's not implicitly sandboxed — the allow-list is the control.
 - **`run_command` is NOT sandboxed** (real shell, cwd = workspace) but is screened
   by a denylist policy (rm -rf, sudo, curl|sh, …); a refused command returns an
   `ERROR:` string instead of running. The venv is auto-activated once it exists.

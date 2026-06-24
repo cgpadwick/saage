@@ -208,15 +208,11 @@ def search_tools() -> list[Tool]:
     return [
         Tool("web_search",
              "Search the web and return the top results (title, url, snippet). "
-             "Use for facts, docs, or recent information beyond the workspace.",
-             {"type": "object",
-              "properties": {
-                  "query": {"type": "string", "description": "the search query"},
-                  "max_results": {"type": "integer",
-                                  "description": "how many results (default 5)"},
-              },
-              "required": ["query"]},
-             lambda query, max_results=5: web_search(query, int(max_results))),
+             "Use for facts, docs, or recent information beyond the workspace. "
+             "max_results defaults to 5 and is clamped to [1, 20].",
+             _obj(["query"], query=_STR, max_results=_INT),
+             # web_search coerces/clamps max_results itself (stable ERROR contract)
+             lambda query, max_results=5: web_search(query, max_results)),
     ]
 
 

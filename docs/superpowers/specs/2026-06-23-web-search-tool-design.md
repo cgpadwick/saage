@@ -61,9 +61,13 @@ DuckDuckGo (keyless). An explicit value (`ddg`/`tavily`/`brave`) forces that one
 
 ## Safety
 
-Network egress, so it is **opt-in**: a skill must list `web_search` in its
-`tools:` allow-list (already gated + validated by #20/#26). Not driven by the
-`run_command` denylist (it's a structured tool, no shell).
+Network egress. Note the engine's allow-list semantics: `web_search` is part of
+`default_tools()`, so a skill with **no `tools:` allow-list can call it** (omitting
+`tools:` = all tools). It is therefore "opt-out", not opt-in: to keep a skill off
+the network, give it a `tools:` allow-list that omits `web_search` (and
+`run_command`). The allow-list (validated by #20/#26) is the control — there's no
+implicit network sandbox. Not driven by the `run_command` denylist (structured
+tool, no shell).
 
 ## Dependencies
 

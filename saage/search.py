@@ -120,16 +120,26 @@ def _format(query: str, results: list[Result], answer: str = "") -> str:
     return "\n".join(out)
 
 
+_MAX_RESULTS_CAP = 20
+
+
 def web_search(query: str, max_results: int = 5) -> str:
     """Search the web; return a formatted text block of results, or an
-    `ERROR: …` string (never raises)."""
+    `ERROR: …` string (never raises). `max_results` is coerced to an int and
+    clamped to [1, 20] so a stray null/"5.0"/negative/huge value can't turn into a
+    backend error or odd slicing — the public entry point owns that, not callers."""
+    try:
+        n = int(max_results)
+    except (TypeError, ValueError):
+        n = 5
+    n = max(1, min(n, _MAX_RESULTS_CAP))
     name = select_backend()
     fn = _BACKENDS.get(name)
     if fn is None:
         return (f"ERROR: unknown SAAGE_SEARCH_BACKEND {name!r} "
                 f"(use auto|ddg|tavily|brave)")
     try:
-        results, answer = fn(query, max_results)
+        results, answer = fn(query, n)
     except _NoKey as e:
         return (f"ERROR: web_search backend {name!r} needs {e.key} set in the "
                 f"environment (or unset SAAGE_SEARCH_BACKEND to fall back to "
