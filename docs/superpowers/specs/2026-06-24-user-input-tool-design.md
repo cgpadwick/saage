@@ -10,19 +10,23 @@ confirmation, plan approval, or a clarification mid-run.
 
 ## Decisions
 
-- **`ask_user(prompt)`** — a `Tool` in `default_tools()` (via `user_tools()`),
-  opt-in per skill through the `tools:` allow-list (same gating as the other
-  tools). It blocks the agent loop on `input()` — that's the point: the run waits
-  for the human, then continues with the typed line as the tool result.
-- **Single line.** Reads one line (`input()`), trailing whitespace stripped. A
-  multi-line variant is YAGNI for now.
-- **Headless safety (the key call).** Most `saage run`s are backgrounded /
-  piped / remote / CI, where stdin is not a TTY and `input()` would hit EOF or
-  hang. So `ask_user` checks `sys.stdin.isatty()` first: if it's **not** an
-  interactive terminal it returns an `ERROR:` string (the agent reacts, the run
-  continues) instead of blocking forever. An `EOFError` mid-read is likewise
-  returned as a graceful `ERROR:`. This keeps the existing background-run workflow
-  (nohup, `saage remote`) safe by default.
+- **`ask_user(prompt)`** blocks the agent loop on `input()` — that's the point:
+  the run waits for the human, then continues with the typed line as the tool
+  result.
+- **Opt-in (NOT a default tool).** Because it blocks, `ask_user` is deliberately
+  kept out of `default_tools()`: a skill gets it only by naming `ask_user` in its
+  `tools:` allow-list (`tools.opt_in_tools` + `AgentNode` grant it on request).
+  So a no-allow-list agent in an autonomous flow (greenfield/lewm/kaggle) can
+  **never** call it and stall the run — only a skill that explicitly wants a
+  human in the loop sees it. (Code-review finding: a blocking tool in the default
+  set could hang a foreground autonomous run.)
+- **Single line.** Reads one line (`input()`), trailing whitespace stripped.
+- **Never blocks or aborts.** Returns a graceful `ERROR:` string (the agent
+  reacts, the run continues) in every non-interactive / cancelled case:
+  `sys.stdin.isatty()` is false (backgrounded / piped / CI), `sys.stdin is None`
+  (embedded / detached), `EOFError`, or `KeyboardInterrupt` (Ctrl+C). Catching
+  `KeyboardInterrupt` matters because it is a `BaseException` — uncaught it would
+  escape `run_agent`'s `except Exception` and kill the whole run.
 - Helpers (`input`, `isatty`) are injectable so the behavior is fully unit-tested
   without a real terminal.
 

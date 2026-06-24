@@ -163,8 +163,9 @@ Key facts:
 
 `read_file`, `write_file`, `append_file`, `edit_file` (replace an exact substring
 that occurs once), `delete_file`, `run_command`, git (`git_status`, `git_diff`,
-`git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_log`), `web_search`,
-and `ask_user`.
+`git_add`, `git_commit`, `git_branch`, `git_checkout`, `git_log`), and
+`web_search`. Plus one **opt-in** tool, `ask_user` (granted only when a skill
+lists it in `tools:`).
 
 - **File tools are sandboxed** to the workspace (`..`/absolute escapes rejected).
 - **`web_search`** (`query`, `max_results=5`, clamped to [1, 20]) returns top
@@ -179,9 +180,12 @@ and `ask_user`.
     `run_command`). It's not implicitly sandboxed — the allow-list is the control.
 - **`ask_user`** (`prompt`) pauses the workflow and reads one line the human types
   on the console (after Enter) — for confirmations, plan approval, or
-  clarifications. In a **non-interactive run** (backgrounded / piped / CI, i.e.
-  stdin is not a TTY) it returns an `ERROR:` string instead of blocking, so such
-  runs never hang. Opt-in per skill via `tools:`.
+  clarifications. It **blocks**, so it is an **opt-in tool: NOT in the default
+  set** — a skill gets it only by naming `ask_user` in its `tools:` allow-list
+  (so it can never fire in an autonomous flow that didn't ask for it). Returns a
+  graceful `ERROR:` string (never blocks/aborts) when there's no interactive
+  console: stdin isn't a TTY (backgrounded / piped / CI), stdin is absent, or the
+  user hits Ctrl+C / EOF.
 - **`run_command` is NOT sandboxed** (real shell, cwd = workspace) but is screened
   by a denylist policy (rm -rf, sudo, curl|sh, …); a refused command returns an
   `ERROR:` string instead of running. The venv is auto-activated once it exists.
