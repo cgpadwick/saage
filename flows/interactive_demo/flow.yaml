@@ -1,0 +1,12 @@
+# Interactive demo: a one-step agent that uses the `ask_user` tool to pause the
+# workflow, ask the human a couple of questions on the console, and then write a
+# short personalized note from the answers. Demonstrates a human-in-the-loop flow.
+#
+# Run it (in a real terminal, so stdin is interactive):
+#   OPENROUTER_API_KEY=... saage run flows/interactive_demo/flow.yaml --workspace /tmp/demo
+# The agent will print questions; type an answer + Enter for each. In a
+# non-interactive run (piped / backgrounded) ask_user returns an ERROR instead of
+# hanging, and the agent writes the note without the personalization.
+provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
+workflow:
+  - { id: interview, type: agent, skill: interview, max_steps: 12 }
