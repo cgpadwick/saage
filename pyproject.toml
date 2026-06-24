@@ -34,6 +34,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "boto3"]
 r2 = ["boto3"]    # laptop-side reads of the R2 artifact mirror
+search = ["ddgs"]   # keyless DuckDuckGo backend for the web_search tool (the
+                    # Tavily/Brave backends need only stdlib + their API key)
 # deps for PREPARING/GRADING mle-bench competitions (the kaggle_solver flow
 # itself ships as data and runs without this; prepare_comp.py fails fast with
 # install instructions). kaggle>=2.2 (KGAT access tokens) needs python >= 3.11.

@@ -201,6 +201,22 @@ def git_tools(root: Path) -> list[Tool]:
     ]
 
 
+def search_tools() -> list[Tool]:
+    """The web-search tool. Keyless DuckDuckGo by default; set TAVILY_API_KEY /
+    BRAVE_API_KEY for a reliable keyed backend. Opt-in per skill via `tools:`."""
+    from .search import web_search
+    return [
+        Tool("web_search",
+             "Search the web and return the top results (title, url, snippet). "
+             "Use for facts, docs, or recent information beyond the workspace. "
+             "max_results defaults to 5 and is clamped to [1, 20].",
+             _obj(["query"], query=_STR, max_results=_INT),
+             # web_search coerces/clamps max_results itself (stable ERROR contract)
+             lambda query, max_results=5: web_search(query, max_results)),
+    ]
+
+
 def default_tools(root: Path, venv: str | None = None,
                   command_policy: "CommandPolicy | None" = None) -> list[Tool]:
-    return file_tools(root, venv=venv, command_policy=command_policy) + git_tools(root)
+    return (file_tools(root, venv=venv, command_policy=command_policy)
+            + git_tools(root) + search_tools())
