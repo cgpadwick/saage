@@ -157,3 +157,31 @@ def test_token_usage_accumulates_from_provider():
     assert u.prompt_tokens == 150
     assert u.completion_tokens == 30
     assert u.total_tokens == 180
+
+
+def test_token_usage_per_model_and_cost():
+    """Usage is broken down per model and given a grounded USD cost estimate."""
+    from types import SimpleNamespace
+    from saage.llm import TokenUsage
+
+    u = TokenUsage()
+    u.add(SimpleNamespace(prompt_tokens=1_000_000, completion_tokens=1_000_000),
+          "deepseek/deepseek-v4-flash")
+    u.add(SimpleNamespace(prompt_tokens=500_000, completion_tokens=0),
+          "deepseek/deepseek-v4-flash")
+    assert u.calls == 2
+    assert u.by_model["deepseek/deepseek-v4-flash"].prompt_tokens == 1_500_000
+    assert u.cost is not None and u.cost > 0          # deepseek is priced
+    d = u.as_dict()
+    assert d["estimated_cost_usd"] == u.cost
+    assert d["by_model"]["deepseek/deepseek-v4-flash"]["estimated_cost_usd"] is not None
+
+
+def test_token_usage_cost_none_for_unknown_model():
+    from types import SimpleNamespace
+    from saage.llm import TokenUsage
+
+    u = TokenUsage()
+    u.add(SimpleNamespace(prompt_tokens=100, completion_tokens=100), "local/unknown")
+    assert u.cost is None                             # no rate -> no guessed cost
+    assert u.as_dict()["estimated_cost_usd"] is None

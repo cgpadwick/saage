@@ -40,29 +40,75 @@ class EmptyResponseError(RuntimeError):
 
 
 @dataclass
-class TokenUsage:
-    """Process-wide running total of LLM token usage. Providers add to it from
-    each response's usage field; the CLI prints it in the run summary. Token
-    counts are reported by the provider (not estimated), so the total is exact
-    when the API returns usage and silently 0 when it doesn't (some local
-    servers omit it)."""
+class _ModelUsage:
     calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+
+
+@dataclass
+class TokenUsage:
+    """Process-wide running total of LLM token usage, broken down per model and
+    with a best-effort USD cost estimate (see saage.pricing). Providers add to it
+    from each response's usage field, tagged with the model id; the CLI prints it
+    in the run summary and writes it to the run dir as usage.json. Token counts are
+    reported by the provider (not estimated), so totals are exact when the API
+    returns usage and silently 0 when it doesn't (some local servers omit it)."""
+    calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    by_model: dict = field(default_factory=dict)   # model id -> _ModelUsage
 
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
 
-    def add(self, usage) -> None:
+    def add(self, usage, model: str = "?") -> None:
         if usage is None:
             return
-        self.calls += 1
         # OpenAI: prompt_tokens/completion_tokens; Anthropic: input_/output_tokens
-        self.prompt_tokens += int(getattr(usage, "prompt_tokens", None)
-                                  or getattr(usage, "input_tokens", 0) or 0)
-        self.completion_tokens += int(getattr(usage, "completion_tokens", None)
-                                      or getattr(usage, "output_tokens", 0) or 0)
+        p = int(getattr(usage, "prompt_tokens", None)
+                or getattr(usage, "input_tokens", 0) or 0)
+        c = int(getattr(usage, "completion_tokens", None)
+                or getattr(usage, "output_tokens", 0) or 0)
+        self.calls += 1
+        self.prompt_tokens += p
+        self.completion_tokens += c
+        mu = self.by_model.setdefault(model, _ModelUsage())
+        mu.calls += 1
+        mu.prompt_tokens += p
+        mu.completion_tokens += c
+
+    @property
+    def cost(self) -> float | None:
+        """Total estimated USD across all priced models, or None if no model's
+        rate is known (so a cost is shown only when it's grounded)."""
+        from .pricing import cost as _cost
+        total, priced = 0.0, False
+        for model, u in self.by_model.items():
+            c = _cost(model, u.prompt_tokens, u.completion_tokens)
+            if c is not None:
+                total += c
+                priced = True
+        return total if priced else None
+
+    def as_dict(self) -> dict:
+        """Serializable summary for usage.json (per-model + estimated cost)."""
+        from .pricing import cost as _cost
+        return {
+            "calls": self.calls,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "estimated_cost_usd": self.cost,
+            "by_model": {
+                m: {"calls": u.calls, "prompt_tokens": u.prompt_tokens,
+                    "completion_tokens": u.completion_tokens,
+                    "estimated_cost_usd": _cost(m, u.prompt_tokens,
+                                                u.completion_tokens)}
+                for m, u in self.by_model.items()
+            },
+        }
 
 
 USAGE = TokenUsage()   # the one running total for a `saage run` process
@@ -114,7 +160,7 @@ class AnthropicProvider:
                 model=self.model, max_tokens=self.max_tokens, system=system or " ",
                 tools=self._tools(tools), messages=self._messages(messages)),
             policy=self.retry_policy, what="anthropic.messages.create")
-        USAGE.add(getattr(r, "usage", None))
+        USAGE.add(getattr(r, "usage", None), self.model)
         text = "".join(b.text for b in r.content if b.type == "text")
         calls = [ToolCall(b.id, b.name, b.input)
                  for b in r.content if b.type == "tool_use"]
@@ -174,7 +220,7 @@ class OpenAIProvider:
             return r
         r = call_with_retry(_do, policy=self.retry_policy,
                             what="openai.chat.completions.create")
-        USAGE.add(getattr(r, "usage", None))
+        USAGE.add(getattr(r, "usage", None), self.model)
         m = r.choices[0].message
         calls = [ToolCall(tc.id, tc.function.name, _parse_tool_args(tc.function.arguments))
                  for tc in (m.tool_calls or [])]
