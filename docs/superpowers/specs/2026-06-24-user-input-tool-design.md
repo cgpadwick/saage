@@ -32,10 +32,12 @@ confirmation, plan approval, or a clarification mid-run.
 
 ## Tests
 
-`tests/test_user_input.py` — returns the typed line (stripped); non-TTY returns an
-ERROR **without** calling `input()` (never blocks); EOF is graceful; `ask_user` is
-in `default_tools`. `tests/test_tools.py` count updated. Full suite green
-(370 passed, 7 skipped).
+`tests/test_user_input.py` — returns the typed line (trailing whitespace
+stripped, leading preserved); non-TTY / no-stdin / EOF / Ctrl+C all return an
+ERROR **without** blocking; `ask_user` is NOT in `default_tools` and is granted
+only when a skill lists it (opt-in). `tests/test_tools.py` count unchanged
+(ask_user is opt-in). `tests/integration/test_interactive_demo.py` runs the demo
+flow offline (fake-TTY stdin). Full suite green.
 
 ## Out of scope / future
 

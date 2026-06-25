@@ -12,6 +12,13 @@ def test_ask_user_returns_typed_line():
     assert out == "yes please"                       # trailing whitespace stripped
 
 
+def test_ask_user_preserves_leading_whitespace():
+    # only TRAILING whitespace is stripped (rstrip) — leading can be meaningful
+    out = ask_user("Indent?", _isatty=lambda: True,
+                   _input=lambda prompt: "    indented\t ")
+    assert out == "    indented"
+
+
 def _must_not_read(prompt):
     raise AssertionError("input() must not be called when stdin is not a TTY")
 

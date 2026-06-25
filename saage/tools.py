@@ -232,7 +232,7 @@ def ask_user(prompt: str, *, _input=input, _isatty=None) -> str:
                 "TTY (this run is backgrounded / piped / non-interactive). Re-run "
                 "in a terminal, or seed the value via `--set` / the shared store.")
     try:
-        return _input(f"\n{prompt}\n> ").strip()
+        return _input(f"\n{prompt}\n> ").rstrip()   # trailing only; keep leading
     except (EOFError, KeyboardInterrupt):
         # Ctrl+C / EOF at the prompt dismisses it gracefully — the agent gets an
         # ERROR and the run continues, rather than KeyboardInterrupt (a
@@ -246,7 +246,7 @@ def _ask_user_tool() -> Tool:
         "Pause the workflow and ask the human a question on the console; returns "
         "the single line they type (after Enter). Use for confirmations, plan "
         "approval, or clarifications. In a non-interactive run it returns an ERROR "
-        "instead of blocking. Note: leading/trailing whitespace is stripped.",
+        "instead of blocking. Note: trailing whitespace is stripped.",
         _obj(["prompt"], prompt=_STR),
         lambda prompt: ask_user(prompt))
 

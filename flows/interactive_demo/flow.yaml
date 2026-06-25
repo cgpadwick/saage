@@ -3,7 +3,7 @@
 # short personalized note from the answers. Demonstrates a human-in-the-loop flow.
 #
 # Run it (in a real terminal, so stdin is interactive):
-#   OPENROUTER_API_KEY=... saage run flows/interactive_demo/flow.yaml --workspace /tmp/demo
+#   OPENROUTER_API_KEY=... saage run flows/interactive_demo/flow.yaml --workspace ./demo_run
 # The agent will print questions; type an answer + Enter for each. In a
 # non-interactive run (piped / backgrounded) ask_user returns an ERROR instead of
 # hanging, and the agent writes the note without the personalization.

@@ -56,13 +56,6 @@ def test_ask_user_in_a_non_interactive_run_returns_error(flow_copy, tmp_path, mo
     fake_stdin = io.StringIO("")           # isatty() is False on a plain StringIO
     monkeypatch.setattr(sys, "stdin", fake_stdin)
 
-    captured = {}
-
-    def _spy_write(path, content):         # capture what the agent passed
-        captured["content"] = content
-        (ws / path).write_text(content)
-        return "ok"
-
     provider = RoutedProvider({
         "interview": [
             resp(calls=[call("ask_user", prompt="What is your name?")]),
