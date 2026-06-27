@@ -68,4 +68,4 @@ def test_default_tools_count(tmp_path):
     assert names == [
         "read_file", "write_file", "append_file", "edit_file", "delete_file",
         "run_command", "git_status", "git_diff", "git_add", "git_commit",
-        "git_branch", "git_checkout", "git_log", "web_search"]
+        "git_branch", "git_checkout", "git_log", "web_search"]   # ask_user is opt-in

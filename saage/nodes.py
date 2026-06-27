@@ -124,12 +124,17 @@ class AgentNode(Node):
         self.captures = captures
         self.max_steps = max_steps
         allow = set(skill.tools) if skill.tools else None
-        self.tools = [t for t in tools if allow is None or t.name in allow]
+        # opt-in tools (e.g. the blocking ask_user) are NOT in the default set —
+        # a skill gets one only by naming it in its tools: allow-list, so it can
+        # never fire in an autonomous flow that didn't ask for it.
+        from .tools import OPT_IN_TOOL_NAMES, opt_in_tools
+        available_tools = list(tools) + (opt_in_tools(allow) if allow else [])
+        self.tools = [t for t in available_tools if allow is None or t.name in allow]
         if allow is not None:
             # a tools: allow-list with names that don't exist is a config error —
             # warn (so a typo is visible) and hard-fail if it leaves the agent with
             # no tools, rather than silently running tool-less.
-            available = {t.name for t in tools}
+            available = {t.name for t in tools} | OPT_IN_TOOL_NAMES
             unknown = allow - available
             if unknown:
                 log.warning("skill %r lists unknown tool(s) in tools: %s "

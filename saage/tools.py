@@ -9,6 +9,7 @@ import logging
 import os
 import shlex
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -214,6 +215,53 @@ def search_tools() -> list[Tool]:
              # web_search coerces/clamps max_results itself (stable ERROR contract)
              lambda query, max_results=5: web_search(query, max_results)),
     ]
+
+
+def ask_user(prompt: str, *, _input=input, _isatty=None) -> str:
+    """Pause and ask the human a question on the console; return the line they
+    type. Returns an `ERROR:` string (never blocks / never aborts the run) when
+    there's no interactive console — stdin is not a TTY (backgrounded / piped / CI),
+    stdin is absent, EOF is hit, or the user cancels with Ctrl+C. (Helpers are
+    injectable for testing.)"""
+    if _isatty is None:
+        stdin = sys.stdin
+        # sys.stdin can be None (embedded / detached / closed) -> treat as non-TTY
+        _isatty = stdin.isatty if hasattr(stdin, "isatty") else (lambda: False)
+    if not _isatty():
+        return ("ERROR: ask_user needs an interactive console, but stdin is not a "
+                "TTY (this run is backgrounded / piped / non-interactive). Re-run "
+                "in a terminal, or seed the value via `--set` / the shared store.")
+    try:
+        return _input(f"\n{prompt}\n> ").rstrip()   # trailing only; keep leading
+    except (EOFError, KeyboardInterrupt):
+        # Ctrl+C / EOF at the prompt dismisses it gracefully — the agent gets an
+        # ERROR and the run continues, rather than KeyboardInterrupt (a
+        # BaseException) escaping run_agent's `except Exception` and killing the run.
+        return "ERROR: ask_user got no answer (input cancelled or end-of-input)"
+
+
+def _ask_user_tool() -> Tool:
+    return Tool(
+        "ask_user",
+        "Pause the workflow and ask the human a question on the console; returns "
+        "the single line they type (after Enter). Use for confirmations, plan "
+        "approval, or clarifications. In a non-interactive run it returns an ERROR "
+        "instead of blocking. Note: trailing whitespace is stripped.",
+        _obj(["prompt"], prompt=_STR),
+        lambda prompt: ask_user(prompt))
+
+
+# Opt-in tools: NOT in the default set. A skill gets one only by naming it in its
+# `tools:` allow-list — so a blocking tool like ask_user can never fire in an
+# autonomous flow that didn't explicitly ask for it. (name -> factory)
+_OPT_IN_TOOLS = {"ask_user": _ask_user_tool}
+OPT_IN_TOOL_NAMES = frozenset(_OPT_IN_TOOLS)
+
+
+def opt_in_tools(names) -> list[Tool]:
+    """Build the opt-in tools whose names appear in `names` (a skill's allow-list)."""
+    wanted = set(names or ())
+    return [make() for name, make in _OPT_IN_TOOLS.items() if name in wanted]
 
 
 def default_tools(root: Path, venv: str | None = None,
