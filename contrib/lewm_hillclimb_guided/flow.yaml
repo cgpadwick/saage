@@ -21,6 +21,12 @@
 # config/eval/cube.yaml (50 episodes, seed 42) + solver.n_steps=10 (the paper's
 # CEM budget for cube, App. D); agents may not modify it.
 #
+# HELD-OUT TEST: hill-climb selection (baseline_eval + in-loop eval -> keep_or_revert)
+# runs on split=val; the headline confirm_eval runs ONCE on split=test. val and test
+# draw from DISJOINT halves of the eval episodes (eval.py partitions valid start
+# points with a fixed master seed), so the reported number carries no test-set
+# selection bias — same protocol as flows/greenfield_ml (--split val / test).
+#
 # Run (long-lived — use tmux/nohup):
 #   OPENROUTER_API_KEY=... saage run contrib/lewm_hillclimb_guided/flow.yaml
 #   ... --set train_epochs=8 --set target_success=74.0   # tunable
@@ -73,7 +79,7 @@ workflow:
     run: 'STABLEWM_HOME="{{ stablewm_home }}" python train.py data=ogb output_model_name={{ exp_name }} subdir={{ exp_name }} trainer.max_epochs={{ train_epochs }} num_workers={{ num_workers }} wandb.enabled=False'
   - id: baseline_eval
     type: command
-    run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ exp_name }}/weights_epoch_{{ train_epochs }}.pt solver.n_steps=10'
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ exp_name }}/weights_epoch_{{ train_epochs }}.pt solver.n_steps=10 split=val'
     set: { best_score: "'success_rate': (-?[0-9.]+)" }
   - id: baseline_record
     type: command
@@ -122,7 +128,7 @@ workflow:
         run: 'STABLEWM_HOME="{{ stablewm_home }}" python train.py data=ogb output_model_name={{ exp_name }} subdir={{ exp_name }} trainer.max_epochs={{ train_epochs }} num_workers={{ num_workers }} wandb.enabled=False'
       - id: eval
         type: command
-        run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ exp_name }}/weights_epoch_{{ train_epochs }}.pt solver.n_steps=10'
+        run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ exp_name }}/weights_epoch_{{ train_epochs }}.pt solver.n_steps=10 split=val'
         set: { candidate_score: "'success_rate': (-?[0-9.]+)" }
       - id: keep_or_revert
         type: command
@@ -142,11 +148,11 @@ workflow:
     run: 'STABLEWM_HOME="{{ stablewm_home }}" python train.py data=ogb output_model_name={{ confirm_name }} subdir={{ confirm_name }} trainer.max_epochs={{ confirm_epochs }} num_workers={{ num_workers }} wandb.enabled=False'
   - id: confirm_eval
     type: command
-    run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ confirm_name }}/weights_epoch_{{ confirm_epochs }}.pt solver.n_steps=10'
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ confirm_name }}/weights_epoch_{{ confirm_epochs }}.pt solver.n_steps=10 split=test'
     set: { confirm_score: "'success_rate': (-?[0-9.]+)" }
   - id: confirm_record
     type: command
-    run: 'echo "- CONFIRMATION: best config retrained at {{ confirm_epochs }} epochs -> success_rate={{ confirm_score }} (best 8-epoch score: {{ best_score }})" >> research_log.md && echo "CONFIRMED={{ confirm_score }}"'
+    run: 'echo "- CONFIRMATION: best config retrained at {{ confirm_epochs }} epochs -> HELD-OUT TEST success_rate={{ confirm_score }} (split=test; best 8-epoch VAL score used for selection: {{ best_score }})" >> research_log.md && echo "CONFIRMED={{ confirm_score }}"'
 
   # ---- final report: one LLM agent writes the whole self-contained report.html
   # (outcome/winner prose, per-experiment table, inline-SVG hill-climb chart),
