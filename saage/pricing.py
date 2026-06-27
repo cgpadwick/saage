@@ -46,9 +46,14 @@ def _overrides() -> dict[str, tuple[float, float]]:
     out: dict[str, tuple[float, float]] = {}
     for k, v in (raw.items() if isinstance(raw, dict) else ()):
         try:                                     # skip ONE malformed entry rather
-            out[k] = (float(v[0]), float(v[1]))  # than dropping ALL overrides
-        except (TypeError, ValueError, IndexError, KeyError):
+            out[k.lower()] = (float(v[0]), float(v[1]))  # lowercase key: rates()
+            #                                              matches against a lowercased
+            #                                              model id, so a mixed-case
+            #                                              override key would never hit
+        except AttributeError:                   # non-str key
             continue
+        except (TypeError, ValueError, IndexError, KeyError):  # skip ONE malformed
+            continue                             # entry, don't drop ALL overrides
     return out
 
 

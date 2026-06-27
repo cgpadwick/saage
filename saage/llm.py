@@ -57,7 +57,7 @@ class TokenUsage:
     calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
-    by_model: dict = field(default_factory=dict)   # model id -> _ModelUsage
+    by_model: dict[str, _ModelUsage] = field(default_factory=dict)  # model id -> usage
 
     @property
     def total_tokens(self) -> int:

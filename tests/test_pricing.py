@@ -52,6 +52,14 @@ def test_override_replaces_builtin(tmp_path, monkeypatch):
     assert rates("deepseek/deepseek-v4-flash") == (9.0, 9.0)   # override wins
 
 
+def test_mixed_case_override_key_matches(tmp_path, monkeypatch):
+    p = tmp_path / "o.json"
+    p.write_text(json.dumps({"DeepSeek": [7.0, 8.0]}))   # mixed-case key
+    monkeypatch.setenv("SAAGE_PRICES", str(p))
+    # rates() lowercases the model id; the override key is normalized too, so it hits
+    assert rates("deepseek/deepseek-v4") == (7.0, 8.0)
+
+
 def test_one_malformed_entry_keeps_the_rest(tmp_path, monkeypatch):
     p = tmp_path / "o.json"
     p.write_text(json.dumps({"good-model": [1.0, 2.0], "bad-model": [3.0]}))  # 1-elem
