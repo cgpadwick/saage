@@ -157,11 +157,22 @@ def _print_summary(result: dict, before: dict, after: dict, root: Path,
         print(f"  loop:   {name} → {n} iteration(s) ({reason})")
     print(f"  files:  {', '.join(changed) if changed else '(none changed)'}")
     from .llm import USAGE
+    from .pricing import cost as _cost
     if USAGE.calls:
         print(f"  tokens: {USAGE.total_tokens:,} ({USAGE.prompt_tokens:,} in + "
               f"{USAGE.completion_tokens:,} out) over {USAGE.calls:,} model call(s)")
+        c = USAGE.cost
+        if c is not None:
+            print(f"  cost:   ~${c:,.4f} (estimated)")
+        if len(USAGE.by_model) > 1:                # per-model breakdown
+            for m, u in USAGE.by_model.items():
+                mc = _cost(m, u.prompt_tokens, u.completion_tokens)
+                cs = f" ~${mc:,.4f}" if mc is not None else ""
+                print(f"            {m}: {u.prompt_tokens + u.completion_tokens:,} tok"
+                      f" / {u.calls} call(s){cs}")
     if run_dir is not None:
-        print(f"  run dir: {run_dir}  (run.log · ledger.jsonl · shared.json)")
+        print(f"  run dir: {run_dir}  "
+              f"(run.log · ledger.jsonl · shared.json · usage.json)")
     print("────────────────────────────────────────────────")
 
 
@@ -264,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(seed["workspace"])               # the resolved workspace
     run.write(seed, resume_step=None, status="running")   # record workspace/venv
 
+    from .llm import USAGE
+    USAGE.reset()                                 # this run's usage, not cumulative
     before = _snapshot(root)
     log.info("starting run %s", run_id)
     # The engine stamps the terminal completed/failed status into the final
@@ -275,6 +288,12 @@ def main(argv: list[str] | None = None) -> int:
         raise
     log.info("run complete")
     after = _snapshot(root)
+
+    try:                                           # token usage + estimated cost
+        (run.dir / "usage.json").write_text(
+            json.dumps(USAGE.as_dict(), indent=2), encoding="utf-8")
+    except Exception as e:                          # debug artifact — never fatal
+        log.debug("usage.json write failed (non-fatal): %s", e)
 
     _print_summary(seed, before, after, root, run.dir)
     if args.verbose:                              # full agent/command outputs
