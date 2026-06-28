@@ -52,7 +52,7 @@ workflow:                      # required: an ordered list of steps
   - <step>
 ```
 
-- `provider.type` ∈ `anthropic | openai | openrouter | local`; optional
+- `provider.type` ∈ `anthropic | openai | openrouter | nvidia | local`; optional
   `retry: { max_attempts, base_delay }` sub-block. Override at run time with
   `--provider/--model/--base-url`.
 - `workspace`, `venv`, `flow_dir`, and `python` are auto-seeded into the shared

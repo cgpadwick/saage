@@ -33,7 +33,7 @@ class Context:
 
 
 def make_provider(spec: dict):
-    """Out of the box: anthropic | openai | openrouter | local.
+    """Out of the box: anthropic | openai | openrouter | nvidia | local.
 
     An optional `retry:` sub-block tunes the transient-failure backoff, e.g.
     `provider: { type: anthropic, model: ..., retry: { max_attempts: 8 } }`.
@@ -48,6 +48,9 @@ def make_provider(spec: dict):
     if t == "openrouter":
         return OpenAIProvider(model, base_url="https://openrouter.ai/api/v1",
                               api_key_env="OPENROUTER_API_KEY", retry_policy=rp)
+    if t == "nvidia":
+        return OpenAIProvider(model, base_url="https://integrate.api.nvidia.com/v1",
+                              api_key_env="NVIDIA_API_KEY", retry_policy=rp)
     if t == "local":
         return OpenAIProvider(
             model,
