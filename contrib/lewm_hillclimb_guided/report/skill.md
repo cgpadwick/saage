@@ -48,13 +48,12 @@ files; never invent results.
    50 episodes and is NOISY (+/-~7%), so the hill-climb trajectory is exploratory
    — only the held-out TEST headline is the claim.
 
-4. **Outcome — up front.** A short prose section naming the winning result. Lead with
-   the **held-out TEST success_rate ({{ confirm_score }})** as the headline number, and
-   state plainly that selection used a disjoint VALIDATION split so this carries no
-   test-set selection bias. Then give the baseline success_rate, the best VALIDATION
-   score vs the target ({{ target_success }}), and a clear description of the winning
-   experiment(s) — the configuration/approach and key details that ended up working
-   (read the two config YAMLs for the REAL winning settings).
+4. **Outcome and methodology.** Explain the winning configuration and approach
+   that worked. State plainly that selection used a disjoint VALIDATION split so
+   the held-out TEST success_rate carries no selection bias. Give the baseline
+   success_rate, compare the best VALIDATION score against the target
+   ({{ target_success }}), and describe the key winning details (read
+   config/train/lewm.yaml and config/train/model/lewm.yaml for the REAL settings).
 
 5. **Experiment table.** One row per experiment: step, a short description of the
    change (use `summary`), candidate vs best **validation** success_rate, KEPT or
