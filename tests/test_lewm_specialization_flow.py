@@ -48,5 +48,11 @@ def test_loop_selection_uses_val_seed():
     baseline = steps["baseline_eval"]["run"]
     assert "seed={{ val_seed }}" in baseline
     assert "seed={{ test_seed }}" not in baseline
+    # the in-loop eval (nested in the hillclimb counting_loop body) must also
+    # select on the val seed — never the held-out test seed
+    hillclimb_body = {s["id"]: s for s in steps["hillclimb"]["body"]}
+    inner_eval = hillclimb_body["eval"]["run"]
+    assert "seed={{ val_seed }}" in inner_eval
+    assert "seed={{ test_seed }}" not in inner_eval
     # no split= keyword anywhere (stock eval.py has no split; we use seeds)
     assert "split=" not in _FLOW.read_text()
