@@ -14,6 +14,7 @@ def test_new_shared_vars_present():
     assert shared["test_num_eval"] == 200
     assert shared["paper_test_score"] == -1.0
     assert shared["paper_name"] == "lewm_cube_paper"
+    assert shared["specialization_gain"] == -999.0
 
 
 def test_paper_headline_and_gain_steps_present_and_ordered():
@@ -23,6 +24,7 @@ def test_paper_headline_and_gain_steps_present_and_ordered():
         assert sid in ids, f"{sid} missing"
     # paper headline runs before the hill-climb (pristine tree); gain after confirm
     assert ids.index("paper_headline_eval") < ids.index("hillclimb")
+    assert ids.index("paper_headline_eval") < ids.index("baseline_clean")
     assert ids.index("gain_record") > ids.index("confirm_eval")
 
 

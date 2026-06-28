@@ -28,7 +28,7 @@
 # CEM budget for cube, App. D); agents may not modify it.
 #
 # HELD-OUT TEST: hill-climb selection (baseline_eval + in-loop eval -> keep_or_revert)
-# runs on split=val; the headline confirm_eval runs ONCE on split=test. val and test
+# runs on split=val; the two headline evals (paper_headline_eval + confirm_eval) run on split=test. val and test
 # draw from DISJOINT halves of the eval episodes (eval.py partitions valid start
 # points with a fixed master seed), so the reported number carries no test-set
 # selection bias — same protocol as flows/greenfield_ml (--split val / test).
@@ -182,7 +182,7 @@ workflow:
 
   - id: gain_record
     type: command
-    run: '{{ python }} "{{ flow_dir }}/gain_record.py" --specialized {{ confirm_score }} --paper {{ paper_test_score }} --dino 86.0'
+    run: '{{ python }} "{{ flow_dir }}/gain_record.py" --specialized {{ confirm_score }} --paper {{ paper_test_score }}'  # DINO-WM reference (86) lives in gain_record.py default + report skill
     set: { specialization_gain: "GAIN=(-?[0-9.]+)" }
 
   # ---- final report: one LLM agent writes the whole self-contained report.html
