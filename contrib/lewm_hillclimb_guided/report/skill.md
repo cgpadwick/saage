@@ -2,8 +2,8 @@
 name: report
 description: |
   Task: {{ task }}
-  Best VALIDATION success_rate (split=val, used for hill-climb selection): {{ best_score }}.
-  HEADLINE held-out TEST success_rate (split=test, winner retrained, evaluated ONCE): {{ confirm_score }}.
+  Best VALIDATION success_rate (val eval seed, used for hill-climb selection): {{ best_score }}.
+  HEADLINE held-out TEST success_rate (separate test eval seed, winner retrained, evaluated ONCE): {{ confirm_score }}.
   Specialization gain (held-out test): {{ specialization_gain }} points
   (paper-recipe {{ paper_test_score }} -> specialized {{ confirm_score }}; DINO-WM = 86).
   Target was {{ target_success }} (higher is better).
@@ -23,11 +23,11 @@ files; never invent results.
   `status` ("keep" = it improved the score and was committed; "revert" = did not),
   `commit_sha`, `files_changed`, `summary` (one-paragraph change summary),
   `proposal` (full proposal text).
-  All `candidate`/`best` scores in the ledger are VALIDATION (split=val) — they
+  All `candidate`/`best` scores in the ledger are VALIDATION (val eval seed) — they
   drove selection only.
 - `research_log.md` — the goal, the paper's reference numbers, and the run narrative.
   Its `CONFIRMATION:` line carries the HELD-OUT TEST success_rate ({{ confirm_score }},
-  split=test) — the honest headline number, with no selection bias.
+  a separate test eval seed) — the honest headline number, with no selection bias.
 - `config/train/lewm.yaml` and `config/train/model/lewm.yaml` — the winning
   configuration that survived (the details of what worked). `git_log` lists the
   kept commits (`saage: keep experiment, ...`).
@@ -46,11 +46,14 @@ files; never invent results.
 3. **Honesty box (a callout).** n=1 task (cube only); single-seed headline
    (multi-seed CIs = future work); the in-loop selection metric is VALIDATION on
    50 episodes and is NOISY (+/-~7%), so the hill-climb trajectory is exploratory
-   — only the held-out TEST headline is the claim.
+   — only the held-out TEST headline is the claim. The held-out test uses a
+   DIFFERENT eval seed than selection (a separate episode sample); both are drawn
+   from the same pool, so a tiny (~1-2 episode) overlap is possible and negligible.
 
 4. **Outcome and methodology.** Explain the winning configuration and approach
-   that worked. State plainly that selection used a disjoint VALIDATION split so
-   the held-out TEST success_rate carries no selection bias. Give the baseline
+   that worked. State plainly that selection used a separate validation eval seed
+   (the held-out TEST uses a different seed), so the headline carries no test-set
+   selection bias. Give the baseline
    success_rate, compare the best VALIDATION score against the target
    ({{ target_success }}), and describe the key winning details (read
    config/train/lewm.yaml and config/train/model/lewm.yaml for the REAL settings).
