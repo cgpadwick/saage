@@ -148,11 +148,13 @@ env var:
 | `anthropic`  | Anthropic Messages          | `ANTHROPIC_API_KEY` |
 | `openai`     | api.openai.com              | `OPENAI_API_KEY` |
 | `openrouter` | openrouter.ai/api/v1        | `OPENROUTER_API_KEY` |
+| `nvidia`     | integrate.api.nvidia.com/v1 (NIM) | `NVIDIA_API_KEY` |
 | `local`      | any OpenAI-compatible server (Ollama/vLLM/LM Studio/llama.cpp) | none |
 
 ```yaml
 provider: { type: anthropic,  model: claude-opus-4-8 }
 provider: { type: openrouter, model: "anthropic/claude-3.5-sonnet" }
+provider: { type: nvidia, model: "nvidia/nemotron-3-ultra-550b-a55b" }
 provider: { type: local, model: "llama3.1:8b", base_url: "http://localhost:11434/v1" }
 ```
 
