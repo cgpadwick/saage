@@ -4,6 +4,8 @@ description: |
   Task: {{ task }}
   Best VALIDATION success_rate (split=val, used for hill-climb selection): {{ best_score }}.
   HEADLINE held-out TEST success_rate (split=test, winner retrained, evaluated ONCE): {{ confirm_score }}.
+  Specialization gain (held-out test): {{ specialization_gain }} points
+  (paper-recipe {{ paper_test_score }} -> specialized {{ confirm_score }}; DINO-WM = 86).
   Target was {{ target_success }} (higher is better).
   Write the final HTML report for this LeWM hill-climb run.
 tools: [read_file, write_file, run_command, git_log]
@@ -32,7 +34,21 @@ files; never invent results.
 
 ## The report (`report.html`) must contain, IN THIS ORDER
 
-1. **Outcome — up front.** A short prose section naming the winning result. Lead with
+1. **Headline (one line, up front).** "Specializing LeWM on OGBench-Cube:
+   paper-recipe {{ paper_test_score }}% -> specialized {{ confirm_score }}%
+   ({{ specialization_gain }} pts), held-out test ({{ test_num_eval }} episodes,
+   single seed). DINO-WM = 86%." Then a 1-2 sentence interpretation of the gap.
+
+2. **Recipe diff.** A small table: paper recipe vs winning recipe (lr, lambda,
+   history_size, num_preds, embed_dim, predictor size, augmentations) — read the
+   REAL values from config/train/lewm.yaml and config/train/model/lewm.yaml.
+
+3. **Honesty box (a callout).** n=1 task (cube only); single-seed headline
+   (multi-seed CIs = future work); the in-loop selection metric is VALIDATION on
+   50 episodes and is NOISY (+/-~7%), so the hill-climb trajectory is exploratory
+   — only the held-out TEST headline is the claim.
+
+4. **Outcome — up front.** A short prose section naming the winning result. Lead with
    the **held-out TEST success_rate ({{ confirm_score }})** as the headline number, and
    state plainly that selection used a disjoint VALIDATION split so this carries no
    test-set selection bias. Then give the baseline success_rate, the best VALIDATION
@@ -40,11 +56,11 @@ files; never invent results.
    experiment(s) — the configuration/approach and key details that ended up working
    (read the two config YAMLs for the REAL winning settings).
 
-2. **Experiment table.** One row per experiment: step, a short description of the
+5. **Experiment table.** One row per experiment: step, a short description of the
    change (use `summary`), candidate vs best **validation** success_rate, KEPT or
    REVERTED, short commit. (These are all val scores; note the test headline above.)
 
-3. **Hill-climb graph — an inline `<svg>`** (no external libraries):
+6. **Hill-climb graph — an inline `<svg>`** (no external libraries):
    - X axis = experiment number, Y axis = success_rate.
    - Plot best-so-far as a line; mark each experiment: **keeps (status "keep") =
      green filled dots, reverts (status "revert") = red ✕ marks** (a red X — two
