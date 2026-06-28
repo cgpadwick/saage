@@ -22,7 +22,9 @@ import sys
 from pathlib import Path
 
 # explicit allow-list: the only directories this script may ever delete
-ALLOWED = {"lewm_cube_exp", "lewm_cube_best", "lewm_smoke"}
+ALLOWED = {"lewm_cube_exp", "lewm_cube_best", "lewm_smoke",
+           "lewm_cube_confirm",   # the winner-confirmation retrain
+           "lewm_cube_paper"}     # the paper-recipe headline retrain
 
 
 def cache_dir() -> Path:
