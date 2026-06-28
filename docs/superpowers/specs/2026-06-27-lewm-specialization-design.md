@@ -1,9 +1,24 @@
 # LeWM Task-Specialization Ceiling — Experiment Design
 
 Date: 2026-06-27
-Status: approved (brainstorming) → ready for implementation plan
+Status: implemented — held-out test mechanism CHANGED to Option A (see banner)
 Flow: `contrib/lewm_hillclimb_guided/` (extends the existing guided hill-climb)
-Companion repo: `le-wm` (branch `feat/eval-holdout-split`)
+Companion repo: `le-wm` — **unchanged** (Option A; see banner)
+
+> **UPDATE 2026-06-27 — held-out test is now Option A (saage-only seeds).**
+> This spec was written for a disjoint val/test **split** added to le-wm's
+> `eval.py` (the "feat/eval-holdout-split" branch). We changed course: editing a
+> third-party repo we will never upstream isn't worth maintaining. Instead the
+> held-out test uses **eval seeds on stock le-wm `eval.py`** — selection evals run
+> `seed=val_seed` (42); the two headline evals run a different `seed=test_seed`
+> (1234) + heavy `eval.num_eval`. A different seed = a different episode sample the
+> selection loop never scored. Same-pool draws may overlap by ~1-2 episodes
+> (negligible vs 50-episode noise); not a guaranteed-disjoint partition.
+> **le-wm is NOT modified.** Authoritative implementation: saage commit `f36a6ee`.
+> Where this doc below says "split=val/test", "disjoint halves", "le-wm
+> feat/eval-holdout-split", or "partition in eval.py", read instead: val_seed /
+> test_seed on stock eval.py. §3 architecture, §5 search space, §6 report, and the
+> paper-headline/gain design are all unchanged.
 
 ## 1. Research question
 

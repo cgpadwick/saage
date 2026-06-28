@@ -2,6 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **STATUS 2026-06-27 — implemented, with the held-out test mechanism CHANGED to
+> Option A (saage-only eval seeds).** Tasks 1-5 done as written. The val/test
+> **split** in le-wm `eval.py` (Tasks 3 wiring + Task 6) was REPLACED: stock le-wm
+> `eval.py` is used unchanged; selection evals pass `seed=val_seed` (42) and the
+> two headline evals pass `seed=test_seed` (1234) + heavy `eval.num_eval`. So:
+> wherever this plan says `split=val`/`split=test`, read `seed={{ val_seed }}` /
+> `seed={{ test_seed }}`. **Task 6 (le-wm verify_holdout_split.py) is OBSOLETE** —
+> le-wm is not modified. Tasks 7-8 (spark): no le-wm sync needed; only push the
+> saage branch. Authoritative implementation: saage commit `f36a6ee` (plus the
+> task commits). The paper-headline, gain, and report design are unchanged.
+
 **Goal:** Extend the `lewm_hillclimb_guided` flow so it measures the *task-specialization ceiling* on OGBench-Cube: a paper-recipe headline and a specialized-winner headline, both retrained at the same budget and scored once on a disjoint held-out test, with the gap as the output.
 
 **Architecture:** The existing guided hill-climb already selects on a `split=val` metric and confirms the winner on `split=test` (this branch + le-wm `feat/eval-holdout-split`). This plan adds the *symmetric reference* (approach B): a paper-recipe headline trained first (pristine tree) on the same held-out test, a heavy test size (`test_num_eval`), and a deterministic `gain_record` helper. Determinism stays in code/YAML; only recipe content comes from the LLM.
