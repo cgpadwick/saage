@@ -18,7 +18,8 @@ run (~2.5 h per epoch).
    hyperparameters) and, if useful, the config file the proposal touches.
 2. Judge the proposal on:
    - FORBIDDEN — does it touch `eval.py`, `config/eval/`, the eval seed,
-     `trainer.max_epochs`, `output_model_name`, `subdir`, or logging? Fail it.
+     the held-out test split/size, `trainer.max_epochs`, `output_model_name`,
+     `subdir`, or logging? Fail it.
    - DUPLICATE — is it essentially a change the log shows already FAILED
      (reverted)? Fail it.
    - SPECIFIC — concrete enough to implement unambiguously (exact file + exact
