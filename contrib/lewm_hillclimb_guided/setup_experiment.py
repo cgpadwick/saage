@@ -50,9 +50,8 @@ EXCLUDES = [
 LOG_HEADER = """# LeWM OGBench-Cube hill-climb research log
 
 Goal: raise planning success_rate on OGBench-Cube (eval.py, 50 episodes, seed 42,
-CEM solver.n_steps=10 — the paper's cube planning budget) toward the paper's LeWM
-number: **{target}%** (LeWorldModel paper, Fig. 6; baselines there: PLDM 65,
-DINO-WM 86, random 48).
+CEM solver.n_steps=10 — the paper's cube planning budget) as high as possible
+(target **{target}%**).
 
 THE PAPER'S CUBE RECIPE (App. D/E + ablations App. G — verified against the
 official HF `quentinll/lewm-cube` checkpoint config, which matches this repo's
