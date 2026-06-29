@@ -44,10 +44,8 @@ shared:
   task: >-
     Improve the training of LeWorldModel (LeWM) — a JEPA world model (ViT-tiny
     encoder + autoregressive transformer predictor, loss = next-embedding MSE +
-    lambda * SIGReg) — on the OGBench-Cube manipulation task. The paper reports
-    74%; our measured baseline (this exact repo state, 8 epochs, A100) is 76.0;
-    DINO-WM reaches 86 on this task. The goal is the BEST achievable
-    success_rate on the frozen eval protocol — every point counts.
+    lambda * SIGReg) — on the OGBench-Cube manipulation task. The goal is the BEST
+    achievable success_rate on the frozen eval protocol — every point counts.
     Metric: success_rate in [0, 100] from eval.py (higher is better).
   target_success: 100.0           # best-score mode: never exit early on a target
   best_score: -1.0
