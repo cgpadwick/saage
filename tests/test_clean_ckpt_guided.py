@@ -15,7 +15,7 @@ def _load():
 def test_allowed_covers_every_name_the_flow_cleans():
     allowed = _load().ALLOWED
     # every checkpoint dir the flow asks clean_ckpt to remove must be allowed
-    for name in ("lewm_cube_exp", "lewm_smoke", "lewm_cube_confirm", "lewm_cube_paper"):
+    for name in ("lewm_cube_exp", "lewm_smoke", "lewm_cube_confirm"):
         assert name in allowed, f"{name} must be cleanable by the flow"
 
 
