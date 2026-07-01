@@ -41,6 +41,37 @@ def test_max_steps_bounds_the_loop(tmp_path):
     assert out == ""
 
 
+def test_large_tool_result_is_capped_before_the_next_model_call(tmp_path):
+    # a huge tool output (e.g. read_file on a big data file) must be truncated
+    # before it re-enters the conversation, or one agent loop can blow past the
+    # model's context window (regression: a live run hit 1.11M tokens > 1M).
+    big = "x" * 500_000
+    (tmp_path / "big.txt").write_text(big)
+
+    class _Recorder(ScriptedProvider):
+        def __init__(self, script):
+            super().__init__(script)
+            self.seen: list = []
+
+        def complete(self, system, messages, tools):
+            import copy
+            self.seen.append(copy.deepcopy(messages))
+            return super().complete(system, messages, tools)
+
+    provider = _Recorder([
+        resp(calls=[call("read_file", path="big.txt")]),
+        resp("done"),
+    ])
+    out = run_agent(provider, "sys", "task", file_tools(tmp_path))
+    assert out == "done"
+    # the tool result handed to the SECOND model call is the capped slice
+    fed_back = provider.seen[1][-1]["results"][0][1]
+    assert len(fed_back) < len(big)
+    assert "truncated" in fed_back
+    assert fed_back.startswith("x")            # head preserved
+    assert fed_back.rstrip().endswith("x")     # tail preserved
+
+
 # --------------------------------------------------------------------------- #
 # AgentNode templates the skill *body* (not just the description) — so
 # instructions like "answer {{ question }}" get filled from the shared store

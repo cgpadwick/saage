@@ -39,6 +39,7 @@ PROVIDER_ENV = {
     "openrouter": "OPENROUTER_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
+    "nvidia": "NVIDIA_API_KEY",  # NVIDIA-hosted (integrate.api.nvidia.com)
     "local": "LOCAL_API_KEY",  # optional for local servers
 }
 

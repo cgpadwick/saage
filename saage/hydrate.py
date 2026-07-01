@@ -48,6 +48,13 @@ def make_provider(spec: dict):
     if t == "openrouter":
         return OpenAIProvider(model, base_url="https://openrouter.ai/api/v1",
                               api_key_env="OPENROUTER_API_KEY", retry_policy=rp)
+    if t == "nvidia":
+        # NVIDIA's hosted models (build.nvidia.com) speak the OpenAI wire format
+        # over integrate.api.nvidia.com; base_url/api_key_env stay overridable.
+        return OpenAIProvider(
+            model,
+            base_url=spec.get("base_url", "https://integrate.api.nvidia.com/v1"),
+            api_key_env=spec.get("api_key_env", "NVIDIA_API_KEY"), retry_policy=rp)
     if t == "local":
         return OpenAIProvider(
             model,
