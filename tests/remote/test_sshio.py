@@ -163,3 +163,43 @@ def _pack_dir_payload() -> bytes:
         info.size = len(data)
         tf.addfile(info, io.BytesIO(data))
     return buf.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# rsync_from must forward excludes on both transports (regression: it had none,
+# so `fetch --workspace` would drag the venv/dataset/weights back with the code)
+# --------------------------------------------------------------------------- #
+def test_rsync_from_tar_fallback_forwards_excludes(monkeypatch, tmp_path):
+    monkeypatch.setenv("SAAGE_FORCE_TAR", "1")               # exercise tar path
+    empty_tgz = io.BytesIO()
+    with tarfile.open(fileobj=empty_tgz, mode="w:gz"):
+        pass
+    payload = empty_tgz.getvalue()
+    cmds = []
+
+    def fake_run(self, command, *, input=None, timeout=120, check=True, binary=False):
+        cmds.append(command)
+        rc, out = 0, (payload if binary else "")
+        return subprocess.CompletedProcess(["ssh"], rc, out, b"" if binary else "")
+
+    monkeypatch.setattr(SSHConn, "run", fake_run)
+    SSHConn(host="node").rsync_from(
+        "run/ws/", tmp_path, excludes=(".venv", "data", "*.pt"))
+    tar_cmd = next(c for c in cmds if c.lstrip().startswith("tar "))
+    assert "--exclude=.venv" in tar_cmd
+    assert "--exclude=data" in tar_cmd
+    assert "--exclude='*.pt'" in tar_cmd                     # shlex-quoted glob
+
+
+def test_rsync_from_rsync_path_forwards_excludes(monkeypatch, tmp_path):
+    monkeypatch.setattr("saage.remote.sshio._use_rsync", lambda: True)
+    seen = {}
+
+    def fake_rsync(argv, timeout):
+        seen["argv"] = argv
+
+    monkeypatch.setattr(SSHConn, "_rsync", staticmethod(fake_rsync))
+    SSHConn(host="node").rsync_from(
+        "run/ws/", tmp_path, excludes=(".venv", "*.pt"))
+    assert "--exclude=.venv" in seen["argv"]
+    assert "--exclude=*.pt" in seen["argv"]                  # rsync quotes itself

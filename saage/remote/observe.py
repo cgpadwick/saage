@@ -221,7 +221,17 @@ def kill(run_ref: str) -> int:
     return 0
 
 
-def fetch(run_ref: str | None, dest: str | None = None, *, via_bucket: bool = False) -> int:
+# The flow's declared `artifacts` are the curated result files; the full
+# workspace also holds the generated SOURCE (model.py/train.py/predict.py, the
+# .git history of kept experiments, small outputs). `--workspace` pulls that,
+# minus what is huge or regenerable: the venv, the dataset symlink target, model
+# weight blobs, and caches. Kept: .git and everything else.
+WS_FETCH_EXCLUDES = (".venv", "venv", "__pycache__", ".pytest_cache", "cache",
+                     "data", "*.pt", "*.pth", "*.ckpt", "*.bin", "*.zip")
+
+
+def fetch(run_ref: str | None, dest: str | None = None, *,
+          via_bucket: bool = False, workspace: bool = False) -> int:
     rs = find_run(run_ref)
     node = _node_for(rs)
     out = Path(dest) if dest else Path.cwd() / "results" / rs.run_id
@@ -239,6 +249,10 @@ def fetch(run_ref: str | None, dest: str | None = None, *, via_bucket: bool = Fa
                     node.conn.rsync_from(f"{rdir}/{f}", out)
                 except Exception:
                     pass
+            if workspace:
+                (out / "ws").mkdir(exist_ok=True)
+                node.conn.rsync_from(f"{rdir}/ws/", out / "ws",
+                                     excludes=WS_FETCH_EXCLUDES)
         except Exception:
             if not storage:
                 raise
@@ -246,6 +260,9 @@ def fetch(run_ref: str | None, dest: str | None = None, *, via_bucket: bool = Fa
     if via_bucket:
         source = "bucket mirror"
         _fetch_from_bucket(storage, rs.run_id, out)
+        if workspace:
+            print("note: --workspace needs the live node (the R2 mirror only "
+                  "holds declared artifacts); the workspace was not fetched.")
     rs.event("fetched", dest=str(out), source=source)
     got = sorted(p.name for p in out.iterdir())
     print(f"fetched {len(got)} file(s) from {source} → {out}")

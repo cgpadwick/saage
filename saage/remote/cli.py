@@ -104,6 +104,10 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     ft.add_argument("--bucket", action="store_true",
                     help="pull from the R2 mirror instead of the node "
                          "(automatic when the node is unreachable)")
+    ft.add_argument("--workspace", action="store_true",
+                    help="also pull the run's workspace (generated source, "
+                         ".git history) into <dest>/ws/, minus the venv, "
+                         "dataset, weight blobs, and caches; needs the live node")
 
 
 def _parse_kv(items: list[str], what: str) -> dict[str, str]:
@@ -208,7 +212,8 @@ def _dispatch(args: argparse.Namespace) -> int:
     if cmd == "kill":
         return observe.kill(args.run)
     if cmd == "fetch":
-        return observe.fetch(args.run, args.dest, via_bucket=args.bucket)
+        return observe.fetch(args.run, args.dest, via_bucket=args.bucket,
+                             workspace=args.workspace)
     if cmd == "resume":
         from .resume import resume_run
         rs = resume_run(args.run, target_name=args.target)

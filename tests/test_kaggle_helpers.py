@@ -171,14 +171,21 @@ def _grade_mod():
 
 def test_grade_extract_medal_and_score():
     extract = _grade_mod().extract
-    assert extract({"gold_medal": True, "score": 0.9}) == ("gold", 0.9)
-    assert extract({"silver_medal": True, "score": 0.8}) == ("silver", 0.8)
-    assert extract({"bronze_medal": True, "score": 0.5}) == ("bronze", 0.5)
-    medal, score = extract({"score": None})
-    assert medal == "none" and score != score        # NaN
+    assert extract({"gold_medal": True, "score": 0.9}) == ("gold", 0.9, False)
+    assert extract({"silver_medal": True, "score": 0.8}) == ("silver", 0.8, False)
+    assert extract({"bronze_medal": True, "score": 0.5}) == ("bronze", 0.5, False)
+    medal, score, above = extract({"score": None})
+    assert medal == "none" and score != score and above is False   # NaN
+
+
+def test_grade_extract_above_median_no_medal():
+    # the common non-medal outcome: no medal but beat the median (our live run)
+    extract = _grade_mod().extract
+    assert extract({"score": 0.35, "above_median": True}) == ("none", 0.35, True)
 
 
 def test_grade_missing_submission_is_unknown_nan(tmp_path):
     r = _run("grade.py", "--comp", "x", cwd=tmp_path)   # no submission.csv
     assert "MEDAL=unknown TEST_SCORE=nan" in r.stdout
+    assert "ABOVE_MEDIAN=unknown" in r.stdout
     assert r.returncode == 1

@@ -161,19 +161,23 @@ class SSHConn:
         self.run(f"{wipe}mkdir -p {dest_q} && tar -xzf - -C {dest_q}",
                  input=_pack_dir(path, excludes), timeout=timeout)
 
-    def rsync_from(self, remote_src: str, dest: Path, *, timeout: int = 900) -> None:
+    def rsync_from(self, remote_src: str, dest: Path, *,
+                   excludes: tuple[str, ...] = (), timeout: int = 900) -> None:
         """Copy a remote file, or a remote directory's contents, into local
-        dir `dest`."""
+        dir `dest`. `excludes` (rsync/tar glob patterns) skip regenerable or
+        heavy paths (e.g. .venv, model weights) when pulling a directory."""
         if _use_rsync():
-            argv = ["rsync", "-az", "-e", self._rsh(),
-                    f"{self.dest}:{remote_src}", str(dest)]
+            argv = ["rsync", "-az", *(f"--exclude={e}" for e in excludes),
+                    "-e", self._rsh(), f"{self.dest}:{remote_src}", str(dest)]
             self._rsync(argv, timeout)
             return
         src_q = shlex.quote(remote_src.rstrip("/"))
         dest = Path(dest)
         dest.mkdir(parents=True, exist_ok=True)
         if self.ok(f"test -d {src_q}"):
-            proc = self.run(f"tar -czf - -C {src_q} .", timeout=timeout, binary=True)
+            excl = "".join(f"--exclude={shlex.quote(e)} " for e in excludes)
+            proc = self.run(f"tar {excl}-czf - -C {src_q} .",
+                            timeout=timeout, binary=True)
             with tarfile.open(fileobj=io.BytesIO(proc.stdout), mode="r:gz") as tf:
                 try:
                     tf.extractall(dest, filter="data")

@@ -173,4 +173,7 @@ workflow:
   - id: grade
     type: command
     run: 'python3 "{{ flow_dir }}/grade.py" --comp {{ competition_id }} --data-dir "{{ mlebench_data_dir }}" || true'
-    set: { medal: "MEDAL=(\\S+)" }
+    set:
+      medal: "MEDAL=(\\S+)"
+      test_score: "TEST_SCORE=(\\S+)"
+      above_median: "ABOVE_MEDIAN=(\\S+)"
