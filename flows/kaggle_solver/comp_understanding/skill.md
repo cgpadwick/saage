@@ -41,6 +41,10 @@ competition_understanding.md MUST include:
 - STATE OF THE ART — use `web_search` (2–4 queries) to find which model
   families and techniques currently win on this KIND of task, and fold what
   you learn into the strategy notes (cite the source URLs).
+- PAST-RUN LESSONS — if `memory/` exists, list it and read any note about a
+  similar task family (`ls memory/` then read_file). These are distilled
+  outcomes of previous autonomous runs: what worked, what wasted budget.
+  Fold applicable lessons into the strategy notes.
 
 WEB SEARCH RULES (benchmark integrity — violations invalidate the run):
 - Characterize the task generically ("short-text authorship attribution

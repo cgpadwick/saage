@@ -78,3 +78,18 @@ def test_lower_is_better_covers_launch_set():
     for comp in ("spooky-author-identification",
                  "nomad2018-predict-transparent-conductors"):
         assert comp in bench.LOWER_IS_BETTER
+
+
+def test_memory_note_has_outcome_and_log():
+    rec = bench.RunResult(run_id="r1", competition="spooky", medal="silver",
+                          val_score="0.32", test_score="0.31",
+                          above_median="true", llm_cost_usd="4.95")
+    note = bench.memory_note(rec, "## Experiment 1 — KEPT\ntfidf helped\n")
+    assert "# spooky — run r1" in note
+    assert "medal=silver" in note and "tfidf helped" in note
+
+
+def test_memory_note_truncates_huge_logs():
+    rec = bench.RunResult(run_id="r", competition="c")
+    note = bench.memory_note(rec, "x" * 20000)
+    assert len(note) < 9000 and "truncated" in note

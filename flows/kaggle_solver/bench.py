@@ -129,6 +129,21 @@ def render_table(rows: list[dict]) -> str:
     return head + body
 
 
+def memory_note(rec: RunResult, research_log: str) -> str:
+    """Cross-competition memory (P5): the distilled note a future run's agents
+    read via the flow's stage_memory step. Header = the graded outcome; body =
+    the run's own research log (already kept terse for per-iteration re-reads),
+    truncated defensively."""
+    body = research_log.strip()
+    if len(body) > 8000:
+        body = body[:8000] + "\n… (truncated)"
+    return (f"# {rec.competition} — run {rec.run_id}\n\n"
+            f"outcome: medal={rec.medal} above_median={rec.above_median} "
+            f"val={rec.val_score} test={rec.test_score} "
+            f"llm_cost=${rec.llm_cost_usd}\n\n"
+            f"## Research log\n\n{body}\n")
+
+
 def gpu_hours(started_iso: str, updated_iso: str) -> str:
     from datetime import datetime
     try:
@@ -259,6 +274,13 @@ def collect_one(st, run_id: str) -> RunResult:
     log_text = _mirror_text(st, run_id, "saage.log")
     for k, v in parse_run_summary(log_text).items():
         setattr(rec, k, v)
+    # cross-competition memory (P5): future runs read this via stage_memory
+    research_log = _mirror_text(st, run_id, "artifacts/research_log.md")
+    if research_log and rec.competition != "?":
+        mem_dir = FLOW_DIR / "memory"
+        mem_dir.mkdir(exist_ok=True)
+        (mem_dir / f"{rec.competition}.md").write_text(
+            memory_note(rec, research_log))
     # model + timing from the local ledger, when this machine did the handoff
     from saage.remote.state import RunState
     rs = RunState(run_id)

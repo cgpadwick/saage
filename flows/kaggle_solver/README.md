@@ -60,16 +60,30 @@ contamination guards, not just prompt rules:
 
 ## How it works
 
+The hill-climb follows MLE-STAR's ablation-targeted shape
+([arXiv:2506.15692](https://arxiv.org/abs/2506.15692)): each outer *phase*
+runs an ablation study to find the pipeline component with the biggest
+performance impact, then the inner loop refines only that component.
+
 ```
-prepare(cmd) → setup(cmd: git branch + ledger)
-  → comp_understanding ⇄ critic → eda ⇄ critic
+prepare(cmd) → setup(cmd: git branch + ledger) → stage_memory(cmd)
+  → comp_understanding ⇄ critic (web-search grounded) → eda ⇄ critic
   → build_baseline ⇄ pytest-smoke(cmd)
-  → short-train(cmd) → verify_training → record
-  → hillclimb ×30: propose ⇄ critic → implement ⇄ pytest(cmd)
-       → short-train(cmd) → verify → keep_or_revert(cmd, git)
+  → short-train(cmd) → verify_training → record → data_audit (leakage/usage)
+  → hillclimb ×6 phases:
+       ablation (writes+runs ablation_study.py → TARGET_BLOCK)
+       → refine ×5: propose(targeted) ⇄ critic → implement ⇄ pytest(cmd)
+            → short-train(cmd) → verify → keep_or_revert(cmd, git)
      (exit: consecutive failures or target met)
-  → final-train(cmd) → make_submission ⇄ validate(cmd) → report → grade(cmd)
+  → final-train(cmd)
+  → ensemble (seeds/ckpt-averaging/TTA) → eval(cmd) → keep_or_revert(cmd)
+  → make_submission ⇄ validate(cmd) → report → grade(cmd)
 ```
 
-Artifacts per run: `experiments.jsonl`, `research_log.md`,
-`report.html`, `submission.csv`, git history of kept experiments.
+Cross-competition memory (P5): `bench.py collect` distills each graded run
+into `memory/<comp>.md`; `stage_memory` copies those notes into the next
+run's workspace, where comp_understanding reads them.
+
+Artifacts per run: `experiments.jsonl`, `research_log.md`, `report.html`,
+`submission.csv`, solution code + best checkpoint, git history of kept
+experiments.
