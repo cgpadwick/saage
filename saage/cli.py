@@ -47,6 +47,10 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--set", dest="overrides", metavar="KEY=VALUE", action="append",
                      default=[], help="seed/override a shared-store value (repeatable; "
                                       "value is parsed as JSON when possible)")
+    run.add_argument("--max-cost", dest="max_cost", type=float, metavar="USD",
+                     help="stop the run once the estimated LLM spend exceeds "
+                          "this (also honors $SAAGE_MAX_COST_USD; the stopped "
+                          "run stays resumable)")
     verbosity = run.add_mutually_exclusive_group()
     verbosity.add_argument("-v", "--verbose", action="store_true",
                            help="show tool-output detail (DEBUG) + the full results")
@@ -250,6 +254,8 @@ def main(argv: list[str] | None = None) -> int:
     log = logging.getLogger("saage")
 
     overrides = {"type": args.provider, "model": args.model, "base_url": args.base_url}
+    if args.max_cost is not None:                 # the agent loop reads the env var
+        os.environ["SAAGE_MAX_COST_USD"] = str(args.max_cost)
     run_id = args.run_id or os.environ.get("SAAGE_RUN_ID") or ckpt.new_run_id()
 
     existing = ckpt.Checkpoint(run_id)

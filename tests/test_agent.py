@@ -229,3 +229,58 @@ def test_token_usage_reset_clears_all():
     u.reset()
     assert u.calls == 0 and u.total_tokens == 0 and u.by_model == {}
     assert u.cost is None
+
+
+# --------------------------------------------------------------------------- #
+# cost cap (SAAGE_MAX_COST_USD) — the money fuse for autonomous runs
+# --------------------------------------------------------------------------- #
+class _Usage:
+    prompt_tokens = 500_000
+    completion_tokens = 500_000
+
+
+class _SpendingProvider(ScriptedProvider):
+    """ScriptedProvider that also books priced usage, like a real provider."""
+    def complete(self, system, messages, tools):
+        from saage.llm import USAGE
+        USAGE.add(_Usage(), "deepseek/deepseek-v4-flash")   # priced model
+        return super().complete(system, messages, tools)
+
+
+@pytest.fixture()
+def _fresh_usage():
+    from saage.llm import USAGE
+    USAGE.reset()
+    yield
+    USAGE.reset()
+
+
+def test_cost_cap_stops_the_loop(tmp_path, monkeypatch, _fresh_usage):
+    from saage.agent import CostLimitExceeded
+    monkeypatch.setenv("SAAGE_MAX_COST_USD", "0.10")
+    provider = _SpendingProvider([
+        resp(calls=[call("read_file", path="missing")]) for _ in range(10)
+    ])
+    with pytest.raises(CostLimitExceeded, match="resume"):
+        run_agent(provider, "sys", "task", file_tools(tmp_path))
+    assert provider.i >= 1          # at least one call happened, then the fuse blew
+
+
+def test_cost_cap_ignores_unpriced_models(tmp_path, monkeypatch, _fresh_usage):
+    from saage.llm import USAGE
+    monkeypatch.setenv("SAAGE_MAX_COST_USD", "0.000001")
+
+    class _UnpricedProvider(ScriptedProvider):
+        def complete(self, system, messages, tools):
+            USAGE.add(_Usage(), "totally-unknown-model")
+            return super().complete(system, messages, tools)
+
+    out = run_agent(_UnpricedProvider([resp("done")]), "s", "t",
+                    file_tools(tmp_path))
+    assert out == "done"            # cap can't fire without a known rate
+
+
+def test_no_cap_no_check(tmp_path, monkeypatch, _fresh_usage):
+    monkeypatch.delenv("SAAGE_MAX_COST_USD", raising=False)
+    provider = _SpendingProvider([resp("done")])
+    assert run_agent(provider, "s", "t", file_tools(tmp_path)) == "done"

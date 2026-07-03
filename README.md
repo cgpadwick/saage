@@ -170,6 +170,22 @@ per flow with an optional `retry:` sub-block:
 provider: { type: anthropic, model: claude-opus-4-8, retry: { max_attempts: 8, base_delay: 1.0 } }
 ```
 
+### Cost cap (the money fuse)
+
+For autonomous runs, cap the estimated LLM spend:
+
+```bash
+saage run flows/kaggle_solver/flow.yaml --max-cost 10        # USD
+```
+
+The agent loop checks the running cost estimate (see `saage/pricing.py`)
+before every model call and stops the run with a clear error once the cap is
+crossed. The stopped run keeps its checkpoint — raise the cap and
+`saage resume` to continue. Also settable as `SAAGE_MAX_COST_USD` in the
+environment (e.g. via `saage remote handoff --env`). A model without a known
+rate can't trip the cap; the engine warns once when that makes the cap
+unenforceable (add rates via `SAAGE_PRICES`).
+
 ### Selecting provider/model from the CLI
 
 You can override the flow's `provider` block without editing the YAML using

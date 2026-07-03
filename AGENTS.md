@@ -66,7 +66,10 @@ workflow:                      # required: an ordered list of steps
 ```yaml
 - { id: write_query, type: agent, skill: write_query,
     set: { score: "SCORE=([0-9.]+)" },   # optional: capture from the agent's final text
-    max_steps: 20 }                       # optional tool-call budget (default 20)
+    max_steps: 20,                        # optional tool-call budget (default 20)
+    model: "deepseek/deepseek-v4-flash" } # optional: this step only — cheap model for
+                                          # critics, strong model for propose/implement
+                                          # (CLI --model still forces one model everywhere)
 ```
 
 **`command`** — a deterministic shell step (no LLM). `run` is templated; cwd = workspace.
@@ -241,6 +244,7 @@ saage run flows/<name>/flow.yaml \
   [--workspace DIR] [--venv DIR] \
   [--provider openrouter --model "..."] [--base-url URL] \
   [--config engine.yaml] \              # tune the run_command safety policy
+  [--max-cost USD] \                    # stop once estimated LLM spend exceeds this
   [--set key=value ...]                 # seed/override shared values (JSON-parsed)
 ```
 
