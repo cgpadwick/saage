@@ -163,13 +163,15 @@ def wait_active(api: LambdaAPI, iid: str, timeout_s: int = 900,
     raise LambdaError(f"instance {iid} not active after {timeout_s}s — {note}")
 
 
-def wait_ssh(host: str, user: str, key_path: str, timeout_s: int = 300) -> None:
+def wait_ssh(host: str, user: str, key_path: str, timeout_s: int = 300,
+             port: int = 22) -> None:
     # a reused IP may have a stale known_hosts entry from a previous instance
-    subprocess.run(["ssh-keygen", "-R", host], capture_output=True)
+    known = host if port == 22 else f"[{host}]:{port}"
+    subprocess.run(["ssh-keygen", "-R", known], capture_output=True)
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         proc = subprocess.run(
-            ["ssh", "-i", key_path, "-o", "IdentitiesOnly=yes",
+            ["ssh", "-i", key_path, "-p", str(port), "-o", "IdentitiesOnly=yes",
              "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
              "-o", "ConnectTimeout=10", f"{user}@{host}", "true"],
             capture_output=True)

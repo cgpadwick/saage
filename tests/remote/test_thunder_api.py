@@ -96,3 +96,30 @@ def test_instances_empty_response_is_empty_dict(monkeypatch):
             return b"null"
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=0: R())
     assert ThunderAPI("tok").instances() == {}
+
+
+def test_create_retries_with_server_listed_vcpus(monkeypatch):
+    # per-GPU vCPU validation lives server-side only — a rejected count must
+    # retry once with the smallest count the error lists (seen live: a6000)
+    calls = []
+
+    def fake_request(self, path, payload=None):
+        calls.append(payload["cpu_cores"])
+        if payload["cpu_cores"] not in (4, 6) or len(calls) == 1 and payload["cpu_cores"] == 8:
+            raise ThunderError('Thunder API /instances/create -> 400: '
+                               '{"message":"validation: invalid vCPU count 8; '
+                               'valid options: [4 6]"}')
+        return {"identifier": "i-9", "key": "PEM"}
+
+    monkeypatch.setattr(ThunderAPI, "_request", fake_request)
+    iid, key = ThunderAPI("tok").create("a6000", cpu_cores=8)
+    assert (iid, key) == ("i-9", "PEM")
+    assert calls == [8, 4]
+
+
+def test_create_non_vcpu_error_propagates(monkeypatch):
+    def fake_request(self, path, payload=None):
+        raise ThunderError("Thunder API /instances/create -> 402: payment required")
+    monkeypatch.setattr(ThunderAPI, "_request", fake_request)
+    with pytest.raises(ThunderError, match="402"):
+        ThunderAPI("tok").create("a6000")

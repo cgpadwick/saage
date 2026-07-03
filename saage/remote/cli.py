@@ -263,15 +263,18 @@ def _spawn_thunder(args: argparse.Namespace) -> int:
     key_path.chmod(0o600)
     print(f"instance {iid} creating (billing started; key: {key_path})")
     try:
-        inst = wait_running(api, iid)       # deletes the instance on timeout
+        # thunder cold-starts can take ~10 minutes (k8s provisioning)
+        inst = wait_running(api, iid, timeout_s=1200)  # deletes on timeout
         ip = inst["ip"]
-        print(f"instance {iid} running at {ip}; waiting for ssh …")
-        wait_ssh(ip, "ubuntu", str(key_path))
-        add_target(name, ip, user="ubuntu", hourly_usd=price, key=str(key_path))
+        port = int(inst.get("port") or 22)   # ssh is NAT'd on k8s instances
+        print(f"instance {iid} running at {ip}:{port}; waiting for ssh …")
+        wait_ssh(ip, "ubuntu", str(key_path), port=port)
+        add_target(name, ip, user="ubuntu", port=port, hourly_usd=price,
+                   key=str(key_path))
     except BaseException:
         _ensure_deleted(api, iid)
         raise
-    print(f"target {name!r} registered ({ip}, ${price:.2f}/hr) — "
+    print(f"target {name!r} registered ({ip}:{port}, ${price:.2f}/hr) — "
           f"`saage remote handoff <flow> --target {name}`")
     print(f"REMEMBER: `saage remote terminate {name}` when done — billing runs until then")
     return 0

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import urllib.error
 import urllib.request
@@ -80,15 +81,32 @@ class ThunderAPI:
 
     # -- write -----------------------------------------------------------------
 
-    def create(self, gpu_type: str, *, cpu_cores: int = 8, template: str = "base",
+    def create(self, gpu_type: str, *, cpu_cores: int = 4, template: str = "base",
                num_gpus: int = 1, disk_size_gb: int = 100,
                mode: str = "prototyping") -> tuple[str, str]:
         """Create an instance; returns (instance_id, private_key_pem).
-        The private key is returned ONLY by this call — persist it."""
-        out = self._request("/instances/create", {
+        The private key is returned ONLY by this call — persist it.
+
+        Valid vCPU counts vary per GPU type and only the server knows them
+        (seen live: a6000 accepts [4 6], the tnr CLI's static choices say
+        [4 8 16 32]) — so on a vCPU validation error, retry once with the
+        smallest count the error itself lists."""
+        payload = {
             "cpu_cores": cpu_cores, "gpu_type": gpu_type, "template": template,
             "num_gpus": num_gpus, "disk_size_gb": disk_size_gb, "mode": mode,
-        })
+        }
+        try:
+            out = self._request("/instances/create", payload)
+        except ThunderError as exc:
+            m = re.search(r"invalid vCPU count .*?valid options: \[([\d ]+)\]",
+                          str(exc))
+            if not m:
+                raise
+            valid = sorted(int(v) for v in m.group(1).split())
+            log.info("thunder: vCPU %d invalid for %s, retrying with %d",
+                     cpu_cores, gpu_type, valid[0])
+            payload["cpu_cores"] = valid[0]
+            out = self._request("/instances/create", payload)
         return out["identifier"], out["key"]
 
     def delete(self, instance_id: str) -> None:
