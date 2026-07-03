@@ -191,6 +191,10 @@ class OpenAIProvider:
             base_url=base_url,
             api_key=os.environ.get(api_key_env, "not-needed"))  # local needs no real key
         self.model = model
+        # Resolved wiring kept as our own attrs so callers/tests assert on saage's
+        # contract, not the (unpinned) openai client's internals.
+        self.base_url = base_url
+        self.api_key_env = api_key_env
         self.retry_policy = retry_policy or RetryPolicy()
 
     def _tools(self, tools: list[Tool]) -> list[dict]:

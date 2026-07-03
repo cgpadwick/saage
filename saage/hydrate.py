@@ -33,7 +33,7 @@ class Context:
 
 
 def make_provider(spec: dict):
-    """Out of the box: anthropic | openai | openrouter | local.
+    """Out of the box: anthropic | openai | openrouter | nvidia | local.
 
     An optional `retry:` sub-block tunes the transient-failure backoff, e.g.
     `provider: { type: anthropic, model: ..., retry: { max_attempts: 8 } }`.

@@ -3,6 +3,7 @@
   saage run flows/story_writer/flow.yaml
   saage run flows/greenfield_ml/flow.yaml --workspace /tmp/ws --set target_accuracy=0.97
   OPENROUTER_API_KEY=... saage run f.yaml --provider openrouter --model "deepseek/deepseek-v4-flash"
+  NVIDIA_API_KEY=... saage run f.yaml --provider nvidia --model "nvidia/nemotron-3-ultra-550b-a55b"
 
 See `saage run --help` for all options.
 """
