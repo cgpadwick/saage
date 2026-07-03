@@ -333,12 +333,13 @@ recorded `best_score`/iteration. To keep the trained best model across a box
 death, list its (workspace-relative) path in the flow's `artifacts:`.
 
 Targets are just SSH hosts (a LAN box, a hand-launched cloud instance —
-`--port` and `--key` cover NAT'd ports and per-instance keys, e.g. Thunder
-Compute). For Lambda Cloud there's provisioning built in:
+`--port` and `--key` cover NAT'd ports and per-instance keys). For Lambda
+Cloud and Thunder Compute there's provisioning built in:
 
 ```bash
-saage remote spawn --gpu a100        # launch + register as a target (live capacity/pricing)
-saage remote terminate <target>      # stops the meter (the only thing that does, on Lambda)
+saage remote spawn --gpu a100                      # Lambda: launch + register as a target
+saage remote spawn --provider thunder --gpu a6000  # Thunder: ~$0.35/hr, cheapest sweep box
+saage remote terminate <target>      # stops the meter, whichever cloud the box is in
 ```
 
 How it works, briefly:
