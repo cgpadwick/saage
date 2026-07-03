@@ -6,4 +6,5 @@ source of truth is `benchmark_journal.jsonl` (one line per run).
 
 | date | competition | model | medal | above median | val score | test score | LLM cost | GPU hours | run |
 |---|---|---|---|---|---|---|---|---|---|
-| ? | spooky-author-identification | openrouter | unknown | ? | 0.320690393447876 | ? | $4.9468 | ? | `kaggle_solver-20260702-0425-fdc6` |
+| 2026-07-02 | spooky-author-identification | openrouter | unknown | ? | 0.3207 | ? | $4.9468 | 10.2 | `kaggle_solver-20260702-0425-fdc6` |
+| 2026-07-03 | spooky-author-identification | openrouter | none | true | 0.3985 | 0.4129 | $2.2424 | 2.4 | `kaggle_solver-20260703-1603-dc9a` |

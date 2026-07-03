@@ -87,7 +87,11 @@ def result_from_checkpoint(run_id: str, shared: dict) -> RunResult:
     """Grade fields the flow captured into the shared store (grade.py output)."""
     def s(key, default="?"):
         v = shared.get(key, default)
-        return default if v in ("", None) else str(v)
+        if v in ("", None):
+            return default
+        if isinstance(v, float):        # readable table cells (0.3985, not 0.39849624037742615)
+            return f"{v:.4g}"
+        return str(v)
     return RunResult(
         run_id=run_id,
         competition=s("competition_id"),
@@ -288,7 +292,7 @@ def collect_one(st, run_id: str) -> RunResult:
         state = rs.state()
         manifest = rs.manifest() or {}
         rec.model = manifest.get("provider", "?")
-        started = state.get("started", "?")
+        started = state.get("started_at") or "?"
         rec.date = started[:10] if started != "?" else "?"
         updated = _mirror_json(st, run_id, "status.json").get("updated", "?")
         rec.gpu_hours = gpu_hours(started, updated)

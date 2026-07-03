@@ -1,6 +1,6 @@
-# spooky-author-identification — run kaggle_solver-20260702-0425-fdc6
+# spooky-author-identification — run kaggle_solver-20260703-1603-dc9a
 
-outcome: medal=unknown above_median=? val=0.320690393447876 test=? llm_cost=$4.9468
+outcome: medal=none above_median=true val=0.3985 test=0.4129 llm_cost=$2.2424
 
 ## Research log
 
@@ -21,84 +21,75 @@ Every experiment below is recorded by keep_or_revert.py.
 
 ## Experiments
 
-## Experiment 1 — KEPT ✅ (candidate=0.411012, best=0.411012)
-- changed: competition_understanding.md, data_analysis.md, eda_deep.py, eda_fw_by_author.png, eda_fw_correlation.png, eda_overview.py, eda_punctuation_by_author.png, eda_target_distribution.png, eda_text_length_by_author.png, eda_textlen_boxplot.png, eda_word_count_by_author.png, eda_wordcount_boxplot.png, model.py, predict.py, tests/test_smoke.py, train.py
-- commit: 64c41518
+## Experiment 1 — KEPT ✅ (candidate=0.408412, best=0.408412)
+- changed: competition_understanding.md, data_analysis.md, eda_features.py, eda_function_words.py, eda_overview.py, eda_text_analysis.py, model.py, predict.py, tests/test_smoke.py, train.py
+- commit: db2a5bbe
 
 (no summary written)
 
-## Experiment 2 — KEPT ✅ (candidate=0.374785, best=0.374785)
+## Experiment 2 — KEPT ✅ (candidate=0.408148, best=0.408148)
 - changed: model.py, predict.py, tests/test_smoke.py, train.py
-- commit: 3fb190a2
+- commit: 845a7c3a
 
-Replaces the TF-IDF bigram vectorizer + small feedforward network with a fine-tuned DistilBERT classifier (distilbert-base-uncased + dropout + 3-class linear head). The hypothesis is that capturing contextual, semantic, and word-order signals will reduce validation log loss from ~0.411 to well below 0.20; sentences average only 27 words, fitting easily within the 128-token limit, and DistilBERT was the proven approach in the original competition.
+Character n-gram TF-IDF features (n=2–5, 20k features) will be concatenated with the existing word n-gram features (20k→40k total) to capture spelling variants, punctuation patterns, and subword morphology — closing the 10.7% OOV test vocabulary gap that the word-only model cannot bridge.
 
-## Experiment 3 — KEPT ✅ (candidate=0.360251, best=0.360251)
+## Experiment 3 — reverted ❌ (candidate=0.450628, best=0.408148)
+- changed: model.py, predict.py, tests/test_smoke.py, train.py
+
+Replace the PyTorch MLP (20.6M params) with sklearn's LogisticRegression (multinomial, L2-regularized, ~120k params) to reduce severe overfitting on ~14k training samples with 40k TF-IDF features. Linear models with L2 penalty are the canonical strong baseline for high-dimensional sparse text, converging deterministically and generalizing far better than the overparameterized MLP.
+
+## Experiment 4 — KEPT ✅ (candidate=0.398496, best=0.398496)
 - changed: model.py, train.py
-- commit: 8d5b568e
+- commit: 389226f3
 
-Switched the pretrained model from distilbert-base-uncased to distilbert-base-cased, keeping all other hyperparameters identical, because capitalization patterns (proper nouns, named entities, dialect representations, and formal address) are diagnostic for authorship attribution and the uncased tokenizer strips this signal.
+Reduced MLP hidden_dim 512→128, raised dropout 0.3→0.4, added BatchNorm1d after each linear layer, and added weight_decay=1e-4 to the Adam optimizer. The hypothesis is that the 20.6M-parameter network is severely overparameterized for ~14k training samples, and stronger regularization will force the model to learn generalizable stylistic patterns instead of memorizing.
 
-## Experiment 4 — reverted ❌ (candidate=0.363268, best=0.360251)
-- changed: model.py
+## Experiment 5 — reverted ❌ (candidate=0.426338, best=0.398496)
+- changed: model.py, tests/test_smoke.py
 
-Added label smoothing (ε=0.1) to CrossEntropyLoss in the DistilBERT-cased fine-tuning pipeline. The hypothesis is that soft targets will reduce overconfident predictions and improve probability calibration, directly lowering validation log loss (currently 0.360) with no added compute cost.
+The proposal adds ~20 hand-crafted stylistic features (punctuation ratios, pronoun densities, dialect flags, sentence length) as dense columns alongside the existing 40k TF-IDF char n-grams. These give the model explicit, position-invariant signals—like semicolon rate and first-person pronoun density—that are currently diluted across sparse n-gram dimensions and poorly captured by the overparameterized representation.
 
-## Experiment 5 — reverted ❌ (candidate=0.365657, best=0.360251)
-- changed: model.py, predict.py, train.py
-
-Concatenate 21 hand-crafted stylometric features (punctuation rates, function-word frequencies, sentence-length statistics, and vocabulary richness) with the DistilBERT [CLS] embedding before the classification head, because authorship attribution is fundamentally a stylometric task and the pure-Transformer baseline has plateaued at 0.360 log loss with no improvement from label smoothing.
-
-## Experiment 6 — reverted ❌ (candidate=0.372803, best=0.360251)
-- changed: model.py, predict.py, tests/test_smoke.py, train.py
-
-Replaced DistilBERT-cased (66M params) with BERT-base-cased (110M params), changing model class, tokenizer, imports, and reducing batch size from 16 to 8 to manage GPU memory. The hypothesis is that the larger model's additional capacity will better capture the subtle stylistic, punctuation, and named-entity patterns in these short 27-word sentences, pushing past DistilBERT's apparent saturation at 0.36025 validation log loss.
-
-## Experiment 7 — reverted ❌ (candidate=0.379039, best=0.360251)
-- changed: model.py
-
-Replaces [CLS]-token pooling with mean-pooling (averaging all token embeddings from DistilBERT's last hidden layer). The hypothesis is that authorship signals (function words, punctuation, named entities) are distributed across these short texts, and mean pooling aggregates all positions rather than relying on a single [CLS] token — capturing more diagnostic signal at zero additional parameter cost.
-
-## Experiment 8 — reverted ❌ (candidate=0.520268, best=0.360251)
-- changed: model.py, predict.py, tests/test_smoke.py, train.py
-
-Replaces DistilBERT fine-tuning with character 2–5-gram TF-IDF + Logistic Regression (C=1.0, class-weighted, L2 penalty). This swap is motivated by four consecutive DistilBERT attempts that failed to improve on the 0.360 validation log loss, and by the data analysis showing that character n-grams are the gold-standard representation for authorship attribution, capturing orthographic habits that BPE subword tokenization fragments.
-
-## Experiment 9 — reverted ❌ (candidate=0.375981, best=0.360251)
-- changed: model.py
-
-Replaces single-final-layer [CLS] pooling in DistilBERT with a learned weighted sum of all 6 hidden layers' [CLS] vectors (6 extra parameters). Hypothesis: lower and middle layers capture surface-level and syntactic authorship signals (punctuation, function words) that the final semantic layer discards, reducing log loss from 0.360 to ~0.34.
-
-## Experiment 10 — reverted ❌ (candidate=0.416893, best=0.360251)
+## Experiment 6 — reverted ❌ (candidate=0.426222, best=0.398496)
 - changed: train.py
 
-Switches from a uniform learning rate (2e-5) to discriminative learning rates for DistilBERT fine-tuning: backbone LR drops to 5e-6 to prevent catastrophic forgetting of pretrained language patterns, while classification head LR rises to 1e-4 for faster convergence from random initialization. Six prior architecture experiments all failed, suggesting the bottleneck is optimization rather than representation.
+Changed `hidden_dim` in train.py from 512→128 to match the model class default, cutting parameters from ~20.6M to ~5.1M. The aim is to reduce overfitting on ~14k training samples while retaining the BatchNorm, dropout (0.4), and weight_decay that improved validation logloss in Experiment 4 from 0.408→0.398.
 
-## Experiment 11 — reverted ❌ (candidate=0.36146, best=0.360251)
-- changed: model.py, predict.py, tests/test_smoke.py, train.py
-
-Replaced DistilBERT-cased (66M params, 30k vocab) with RoBERTa-base (125M params, 50k vocab) in model.py, train.py, and predict.py, reducing batch size 16→8 to fit GPU memory. RoBERTa's larger byte-level BPE vocabulary preserves rare diagnostic authorial words (e.g., "eldritch", "nevermore") as single tokens, while its 10× larger pretraining corpus with dynamic masking yields more robust representations — aiming to break through DistilBERT's saturated ~0.360 log loss ceiling after seven consecutive failed modifications.
-
-## Experiment 12 — KEPT ✅ (candidate=0.354505, best=0.354505)
-- changed: model.py, train.py
-- commit: d2270268
-
-Add EMA weight-averaging (decay=0.999) initialized after epoch 1, with validation on EMA weights for epochs 2+. The goal is to smooth the noisy SGD trajectory toward flatter minima, producing better-calibrated probabilities and reducing validation log loss — targeting a break below 0.360 after eight prior experiments that all changed representations or loss functions rather than training dynamics.
-
-## Experiment 13 — reverted ❌ (candidate=0.395862, best=0.354505)
-- changed: model.py
-
-Adding gradient norm clipping (max_norm=1.0) to the optimizer step in both AMP and non-AMP training paths, motivated by the hypothesis that clipping will stabilize DistilBERT fine-tuning by preventing destructive gradient steps and improving validation log loss beyond 0.3545. This zero-parameter-cost change complements the EMA smoothing from Experiment 12, addressing the identified training-dynamics bottleneck after eight failed architecture and feature experiments.
-
-## Experiment 14 — KEPT ✅ (candidate=0.346272, best=0.346272)
-- changed: model.py, predict.py, tests/test_smoke.py, train.py
-- commit: b2efbc0f
-
-After EMA training, learn a single temperature parameter T on the validation set to scale logits and soften overconfident DistilBERT probabilities, moving log loss from 0.3545 toward ~0.34. This directly targets calibration error — the dominant remaining loss source — and cannot hurt since T=1.0 leaves predictions unchanged.
-
-## Experiment 15 — KEPT ✅ (candidate=0.340584, best=0.340584)
+## Experiment 7 — reverted ❌ (candidate=0.419581, best=0.398496)
 - changed: train.py
-- commit: 0230fc9e
 
-Replaced the linear LR scheduler with `get_cosine_schedule_with_warmup` in `train.py` (same 
-… (truncated)
+Adds label smoothing (ε=0.1) to CrossEntropyLoss in train.py (nn.CrossEntropyLoss() → nn.CrossEntropyLoss(label_smoothing=0.1)). This directly targets the logloss metric by calibrating predicted probabilities to prevent the catastrophic penalty (~34.5 per mistake) from overconfident wrong predictions, especially on strong named-entity features like author names.
+
+## Experiment 8 — reverted ❌ (candidate=0.400441, best=0.398496)
+- changed: train.py
+
+The current experiment replaces the Adam optimizer (fixed LR=0.001) with AdamW (decoupled weight decay) and adds a CosineAnnealingLR scheduler, decaying learning rate from 0.001 to near-zero over the epoch budget, to help the optimizer escape sharp minima and converge to flatter, better-generalizing basins, directly improving validation logloss.
+
+## Experiment 9 — reverted ❌ (candidate=0.408172, best=0.398496)
+- changed: model.py, predict.py, tests/test_smoke.py, train.py
+
+Switching from TF-IDF n-grams + MLP to a DistilBERT sequence classifier fine-tuned end-to-end (AdamW lr=2e-5, max_length=128, first 2 of 6 layers frozen, batch_size=32) to push validation logloss below 0.398. DistilBERT captures word order, clause structure, and syntactic context, and its WordPiece tokenization solves the 10.7% test OOV gap—bag-of-ngrams has plateaued because it discards word order entirely.
+
+## Experiment 10 — reverted ❌ (candidate=0.409491, best=0.398496)
+- changed: train.py
+
+Reducing the MLP hidden dimension from 512 to 256 in the TF-IDF+MLP pipeline, halving parameters from ~20.6M to ~10.3M, to test whether 256 is the capacity sweet spot that improves generalization. The 512-dim model appears overparameterized (~1,470 params/sample) while the earlier 128-dim trial (0.426 logloss) lacked sufficient capacity — 256 remains unexplored.
+
+## Experiment 11 — reverted ❌ (candidate=0.91506, best=0.398496)
+- changed: model_xgb.py, predict.py, tests/test_smoke.py, train.py
+
+Replaced the PyTorch 2-layer MLP with an XGBoost classifier (800 trees, max_depth=6, colsample_bytree=0.8, gamma=0.1) on the same 40k-dimensional word+char TF-IDF features, hypothesizing that tree ensembles handle high-dimensional sparse data and non-linear feature interactions better than the plateaued MLP (0.3985 logloss). XGBoost directly optimizes multi-class logloss, natively uses sparse matrices, and adds pruning-based regularization; if it improves, the next step is an MLP+XGBoost ensemble.
+
+## Experiment 12 — reverted ❌ (candidate=0.417689, best=0.398496)
+- changed: train.py
+
+Adds MixUp data augmentation (α=0.2) to the MLP training loop, generating convex combinations of TF-IDF features and soft targets during training. This is a fundamentally new form of regularization that creates synthetic training data to produce smoother decision boundaries and better-calibrated probabilities — directly targeting the overconfident wrong predictions that dominate the logloss metric.
+
+## Experiment 13 — reverted ❌ (candidate=0.408646, best=0.398496)
+- changed: train.py
+
+Experiment 13 adds Exponential Moving Average (EMA, decay=0.999) of model parameters during training, evaluating the EMA weights at the end and saving them if they beat the best checkpoint. The hypothesis is that EMA smooths batch-level oscillations and biases toward flatter minima, directly reducing generalization error — a temporal-averaging fix orthogonal to previous architecture/feature changes, targeting the existing best logloss of 0.40044 to push below 0.3985.
+
+## Experiment 14 — reverted ❌ (candidate=0.424415, best=0.398496)
+- changed: train.py
+
+Replaces standard CrossEntropyLoss with Focal Loss (γ=2.0) to reshape the loss objective toward hard, ambiguous examples and penalize overconfident predictions, aiming to improve validation logloss after nine consecutive experiments failed to beat 0.3985.
