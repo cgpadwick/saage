@@ -174,6 +174,10 @@ lists it in `tools:`).
   reliable keyed backend, or pin one with `SAAGE_SEARCH_BACKEND=ddg|tavily|brave`
   (default `auto`). Any failure (no key/lib, rate-limit, network) returns an
   `ERROR:` string, never crashing the run.
+  - **Domain blocklist:** set `SAAGE_SEARCH_BLOCK_DOMAINS` (comma-separated,
+    e.g. `kaggle.com`) to have the engine drop results from those domains (and
+    subdomains) before the model sees them — a mechanical guard for benchmark
+    flows where searching up the answer would invalidate the run.
   - **Network egress:** like all harness tools, `web_search` is in the default set,
     so a skill with **no `tools:` allow-list can call it**. To keep a skill off the
     network, give it a `tools:` allow-list that omits `web_search` (and

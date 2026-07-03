@@ -106,7 +106,7 @@ command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 
 uv venv venv --quiet
-VIRTUAL_ENV="$PWD/venv" uv pip install --quiet -e ./saage{boto3}
+VIRTUAL_ENV="$PWD/venv" uv pip install --quiet -e "./saage[search]"{boto3}
 
 mkdir -p artifacts
 {ws_setup}

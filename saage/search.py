@@ -109,6 +109,38 @@ def select_backend() -> str:
     return "ddg"
 
 
+def _blocked_domains() -> tuple[str, ...]:
+    """Domains to drop from results (SAAGE_SEARCH_BLOCK_DOMAINS, comma-separated).
+
+    A mechanical contamination guard for benchmark flows (kaggle_solver): the
+    old competitions' solutions are public, so retrieval-grounded proposal
+    skills run with e.g. `kaggle.com` blocked — prompt-side "please don't"
+    isn't a guard. Suffix match on the URL host: `kaggle.com` blocks
+    `www.kaggle.com` too."""
+    raw = os.environ.get("SAAGE_SEARCH_BLOCK_DOMAINS", "")
+    return tuple(d.strip().lower().lstrip(".") for d in raw.split(",") if d.strip())
+
+
+def _host(url: str) -> str:
+    from urllib.parse import urlparse
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def apply_blocklist(results: list[Result],
+                    blocked: tuple[str, ...]) -> tuple[list[Result], int]:
+    """Drop results whose URL host is (a subdomain of) a blocked domain.
+    Returns (kept, dropped_count)."""
+    if not blocked:
+        return results, 0
+    kept = [r for r in results
+            if not any(_host(r.url) == d or _host(r.url).endswith("." + d)
+                       for d in blocked)]
+    return kept, len(results) - len(kept)
+
+
 def _format(query: str, results: list[Result], answer: str = "") -> str:
     if not results and not answer:
         return f"No web results for {query!r}."
@@ -148,4 +180,12 @@ def web_search(query: str, max_results: int = 5) -> str:
         return f"ERROR: {e}"
     except Exception as e:                       # network / parse / rate-limit
         return f"ERROR: web_search ({name}) failed: {e}"
-    return _format(query, results, answer)
+    blocked = _blocked_domains()
+    results, dropped = apply_blocklist(results, blocked)
+    if blocked and answer:
+        # a backend-synthesized answer can't be domain-filtered — drop it too
+        answer = ""
+    out = _format(query, results, answer)
+    if dropped:
+        out += f"\n({dropped} result(s) withheld by the domain blocklist)"
+    return out

@@ -5,7 +5,7 @@ description: |
   ({{ 'lower' if lower_is_better else 'higher' }} is better;
   consecutive failures: {{ consecutive_failures }}).
   Propose ONE experiment to improve it.
-tools: [read_file, write_file, run_command]
+tools: [read_file, write_file, run_command, web_search]
 ---
 SKILL_ID: propose
 
@@ -34,6 +34,12 @@ GUIDELINES:
 - If recent experiments plateaued (reverts, tiny gains), be BOLD: a different
   model family, feature representation, or modality — especially data
   modalities (images/text) that exist but are unused.
+- When plateaued or unsure what wins on this KIND of task, use `web_search`
+  (1–2 queries) for current recipes and ground the proposal in what you find
+  (cite the URL in RATIONALE). Search rules (benchmark integrity —
+  violations invalidate the run): characterize the task generically; NEVER
+  put the competition's name/id/dataset name or any identifying string in a
+  query; never search for a specific competition's solutions or leaderboard.
 - Address the actual bottleneck: overfitting? underfitting? wrong features?
 - Do NOT propose changing the training budget (epochs are fixed by the
   harness for fair comparison) or the validation protocol.

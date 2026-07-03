@@ -42,6 +42,22 @@ Key knobs (`--set`): `short_epochs` (per-experiment budget, default 15),
 `final_epochs` (default 100), `max_consecutive_failures` (default 10),
 `target_score` (optional early exit), `device` (auto-detected).
 
+### Retrieval-grounded proposals (and keeping the benchmark honest)
+
+The `comp_understanding` and `propose` skills may `web_search` for
+state-of-the-art recipes for the task *family*. Because these are old
+competitions with public solutions, benchmark runs use mechanical
+contamination guards, not just prompt rules:
+
+- **Domain blocklist** — run with
+  `SAAGE_SEARCH_BLOCK_DOMAINS=kaggle.com` in the environment (locally:
+  `export …`; remote: `--env SAAGE_SEARCH_BLOCK_DOMAINS=kaggle.com`).
+  Results from a blocked domain (and its subdomains) are dropped by the
+  engine before the model sees them.
+- **Query hygiene** — the skills are instructed to characterize the task
+  generically and never put the competition's name/id in a query; every
+  query is visible in `saage.log` (`⚙ web_search …`), so runs are auditable.
+
 ## How it works
 
 ```
