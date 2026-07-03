@@ -1,6 +1,15 @@
 # Kaggle Solver: competitive analysis + saage integration plan
 
-**Date:** 2026-06-11 · **Status:** draft for discussion
+**Date:** 2026-06-11 · **Status:** landed through P5 (2026-07-03)
+
+> Progress note (2026-07-03): E2/E1/E3 engine additions shipped; P0
+> measurement harness = `flows/kaggle_solver/bench.py` (+ results journal);
+> P1 retrieval-grounded proposals with the SAAGE_SEARCH_BLOCK_DOMAINS
+> mechanical guard; P2 ablation-targeted refinement (hillclimb is now
+> outer×inner, MLE-STAR shape); P3-lite in-run self-ensemble stage;
+> P4 leakage/usage checkers; P5 cross-competition memory via
+> `bench.py collect` → `memory/<comp>.md` → `stage_memory`. Thunder
+> provisioning also landed (`saage remote spawn --provider thunder`).
 **Goal:** make the kaggle solver (`src/mle_beast/benchmark/`) competitive with
 current MLE-bench agents, and ship it as saage's flagship flow
 (`pip install "saage[kaggle-solver]"`).
