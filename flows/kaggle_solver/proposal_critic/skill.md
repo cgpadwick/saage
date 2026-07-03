@@ -18,6 +18,10 @@ Check:
   proposer explained why the outcome differs this time.
 - SPECIFIC enough to implement without ambiguity?
 - HYPOTHESIS grounded in data or prior results (not pure random exploration)?
+- LEAKAGE RISK? Reject a change that would let validation/test information
+  reach training: fitting a vectorizer/scaler/target-encoder on ALL rows
+  before the split, features derived from the target, or tuning against the
+  same validation split the score reports.
 
 Be pragmatic, not pedantic. A well-reasoned proposal passes even with an
 uncertain hypothesis — that is the nature of experimentation. Reject only

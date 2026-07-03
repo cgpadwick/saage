@@ -101,6 +101,9 @@ workflow:
       best_score: "BEST_SCORE=(\\S+)"
       consecutive_failures: "FAILURES=([0-9]+)"
       target_met: "TARGET_MET=([01])"
+  # one-time leakage + data-usage audit (P4); findings land in research_log.md
+  # so every later propose/implement iteration sees them
+  - { id: data_audit, type: agent, skill: data_audit, max_steps: 15 }
 
   # ---- hill-climb: one experiment per iteration, keep what improves ----
   - id: hillclimb

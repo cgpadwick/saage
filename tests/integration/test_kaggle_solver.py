@@ -72,6 +72,13 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
         ],
         # consumed in order: baseline_verify, verify_train (exp 1), final_verify
         "verify_training": [resp("ACTION: pass")] * 3,
+        "data_audit": [
+            resp(calls=[call("append_file", path="research_log.md",
+                             content="## Data audit (after baseline)\n"
+                                     "LEAKAGE: none found\n"
+                                     "UNUSED DATA: all data used\n")]),
+            resp("audit appended"),
+        ],
         "propose": [resp("HYPOTHESIS: better feature helps.\n"
                          "CHANGE: train.py, improve encoding.\nRATIONALE: EDA.")],
         "proposal_critic": [resp("ACTION: pass")],
@@ -163,6 +170,7 @@ def test_failed_experiment_reverts_and_counts(flow_copy, tmp_path):
             resp("baseline"),
         ],
         "verify_training": [resp("ACTION: pass")] * 3,   # baseline, exp1, final
+        "data_audit": [resp("LEAKAGE: none found")],
         "propose": [resp("HYPOTHESIS: x CHANGE: y RATIONALE: z")],
         "proposal_critic": [resp("ACTION: pass")],
         "summarize": [
