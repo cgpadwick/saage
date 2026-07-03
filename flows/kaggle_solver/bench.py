@@ -284,7 +284,7 @@ def collect_one(st, run_id: str) -> RunResult:
     # model + timing from the local ledger, when this machine did the handoff
     from saage.remote.state import RunState
     rs = RunState(run_id)
-    if rs.exists():
+    if rs.exists:                       # property, not a method
         state = rs.state()
         manifest = rs.manifest() or {}
         rec.model = manifest.get("provider", "?")
