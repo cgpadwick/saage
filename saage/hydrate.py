@@ -30,6 +30,28 @@ class Context:
     skills: dict[str, Skill]
     tools: list
     venv: str | None = None   # venv to auto-activate for commands (relative to root)
+    # per-step `model:` support: the flow's provider spec (so an override can be
+    # built from it) and a cache so N steps sharing a model share one provider.
+    # None when a ready provider object was injected (tests) — overrides are
+    # then ignored, and when the CLI forces --model it wins over step models.
+    pspec: dict | None = None
+    model_locked: bool = False
+    _providers: dict = None   # model id -> provider (lazy, see step_provider)
+
+    def step_provider(self, model: str | None):
+        """The provider for an agent step: the flow provider unless the step
+        names a `model:` — then a same-type provider for that model (cached)."""
+        if not model or self.model_locked or self.pspec is None:
+            if model and self.pspec is None:
+                log.debug("step model %r ignored (injected provider)", model)
+            return self.provider
+        if self._providers is None:
+            self._providers = {}
+        if model not in self._providers:
+            self._providers[model] = make_provider(dict(self.pspec, model=model))
+            log.info("provider (step override): %s / %s",
+                     self.pspec.get("type"), model)
+        return self._providers[model]
 
 
 def make_provider(spec: dict):
@@ -68,8 +90,8 @@ def build_step(spec: dict, ctx: Context):
     log.debug("building step %s [%s]", spec.get("id", "?"), t)
     if t == "agent":
         skill = ctx.skills[spec["skill"]]
-        return AgentNode(spec["id"], skill, ctx.provider, ctx.tools,
-                         captures=spec.get("set"),
+        return AgentNode(spec["id"], skill, ctx.step_provider(spec.get("model")),
+                         ctx.tools, captures=spec.get("set"),
                          max_steps=spec.get("max_steps", 20))
     if t == "command":
         return CommandNode(spec["id"], spec["run"], ctx.root,
@@ -158,18 +180,23 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
     venv = venv or spec.get("venv") or ".venv"
     if ws != flow_dir.resolve():
         log.info("workspace: %s", ws)
+    pspec = None
+    model_locked = False
     if provider is None:
         pspec = dict(spec["provider"])
         for k, v in (provider_overrides or {}).items():
             if v is not None:
                 pspec[k] = v
+        # an explicit --model forces ONE model everywhere (per-step models may
+        # be ids from a different provider's namespace once --provider changes)
+        model_locked = bool((provider_overrides or {}).get("model"))
         provider = make_provider(pspec)
         log.info("provider: %s / %s", pspec.get("type"), pspec.get("model"))
     skills = load_skills(flow_dir)
     log.info("loaded %d skill(s): %s", len(skills), ", ".join(skills) or "(none)")
     ctx = Context(root=ws, provider=provider, skills=skills,
                   tools=default_tools(ws, venv=venv, command_policy=cfg.command_policy),
-                  venv=venv)
+                  venv=venv, pspec=pspec, model_locked=model_locked)
     steps = [build_step(s, ctx) for s in spec["workflow"]]
     for k, step in enumerate(steps):
         _tag_step(step, k)               # tag BEFORE chaining (walk stays in-step)
