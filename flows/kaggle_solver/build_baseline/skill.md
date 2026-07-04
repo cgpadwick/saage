@@ -33,9 +33,12 @@ breaks the run):
 - argparse with allow_abbrev=False and flags:
   `--device` (cpu/cuda), `--epochs`, `--data-path` (default data/),
   `--checkpoint-dir` (default checkpoints/), `--lr`
-- split train/validation (e.g. 80/20), print train AND validation metrics
-  per epoch, save the best checkpoint by validation metric, early-stop with
-  patience 5
+- YOU own the validation protocol (holdout, K-fold, OOF — your call; state it
+  in a comment at the top of train.py). The only rule: the reported score
+  must be an honest estimate of leaderboard performance — a protocol that
+  flatters validation but not the leaderboard loses the competition. Print
+  train AND validation metrics per epoch, save the best checkpoint by
+  validation metric, early-stop with patience 5
 - write `training.log`-style progress to stdout (the harness captures it)
 - AT EXIT write `eval_results.json` at the workspace root:
   `{"metric_name": "<metric>", "value": <best validation score as float>}`

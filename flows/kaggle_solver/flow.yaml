@@ -20,7 +20,9 @@
 # Run (after `mlebench prepare -c <comp> --data-dir ~/.mlebench/data`):
 #   OPENROUTER_API_KEY=... saage run flows/kaggle_solver/flow.yaml \
 #     --workspace /tmp/kaggle_run --set competition_id=spooky-author-identification
-provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
+# brains on the strong tier; mechanical judgment steps override to flash via
+# per-step `model:` (E3) — ~5x cheaper where quality doesn't move the score
+provider: { type: openrouter, model: deepseek/deepseek-v4-pro }
 workspace: /tmp/saage_kaggle
 # what the remote sidecar collects from the workspace (local runs ignore this).
 # This list is also what a cross-box `saage remote resume` can restore, so it
@@ -78,12 +80,12 @@ workflow:
     type: retry_loop
     max_iterations: 3
     action: { id: comp_understanding, type: agent, skill: comp_understanding, max_steps: 30 }
-    check:  { id: comp_understanding_critic, type: agent, skill: comp_understanding_critic, max_steps: 10 }
+    check:  { id: comp_understanding_critic, type: agent, skill: comp_understanding_critic, max_steps: 10, model: deepseek/deepseek-v4-flash }
   - id: eda_loop
     type: retry_loop
     max_iterations: 3
     action: { id: eda, type: agent, skill: eda, max_steps: 35 }
-    check:  { id: eda_critic, type: agent, skill: eda_critic, max_steps: 10 }
+    check:  { id: eda_critic, type: agent, skill: eda_critic, max_steps: 10, model: deepseek/deepseek-v4-flash }
 
   # ---- baseline: build (deterministic pytest check), short-train, record ----
   - id: baseline_build
@@ -102,7 +104,7 @@ workflow:
       type: command
       run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
       set: { candidate_score: "VAL_SCORE=(\\S+)" }
-    check: { id: baseline_verify, type: agent, skill: verify_training, max_steps: 12 }
+    check: { id: baseline_verify, type: agent, skill: verify_training, max_steps: 12, model: deepseek/deepseek-v4-flash }
   - id: baseline_record
     type: command
     run: 'python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best nan --failures 0 --lower-is-better {{ lower_is_better }} --target "{{ target_score }}" --baseline true'
@@ -143,12 +145,12 @@ workflow:
               skill: propose
               max_steps: 20
               set: { current_proposal: "(?s)(.+)" }
-            check: { id: proposal_critic, type: agent, skill: proposal_critic, max_steps: 8 }
+            check: { id: proposal_critic, type: agent, skill: proposal_critic, max_steps: 8, model: deepseek/deepseek-v4-flash }
           # one-paragraph digest of the accepted proposal -> proposals/summary.md, which
           # keep_or_revert writes into research_log.md (kept terse so the proposer can
           # re-read the whole log cheaply every iteration; the full proposal goes only
           # to experiments.jsonl for the human report)
-          - { id: summarize, type: agent, skill: summarize, max_steps: 6 }
+          - { id: summarize, type: agent, skill: summarize, max_steps: 6, model: deepseek/deepseek-v4-flash }
           - id: implement_loop
             type: retry_loop
             max_iterations: 3
@@ -170,7 +172,7 @@ workflow:
               type: command
               run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
               set: { candidate_score: "VAL_SCORE=(\\S+)" }
-            check: { id: verify_train, type: agent, skill: verify_training, max_steps: 12 }
+            check: { id: verify_train, type: agent, skill: verify_training, max_steps: 12, model: deepseek/deepseek-v4-flash }
           - id: keep_or_revert
             type: command
             run: 'python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best {{ best_score }} --failures {{ consecutive_failures }} --lower-is-better {{ lower_is_better }} --target "{{ target_score }}"'
@@ -188,7 +190,7 @@ workflow:
       type: command
       run: 'python3 train.py --device {{ device }} --epochs {{ final_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
       set: { final_score: "VAL_SCORE=(\\S+)" }
-    check: { id: final_verify, type: agent, skill: verify_training, max_steps: 12 }
+    check: { id: final_verify, type: agent, skill: verify_training, max_steps: 12, model: deepseek/deepseek-v4-flash }
 
   # ---- self-ensemble on top of the trained solution (MLE-STAR P3-lite) ----
   # the agent builds one ensembling strategy (seeds/checkpoint-averaging/TTA)
