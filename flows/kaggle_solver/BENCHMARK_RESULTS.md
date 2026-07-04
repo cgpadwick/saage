@@ -9,3 +9,4 @@ source of truth is `benchmark_journal.jsonl` (one line per run).
 | 2026-07-02 | spooky-author-identification | openrouter | unknown | ? | 0.3207 | ? | $4.9468 | 10.2 | `kaggle_solver-20260702-0425-fdc6` |
 | 2026-07-03 | spooky-author-identification | openrouter | none | true | 0.3985 | 0.4129 | $2.2424 | 2.4 | `kaggle_solver-20260703-1603-dc9a` |
 | 2026-07-03 | nomad2018-predict-transparent-conductors | openrouter | none | false | 0.05178 | 0.1424 | $7.2623 | 5.7 | `kaggle_solver-20260703-1603-d093` |
+| 2026-07-03 | spooky-author-identification | openrouter | none | true | 0.3332 | 0.3481 | $5.6592 | 10.6 | `kaggle_solver-20260703-1824-759b` |

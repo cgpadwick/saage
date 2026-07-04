@@ -1,6 +1,6 @@
-# spooky-author-identification — run kaggle_solver-20260703-1603-dc9a
+# spooky-author-identification — run kaggle_solver-20260703-1824-759b
 
-outcome: medal=none above_median=true val=0.3985 test=0.4129 llm_cost=$2.2424
+outcome: medal=none above_median=true val=0.3332 test=0.3481 llm_cost=$5.6592
 
 ## Research log
 
@@ -21,75 +21,78 @@ Every experiment below is recorded by keep_or_revert.py.
 
 ## Experiments
 
-## Experiment 1 — KEPT ✅ (candidate=0.408412, best=0.408412)
-- changed: competition_understanding.md, data_analysis.md, eda_features.py, eda_function_words.py, eda_overview.py, eda_text_analysis.py, model.py, predict.py, tests/test_smoke.py, train.py
-- commit: db2a5bbe
+## Experiment 1 — KEPT ✅ (candidate=0.403476, best=0.403476)
+- changed: competition_understanding.md, data_analysis.md, eda_char_ngrams.py, eda_overview.py, eda_text_lengths.py, eda_vocabulary.py, memory/spooky-author-identification.md, model.py, predict.py, tests/test_smoke.py, train.py
+- commit: de84d4f1
 
 (no summary written)
+## Data audit (after baseline)
+LEAKAGE: TF-IDF vectorizer fitted on ALL texts before train/val split — val set influences IDF weights used for training features (train.py:71 `clf.fit_vectorizer(texts)`). The `fit` must happen after `train_test_split`, on only the training texts.
+UNUSED DATA: none — all provided data files (train.csv, test.csv) are loaded; sample_submission.csv is a format reference, not model input.
+OPPORTUNITY: Fix the vectorizer leakage first, then consider adding sentence-level features (text length, punctuation density, vocabulary richness) as dense side-inputs to the NN — char n-grams alone miss syntactic stylometric signals that discriminate Poe/Shelley/Lovecraft.
 
-## Experiment 2 — KEPT ✅ (candidate=0.408148, best=0.408148)
+## Experiment 2 — reverted ❌ (candidate=0.405376, best=0.403476)
+- changed: ablation_history.md, ablation_study.py, ablation_summary.md, model.py
+
+Widen hidden layers from 256→128 to 512→256 units, add Batch Normalization after each linear layer (before ReLU), and remove dropout entirely (default 0.0). The ablation showed dropout removal improved log loss (0.4802 vs 0.4887 baseline), indicating underfitting is the bottleneck, so increasing capacity and stabilizing training with BN should lower validation loss further.
+
+## Experiment 3 — reverted ❌ (candidate=1.03796, best=0.403476)
+- changed: model.py, tests/test_smoke.py, train.py
+
+Replace the 3-layer NN (256→128 hidden, ~13M params) with single-layer logistic regression (50K→3, ~150K params + L2 weight decay 0.01) and fix data leakage by fitting the TF-IDF vectorizer after the train/test split. This tests whether a linear model with proper regularization outperforms the overparameterized NN, since widening made validation loss worse and the literature gold standard for this dataset size is logistic regression on character n-gram TF-IDF.
+
+## Experiment 4 — reverted ❌ (candidate=0.413801, best=0.403476)
 - changed: model.py, predict.py, tests/test_smoke.py, train.py
-- commit: 845a7c3a
 
-Character n-gram TF-IDF features (n=2–5, 20k features) will be concatenated with the existing word n-gram features (20k→40k total) to capture spelling variants, punctuation patterns, and subword morphology — closing the 10.7% OOV test vocabulary gap that the word-only model cannot bridge.
+Replace SimpleNN (char n-gram TF-IDF only) with a DualInputNN adding 26 stylometric features (punctuation, pronouns, dialect). Based on analysis showing strong author signals (MWS semicolons 2.4×, `i`/`my` 1.5–2.5×), the hypothesis is explicit stylometric pathways reduce the hypothesis space from sparse 50K n-grams alone, lowering validation log loss.
 
-## Experiment 3 — reverted ❌ (candidate=0.450628, best=0.408148)
+## Experiment 5 — reverted ❌ (candidate=0.422392, best=0.403476)
+- changed: train.py
+
+Fixes TF-IDF data leakage by moving vectorizer fit to after the train/validation split (so IDF weights come only from training texts) and adds L2 weight decay (1e-4) to Adam optimizer. This eliminates the contaminated validation metric that inflated the ~0.403 baseline and prevents overfitting on the now-smaller effective training set.
+
+## Experiment 6 — reverted ❌ (candidate=0.500606, best=0.403476)
 - changed: model.py, predict.py, tests/test_smoke.py, train.py
 
-Replace the PyTorch MLP (20.6M params) with sklearn's LogisticRegression (multinomial, L2-regularized, ~120k params) to reduce severe overfitting on ~14k training samples with 40k TF-IDF features. Linear models with L2 penalty are the canonical strong baseline for high-dimensional sparse text, converging deterministically and generalizing far better than the overparameterized MLP.
+Fixes TF-IDF data leakage (vectorizer fit on train only, not all texts) and replaces the overparameterized 13M-param PyTorch SimpleNN with sklearn's LogisticRegression (multinomial, lbfgs solver, C=1.0). Hypothesis is that proper L2-regularized logistic regression with second-order convergence will outperform the badly conditioned NN and fix the experimental plateau.
 
-## Experiment 4 — KEPT ✅ (candidate=0.398496, best=0.398496)
-- changed: model.py, train.py
-- commit: 389226f3
+## Experiment 7 — KEPT ✅ (candidate=0.371445, best=0.371445)
+- changed: ablation_history.md, ablation_study.py, ablation_summary.md, model.py, predict.py, requirements.txt, tests/test_smoke.py, train.py
+- commit: 0eea9a64
 
-Reduced MLP hidden_dim 512→128, raised dropout 0.3→0.4, added BatchNorm1d after each linear layer, and added weight_decay=1e-4 to the Adam optimizer. The hypothesis is that the 20.6M-parameter network is severely overparameterized for ~14k training samples, and stronger regularization will force the model to learn generalizable stylistic patterns instead of memorizing.
+Replace the char-n-gram TF-IDF + 2-layer NN pipeline with a fine-tuned DistilBERT-cased transformer (max_length=128, AdamW lr=2e-5, linear warmup+decay, EMA decay=0.999, temperature scaling) to capture sequential, contextual, and syntactic stylometric signals that bag-of-n-gram features miss. This directly tests the architecture_depth ablation target, fixes the TF-IDF contamination issue, and mirrors a prior successful run where the same upgrade dropped log loss from ~0.41 to ~0.36.
 
-## Experiment 5 — reverted ❌ (candidate=0.426338, best=0.398496)
+## Experiment 8 — KEPT ✅ (candidate=0.367506, best=0.367506)
+- changed: model.py
+- commit: 559a552c
+
+Deepen DistilBERT classification head from a single linear layer to a 2-layer MLP (768→256→3, GELU, dropout 0.3) to capture non-linear stylometric interactions (pronouns, punctuation, function-word co-occurrences) that a linear probe cannot exploit, motivated by an ablation study where removing depth increased log loss by +0.09.
+
+## Experiment 9 — KEPT ✅ (candidate=0.361996, best=0.361996)
+- changed: model.py
+- commit: 15679e40
+
+Replaced fixed [CLS] token extraction with learned attention-weighted pooling over all token hidden states in DistilBertClassifier. This adds ~768 parameters (an attention vector) to let the model adaptively weigh the most diagnostic tokens for authorship (e.g., punctuation, function words, dialect markers) per sample, hypothesizing that the deeper representation pathway will improve validation log loss.
+
+## Experiment 10 — reverted ❌ (candidate=0.366332, best=0.361996)
+- changed: model.py
+
+Deepened the DistilBERT classification head from 2 layers (768→256→3) to 3 layers with wider first hidden layer (768→512→256→3) and added Layer Normalization after each hidden layer. This tests whether extra depth and training stability from LayerNorm improve validation log loss, since the ablation study showed architecture depth was the largest driver of degradation and each prior depth increase has yielded steady gains (0.4035→0.3620).
+
+## Experiment 11 — KEPT ✅ (candidate=0.358148, best=0.358148)
 - changed: model.py, tests/test_smoke.py
+- commit: 5c27bda9
 
-The proposal adds ~20 hand-crafted stylistic features (punctuation ratios, pronoun densities, dialect flags, sentence length) as dense columns alongside the existing 40k TF-IDF char n-grams. These give the model explicit, position-invariant signals—like semicolon rate and first-person pronoun density—that are currently diluted across sparse n-gram dimensions and poorly captured by the overparameterized representation.
+Concatenates the [CLS] token (semantic/sentence-level) with the attention-pooled vector (stylometric/token-level), widening the DistilBert classifier head input from 768→1536 dimensions, while keeping the 2-layer MLP structure. Hypothesis: combining complementary representations (pretraining-optimized [CLS] + task-optimized pooling) will improve validation log loss, avoiding the deepening approach that failed in Exp 10.
 
-## Experiment 6 — reverted ❌ (candidate=0.426222, best=0.398496)
-- changed: train.py
+## Experiment 12 — KEPT ✅ (candidate=0.356067, best=0.356067)
+- changed: ablation_history.md, ablation_study.py, ablation_summary.md, model.py
+- commit: 5504515f
 
-Changed `hidden_dim` in train.py from 512→128 to match the model class default, cutting parameters from ~20.6M to ~5.1M. The aim is to reduce overfitting on ~14k training samples while retaining the BatchNorm, dropout (0.4), and weight_decay that improved validation logloss in Experiment 4 from 0.408→0.398.
+Replaced single-head AttentionPooling with 8-head MultiHeadAttentionPooling (768→6,144 attention params, output still 768 via averaging). The goal is to let separate heads specialize in different stylistic signals (punctuation, function words, character names) simultaneously, removing the trade-off forced by a single attention distribution, to improve validation log loss.
 
-## Experiment 7 — reverted ❌ (candidate=0.419581, best=0.398496)
-- changed: train.py
+## Experiment 13 — reverted ❌ (candidate=0.359189, best=0.356067)
+- changed: model.py
 
-Adds label smoothing (ε=0.1) to CrossEntropyLoss in train.py (nn.CrossEntropyLoss() → nn.CrossEntropyLoss(label_smoothing=0.1)). This directly targets the logloss metric by calibrating predicted probabilities to prevent the catastrophic penalty (~34.5 per mistake) from overconfident wrong predictions, especially on strong named-entity features like author names.
-
-## Experiment 8 — reverted ❌ (candidate=0.400441, best=0.398496)
-- changed: train.py
-
-The current experiment replaces the Adam optimizer (fixed LR=0.001) with AdamW (decoupled weight decay) and adds a CosineAnnealingLR scheduler, decaying learning rate from 0.001 to near-zero over the epoch budget, to help the optimizer escape sharp minima and converge to flatter, better-generalizing basins, directly improving validation logloss.
-
-## Experiment 9 — reverted ❌ (candidate=0.408172, best=0.398496)
-- changed: model.py, predict.py, tests/test_smoke.py, train.py
-
-Switching from TF-IDF n-grams + MLP to a DistilBERT sequence classifier fine-tuned end-to-end (AdamW lr=2e-5, max_length=128, first 2 of 6 layers frozen, batch_size=32) to push validation logloss below 0.398. DistilBERT captures word order, clause structure, and syntactic context, and its WordPiece tokenization solves the 10.7% test OOV gap—bag-of-ngrams has plateaued because it discards word order entirely.
-
-## Experiment 10 — reverted ❌ (candidate=0.409491, best=0.398496)
-- changed: train.py
-
-Reducing the MLP hidden dimension from 512 to 256 in the TF-IDF+MLP pipeline, halving parameters from ~20.6M to ~10.3M, to test whether 256 is the capacity sweet spot that improves generalization. The 512-dim model appears overparameterized (~1,470 params/sample) while the earlier 128-dim trial (0.426 logloss) lacked sufficient capacity — 256 remains unexplored.
-
-## Experiment 11 — reverted ❌ (candidate=0.91506, best=0.398496)
-- changed: model_xgb.py, predict.py, tests/test_smoke.py, train.py
-
-Replaced the PyTorch 2-layer MLP with an XGBoost classifier (800 trees, max_depth=6, colsample_bytree=0.8, gamma=0.1) on the same 40k-dimensional word+char TF-IDF features, hypothesizing that tree ensembles handle high-dimensional sparse data and non-linear feature interactions better than the plateaued MLP (0.3985 logloss). XGBoost directly optimizes multi-class logloss, natively uses sparse matrices, and adds pruning-based regularization; if it improves, the next step is an MLP+XGBoost ensemble.
-
-## Experiment 12 — reverted ❌ (candidate=0.417689, best=0.398496)
-- changed: train.py
-
-Adds MixUp data augmentation (α=0.2) to the MLP training loop, generating convex combinations of TF-IDF features and soft targets during training. This is a fundamentally new form of regularization that creates synthetic training data to produce smoother decision boundaries and better-calibrated probabilities — directly targeting the overconfident wrong predictions that dominate the logloss metric.
-
-## Experiment 13 — reverted ❌ (candidate=0.408646, best=0.398496)
-- changed: train.py
-
-Experiment 13 adds Exponential Moving Average (EMA, decay=0.999) of model parameters during training, evaluating the EMA weights at the end and saving them if they beat the best checkpoint. The hypothesis is that EMA smooths batch-level oscillations and biases toward flatter minima, directly reducing generalization error — a temporal-averaging fix orthogonal to previous architecture/feature changes, targeting the existing best logloss of 0.40044 to push below 0.3985.
-
-## Experiment 14 — reverted ❌ (candidate=0.424415, best=0.398496)
-- changed: train.py
-
-Replaces standard CrossEntropyLoss with Focal Loss (γ=2.0) to reshape the loss objective toward hard, ambiguous examples and penalize overconfident predictions, aiming to improve validation logloss after nine consecutive experiments failed to beat 0.3985.
+Added 8 learnable per-head temperature scalars (initialized to 1.0) to the MultiHeadAttentionPooling softmax, so each attention head can independently control how sharp or diffuse its attention distribution is. The hypothesis is that different stylistic signals need different sharpness — rare character names like "Raymond" benefit from low temperature (sharp focus on a few tokens), while broad function-word patt
+… (truncated)
