@@ -5,7 +5,9 @@ from saage.pricing import cost, rates
 
 
 def test_rates_substring_match():
-    assert rates("deepseek/deepseek-v4-flash") == (0.27, 1.10)
+    assert rates("deepseek/deepseek-chat-v3.1") == (0.27, 1.10)   # generic family key
+    assert rates("deepseek/deepseek-v4-flash") == (0.09, 0.18)    # exact tier beats family
+    assert rates("deepseek/deepseek-v4-pro") == (0.435, 0.87)
     assert rates("anthropic/claude-sonnet-4-6") == (3.0, 15.0)
 
 
@@ -47,9 +49,9 @@ def test_unreadable_override_is_ignored(tmp_path, monkeypatch):
 
 def test_override_replaces_builtin(tmp_path, monkeypatch):
     p = tmp_path / "o.json"
-    p.write_text(json.dumps({"deepseek": [9.0, 9.0]}))
+    p.write_text(json.dumps({"deepseek-v4-flash": [9.0, 9.0]}))
     monkeypatch.setenv("SAAGE_PRICES", str(p))
-    assert rates("deepseek/deepseek-v4-flash") == (9.0, 9.0)   # override wins
+    assert rates("deepseek/deepseek-v4-flash") == (9.0, 9.0)   # override wins the tie
 
 
 def test_mixed_case_override_key_matches(tmp_path, monkeypatch):
