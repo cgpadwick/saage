@@ -46,6 +46,10 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                     default=[], help="passed through to `saage run` on the node")
     ho.add_argument("--env", dest="env", metavar="KEY=VALUE", action="append",
                     default=[], help="extra env for the run (e.g. SAAGE_FORCE_CPU=1)")
+    ho.add_argument("--model", default=None,
+                    help="override the flow's model on the node (forces ONE "
+                         "model for every step, like `saage run --model`) — "
+                         "for trying a different model without editing the flow")
     ho.add_argument("--workspace-mode", choices=["auto", "ephemeral", "package"],
                     default="auto",
                     help="auto: package the flow's workspace iff it is a git repo")
@@ -202,6 +206,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             need_gpu=args.need_gpu,
             ws_setup=args.ws_setup,
             bootstrap_timeout=args.bootstrap_timeout,
+            model=args.model,
         )
         print(f"run {rs.run_id} handed off — `saage remote status {rs.run_id}`")
         return 0

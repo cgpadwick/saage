@@ -36,6 +36,8 @@ class RunSpec:
     ws_mode: str                        # 'ephemeral' | 'branch' | 'bundle'
     set_args: dict = field(default_factory=dict)     # --set k=v passthrough
     venv_arg: str | None = None                      # --venv passthrough
+    model_arg: str | None = None                     # --model passthrough (forces
+                                                     # one model for every step)
     sync_interval: int = 300
     max_run_days: float = 12.0
     r2: bool = False                                 # mirror artifacts to R2/S3
@@ -167,11 +169,12 @@ def start_sh(spec: RunSpec) -> str:
         f"--set {shlex.quote(f'{k}={v}')}" for k, v in spec.set_args.items()
     )
     venv_flag = f"--venv {shlex.quote(spec.venv_arg)}" if spec.venv_arg else ""
+    model_flag = f"--model {shlex.quote(spec.model_arg)}" if spec.model_arg else ""
     # packaged workspace: tell the flow which branch it is on, so flows that manage
     # their own experiment branch (e.g. lewm setup_experiment --branch) commit to
     # the branch the push-back channel actually pushes
     engine = (f'venv/bin/saage run "flow/{spec.flow_file}" --workspace "$PWD/ws" '
-              f'{venv_flag} {set_flags} \\\n  $RUN_BRANCH_FLAG')
+              f'{venv_flag} {model_flag} {set_flags} \\\n  $RUN_BRANCH_FLAG')
     run_branch_flag = (
         '# packaged workspace: tell the flow which branch it is on, so flows that manage\n'
         '# their own experiment branch (e.g. lewm setup_experiment --branch) commit to\n'

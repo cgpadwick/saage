@@ -82,6 +82,7 @@ def resume_run(run_ref: str | None, *, target_name: str | None = None) -> "RunSt
         flow_file=flow_path.name,
         ws_mode=ws_view.mode,
         set_args=manifest.get("set") or {},
+        model_arg=manifest.get("model"),
         r2=storage is not None,
         ws_setup=manifest.get("ws_setup"),
         artifacts=tuple(manifest.get("artifacts") or ()),

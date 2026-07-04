@@ -232,3 +232,12 @@ def test_manifest_roundtrip_run_settings_old_manifest_defaults():
     assert spec.sync_interval == 300
     assert spec.max_run_days == 12.0
     assert spec.venv_arg is None
+
+
+def test_start_sh_model_passthrough():
+    from saage.remote.scripts import RunSpec, start_sh
+    spec = RunSpec(run_id="r-1", flow_file="flow.yaml", ws_mode="ephemeral",
+                   model_arg="minimax/minimax-m3")
+    assert "--model minimax/minimax-m3" in start_sh(spec)
+    plain = RunSpec(run_id="r-2", flow_file="flow.yaml", ws_mode="ephemeral")
+    assert "--model" not in start_sh(plain)
