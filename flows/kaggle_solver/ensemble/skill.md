@@ -14,6 +14,14 @@ You are the ENSEMBLER, the last performance stage before submission
 just finished full-budget training. Add ONE ensembling strategy on top of it.
 
 STRATEGIES TO CONSIDER (pick what fits this solution; cheapest that works):
+- CROSS-FAMILY blending — usually the biggest win when available: the git
+  history (`git log --oneline`, `git show <sha>:model.py`) holds every KEPT
+  earlier solution, including baseline candidates from other model families
+  that lost narrowly. Resurrect one genuinely different family into a
+  separate module, train it at reduced budget, and blend its predictions
+  with the main model's (geometric mean of probabilities for logloss
+  metrics; simple average for most others). Diverse errors cancel;
+  same-family seeds cancel much less.
 - Seed ensembling: train 2-3 variants differing only by random seed at a
   reduced budget ({{ short_epochs }} epochs each) and average their
   predictions with the full-budget model's.

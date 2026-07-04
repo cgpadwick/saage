@@ -51,6 +51,18 @@ validation leak (2/2 runs, different flows AND different brains). The one-shot
 MLE-STAR's answer is a code-level leakage check on *every* generated solution
 before execution — the flow's next engineering priority.
 
+### Cross-run ensembling (offline evidence, not a benchmark row)
+
+Blending the two strong spooky runs' submissions with an equal-weight
+**geometric mean** ([blend.py](blend.py) — recipe fixed a priori, no
+test-tuning) graded **0.29470** vs 0.34808/0.36381 alone — a 15% gain,
+**0.0009 short of bronze** (threshold 0.29381). Diverse errors cancel; this
+is MLE-STAR's parallel-candidates + ensembling result reproduced across
+runs. A blend of runs isn't a legal benchmark submission (one run = one
+submission), so the ensemble skill now teaches the in-run equivalent:
+resurrect a losing model family from git history and blend cross-family
+inside the run.
+
 ## Run it
 
 ```bash
