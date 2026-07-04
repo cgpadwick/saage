@@ -43,6 +43,8 @@ shared:
   target_score: ""             # optional early-exit score
   short_epochs: 15             # fixed exploratory budget per experiment
   final_epochs: 100            # final training (early stopping decides actual)
+  baseline_candidates: 2       # independent initial solutions; best one seeds
+                               # the hill-climb (a bad seed dooms greedy search)
   outer_phases: 6              # MLE-STAR outer loop: ablation-picked targets
   inner_iterations: 5          # experiments per target (6×5 = 30 total)
   max_consecutive_failures: 10
@@ -87,31 +89,45 @@ workflow:
     action: { id: eda, type: agent, skill: eda, max_steps: 35 }
     check:  { id: eda_critic, type: agent, skill: eda_critic, max_steps: 10, model: deepseek/deepseek-v4-flash }
 
-  # ---- baseline: build (deterministic pytest check), short-train, record ----
-  - id: baseline_build
-    type: retry_loop
-    max_iterations: 3
-    action: { id: build_baseline, type: agent, skill: build_baseline, max_steps: 45 }
-    check:
-      id: baseline_smoke
-      type: command
-      run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
-  - id: baseline_train_loop
-    type: retry_loop
-    max_iterations: 2
-    action:
-      id: baseline_train
-      type: command
-      run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
-      set: { candidate_score: "VAL_SCORE=(\\S+)" }
-    check: { id: baseline_verify, type: agent, skill: verify_training, max_steps: 12, model: deepseek/deepseek-v4-flash }
-  - id: baseline_record
-    type: command
-    run: 'python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best nan --failures 0 --lower-is-better {{ lower_is_better }} --target "{{ target_score }}" --baseline true'
-    set:
-      best_score: "BEST_SCORE=(\\S+)"
-      consecutive_failures: "FAILURES=([0-9]+)"
-      target_met: "TARGET_MET=([01])"
+  # ---- baselines: MLE-STAR seeds the refinement from the best of SEVERAL
+  # independent initial solutions, not the first one that compiles — a greedy
+  # hill-climb can't escape a bad starting basin (seen live: two runs locked
+  # into a weak classical pipeline). Each candidate is built (deterministic
+  # pytest check), short-trained, and kept only if it beats the best baseline
+  # so far (--baseline auto: first candidate records, later ones must win).
+  - id: seed_baselines
+    type: counting_loop
+    max_iterations: "{{ baseline_candidates }}"
+    body:
+      - id: baseline_build
+        type: retry_loop
+        max_iterations: 3
+        action: { id: build_baseline, type: agent, skill: build_baseline, max_steps: 45 }
+        check:
+          id: baseline_smoke
+          type: command
+          run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+      # a failed candidate train must read as nan (revert), never a stale score
+      - id: baseline_reset
+        type: command
+        run: 'echo "CANDIDATE=nan"'
+        set: { candidate_score: "CANDIDATE=(\\S+)" }
+      - id: baseline_train_loop
+        type: retry_loop
+        max_iterations: 2
+        action:
+          id: baseline_train
+          type: command
+          run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+          set: { candidate_score: "VAL_SCORE=(\\S+)" }
+        check: { id: baseline_verify, type: agent, skill: verify_training, max_steps: 12, model: deepseek/deepseek-v4-flash }
+      - id: baseline_record
+        type: command
+        run: 'python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best {{ best_score }} --failures 0 --lower-is-better {{ lower_is_better }} --target "{{ target_score }}" --baseline auto'
+        set:
+          best_score: "BEST_SCORE=(\\S+)"
+          consecutive_failures: "FAILURES=([0-9]+)"
+          target_met: "TARGET_MET=([01])"
   # one-time leakage + data-usage audit (P4); findings land in research_log.md
   # so every later propose/implement iteration sees them
   - { id: data_audit, type: agent, skill: data_audit, max_steps: 15 }

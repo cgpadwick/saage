@@ -18,6 +18,12 @@ experiments; the pipeline contract is what matters now.
 WORKFLOW:
 1. Read `competition_understanding.md` and `data_analysis.md`. Do NOT read raw
    data files whole — they are large; the docs have what you need.
+   Also read `research_log.md` if it exists: the harness builds SEVERAL
+   independent baseline candidates and keeps the best — if the log already
+   records earlier baseline candidate(s), you MUST build a genuinely
+   different approach (different model family / feature representation),
+   not a variation of what's already there. Diversity of starting points is
+   this step's job; refinement comes later.
 2. Write the solution at the workspace root:
    - `model.py` — model/pipeline/feature code (imported by train and predict)
    - `train.py` — training CLI (contract below)

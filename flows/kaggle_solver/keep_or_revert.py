@@ -80,12 +80,16 @@ def main() -> None:
     ap.add_argument("--target", default="",
                     help="optional target score; sets TARGET_MET (direction-aware)")
     ap.add_argument("--baseline", default="false",
-                    help="true = record the first score, no comparison")
+                    help="true = record the first score, no comparison; "
+                         "auto = baseline only while --best is nan (for the "
+                         "multi-candidate baseline loop: first candidate is "
+                         "recorded, later ones must beat it)")
     args = ap.parse_args()
 
     cand, best, fails = args.candidate, args.best, args.failures
     lower = str(args.lower_is_better).lower() == "true"
-    baseline = str(args.baseline).lower() == "true"
+    mode = str(args.baseline).lower()
+    baseline = mode == "true" or (mode == "auto" and math.isnan(best))
 
     # capture the implement footprint, proposal, and summary BEFORE commit/revert
     # — a revert's `git clean` wipes the untracked proposals/ dir

@@ -114,6 +114,7 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
     shared = run_flow(flow_yaml, provider=provider, workspace=ws, shared={
         "competition_id": "fake-comp",
         "mlebench_data_dir": str(data_root),
+        "baseline_candidates": 1,   # scripted turns cover one baseline build
         "target_score": "0.8",
         "device": "cpu",
         "device_override": "cpu",   # hermetic: don't probe the host for a GPU
@@ -214,6 +215,7 @@ def test_failed_experiment_reverts_and_counts(flow_copy, tmp_path):
     shared = run_flow(flow_yaml, provider=provider, workspace=ws, shared={
         "competition_id": "fake-comp",
         "mlebench_data_dir": str(data_root),
+        "baseline_candidates": 1,   # scripted turns cover one baseline build
         "max_consecutive_failures": 1,            # exit after the one failure
         "device": "cpu",
         "device_override": "cpu",   # hermetic: don't probe the host for a GPU
