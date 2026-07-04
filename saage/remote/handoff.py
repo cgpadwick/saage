@@ -27,7 +27,10 @@ log = logging.getLogger("saage.remote")
 # that `pip install -e` doesn't need (README.md/LICENSE must travel: the build
 # backend requires them)
 ENGINE_EXCLUDES = (".git", ".venv", "venv", "__pycache__", ".pytest_cache",
-                   "*.log", ".github", ".claude", "docs", "tests", "flows")
+                   "*.log", ".github", ".claude", "docs", "tests", "flows",
+                   # fetched run artifacts can hold multi-GB checkpoints — the
+                   # node needs the engine source, never local results/contrib
+                   "results", "contrib", "*.egg-info")
 
 
 class HandoffError(RuntimeError):
