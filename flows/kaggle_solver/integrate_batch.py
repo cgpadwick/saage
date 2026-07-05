@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -41,6 +42,14 @@ def main() -> int:
     ap.add_argument("--target", default="")
     ap.add_argument("--failures", type=int, required=True)
     ap.add_argument("--round", type=int, required=True)
+    ap.add_argument("--smoke-cmd", default="",
+                    help="run after the patch applies; non-zero exit reverts "
+                         "the patch and fails the round. The env-skew guard: "
+                         "a patch that ran on a WORKER's package set may crash "
+                         "on the coordinator's (seen live: sklearn removed "
+                         "multi_class= between the two) — the winner must "
+                         "execute HERE before it is accepted.")
+    ap.add_argument("--smoke-timeout", type=float, default=1800.0)
     args = ap.parse_args()
 
     lower = args.lower_is_better == "true"
@@ -64,6 +73,10 @@ def main() -> int:
         apply = git("apply", "--binary", "--whitespace=nowarn", args.patch)
         if apply.returncode != 0:
             print(f"PATCH FAILED TO APPLY: {apply.stderr[-500:]}", file=sys.stderr)
+            improved = False
+        elif args.smoke_cmd and not _smoke(args.smoke_cmd, args.smoke_timeout):
+            git("checkout", "--", ".")
+            git("clean", "-fd")
             improved = False
         else:
             winner = next((p for p in summary["proposals"]
@@ -90,6 +103,23 @@ def main() -> int:
     return 0
 
 
+def _smoke(cmd: str, timeout: float) -> bool:
+    """The winning patch must EXECUTE on this box, not just apply."""
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                           timeout=timeout)
+    except subprocess.TimeoutExpired:
+        print(f"SMOKE TIMED OUT after {timeout:.0f}s — reverting the round's "
+              f"patch", file=sys.stderr)
+        return False
+    if r.returncode != 0:
+        print(f"SMOKE FAILED (rc={r.returncode}) — the winner ran on a worker "
+              f"but not here (env skew?); reverting. stderr tail:\n"
+              f"{(r.stderr or '')[-500:]}", file=sys.stderr)
+        return False
+    return True
+
+
 def _title(proposal_path: str) -> str:
     try:
         first = Path(proposal_path).read_text().strip().splitlines()[0]
@@ -102,9 +132,15 @@ def _ledger(round_no: int, summary: dict, candidate: float, new_best: float,
             improved: bool, kept_title: str) -> None:
     # one experiments.jsonl record per parallel proposal — same ledger the
     # sequential flow keeps, so downstream tooling reads either variant
+    rows = []
+    if os.path.exists("experiments.jsonl"):
+        with open("experiments.jsonl") as fh:
+            rows = [json.loads(l) for l in fh if l.strip()]
+    next_step = max((r.get("step", 0) for r in rows), default=0) + 1
     with open("experiments.jsonl", "a") as fh:
         for p in summary.get("proposals", []):
             fh.write(json.dumps({
+                "step": next_step + int(p.get("index") or 0),
                 "round": round_no, "slot": p.get("index"),
                 "candidate": p.get("score"),
                 "best": None if math.isnan(new_best) else new_best,

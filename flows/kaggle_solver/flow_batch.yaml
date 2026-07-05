@@ -173,13 +173,18 @@ workflow:
 
       - id: integrate
         type: command
+        timeout: 3600
+        # --smoke-cmd: the winner must EXECUTE here before it is accepted —
+        # a patch validated on a worker's package set can crash on the
+        # coordinator's (seen live: sklearn API skew broke the final train)
         run: 'python3 "{{ flow_dir }}/integrate_batch.py"
               --candidate {{ candidate_score }} --best {{ best_score }}
               --lower-is-better {{ lower_is_better }}
               --patch "{{ best_patch }}"
               --summary "batch/round_{{ round_no }}/summary.json"
               --target "{{ target_score }}" --failures {{ consec_failed_rounds }}
-              --round {{ round_no }}'
+              --round {{ round_no }}
+              --smoke-cmd "python3 train.py --device {{ device }} --epochs 1 --data-path data/ --checkpoint-dir checkpoints/"'
         set:
           best_score: "BEST_SCORE=(\\S+)"
           consec_failed_rounds: "FAILURES=([0-9]+)"
