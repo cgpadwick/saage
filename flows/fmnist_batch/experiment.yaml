@@ -1,0 +1,42 @@
+# One experiment job (the worker side of a batch round): implement the
+# proposal shipped at <flow_dir>/proposal.md against the workspace HEAD,
+# smoke it, short-train, and leave eval_results.json + experiment.patch
+# for the artifacts sidecar. Dispatched by saage.remote.batch, which stages
+# a per-job copy of this dir (with proposal.md) and pins `workspace:`.
+provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
+workspace: /tmp/saage_fmnist        # overwritten per job by batch.py
+artifacts: [eval_results.json, experiment.patch, training.log]
+shared:
+  job_index: "0"
+  short_epochs: 8
+workflow:
+  # the proposal into the workspace where the (sandboxed) agent can read it
+  - id: stage_proposal
+    type: command
+    run: 'cp "{{ flow_dir }}/proposal.md" proposal.md && head -3 proposal.md'
+
+  - id: implement_loop
+    type: retry_loop
+    max_iterations: 3
+    action:
+      id: implement
+      type: agent
+      skill: implement_experiment
+      max_steps: 40
+    check:
+      id: smoke
+      type: command
+      run: 'python3 train.py --epochs 1 --max-batches 8 --seed {{ job_index }}
+            && echo "ACTION: pass" || echo "ACTION: fail"'
+
+  - id: train
+    type: command
+    run: 'python3 train.py --epochs {{ short_epochs }} --seed {{ job_index }}
+          > training.log 2>&1 && tail -n 3 training.log'
+
+  # the diff the coordinator can apply: everything tracked-or-new, minus
+  # the .gitignored run outputs (patch/eval/log never include themselves)
+  - id: make_patch
+    type: command
+    run: 'git add -A && git diff --cached --binary > experiment.patch
+          && git reset -q && wc -l experiment.patch'
