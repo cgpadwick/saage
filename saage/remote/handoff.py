@@ -76,6 +76,13 @@ def _flow_artifacts(flow_doc: dict) -> tuple[str, ...]:
     return tuple(arts)
 
 
+def _check_push_path(relpath: str) -> None:
+    """push_files keys land in generated shell — run-dir-relative only."""
+    if relpath.startswith("/") or ".." in relpath or not relpath.strip():
+        raise HandoffError(
+            f"push_files path must be run-dir-relative: {relpath!r}")
+
+
 def _collect_secrets(provider_type: str, ws_plan: WorkspacePlan,
                      extra_env: dict[str, str], run_id: str,
                      storage: Storage | None) -> dict[str, str]:
@@ -120,7 +127,12 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
             dirty: str = "abort", max_run_days: float = 12.0,
             sync_interval: int = 300, need_gpu: bool = False,
             ws_setup: str | None = None, bootstrap_timeout: int = 1800,
-            model: str | None = None) -> RunState:
+            model: str | None = None, run_id: str | None = None,
+            push_files: dict[str, str] | None = None) -> RunState:
+    """`run_id` lets a caller name the run up front (the sweep launcher needs
+    the node-side run dir path before handoff, for scoped credentials).
+    `push_files` are extra files written into the run dir (0600), keyed by
+    run-dir-relative path — e.g. a scoped saage_home for a coordinator node."""
     flow_path = Path(flow).resolve()
     flow_doc = _load_flow(flow_path)
     flow_dir = flow_path.parent
@@ -128,7 +140,7 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
     declared_ws = flow_doc.get("workspace")
     venv_arg = flow_doc.get("venv")            # engine default applies if None
 
-    run_id = _gen_run_id(flow_dir.name)
+    run_id = run_id or _gen_run_id(flow_dir.name)
     rs = RunState.create(run_id)
     rs.event("handoff_started", flow=str(flow_path), target=target.name)
 
@@ -193,6 +205,11 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
         conn.rsync_to(ws_plan.bundle, f"{rdir}/ws.bundle")
     env_text = "".join(f"{k}={shlex.quote(v)}\n" for k, v in secrets.items())
     conn.write_file(f"{rdir}/run_env", env_text)        # home-relative: write_file quotes
+    for relpath, content in (push_files or {}).items():
+        _check_push_path(relpath)
+        parent = f"{rdir}/{relpath}".rsplit("/", 1)[0]
+        conn.run(f"mkdir -p $HOME/{shlex.quote(parent)}")
+        conn.write_file(f"{rdir}/{relpath}", content)
     for name, content in (("bootstrap.sh", bootstrap_sh(spec)),
                           ("start.sh", start_sh(spec)),
                           ("stop.sh", stop_sh(spec))):
