@@ -1,0 +1,230 @@
+# Kaggle solver, BATCHED hill-climb variant (plan §3 P3, via the phase-2
+# machinery of docs/batched_hillclimb_plan.md): identical to flow.yaml through
+# the baseline stage, then a researcher writes a ranked idea menu once, and
+# each round proposes K=3 diverse experiments, fans them out over
+# `batch_targets` (one short-train per box; competition data provisioned once
+# per node from the coordinator's prepared copy), applies the round winner's
+# patch, and reproposes from the full ledger. The tail (final train,
+# self-ensemble, submission, report, grade) matches flow.yaml.
+#
+# The coordinator runs locally or on a spawned box (`saage remote sweep-up`
+# does boxes + scoped creds + this handoff in one command); it needs the
+# prepared data + a GPU for the baseline/final train.
+#   source .venv/bin/activate
+#   OPENROUTER_API_KEY=... saage run flows/kaggle_solver/flow_batch.yaml \
+#     --workspace /tmp/kaggle_batch \
+#     --set competition_id=spooky-author-identification \
+#     --set lower_is_better=true \
+#     --set batch_targets=w1,w2,w3
+# brains on the strong tier; mechanical judgment steps override to flash via
+# per-step `model:` (E3) — ~5x cheaper where quality doesn't move the score
+provider: { type: openrouter, model: deepseek/deepseek-v4-pro }
+workspace: /tmp/saage_kaggle_batch
+artifacts: [experiments.jsonl, research_log.md, report.html,
+            submission.csv, eval_results.json, grading_submission.jsonl,
+            competition_understanding.md, data_analysis.md, research_ideas.md,
+            model.py, train.py, predict.py, "checkpoints/best_model.*",
+            batch_done.marker]
+shared:
+  competition_id: spooky-author-identification
+  mlebench_data_dir: "$HOME/.mlebench/data"   # shell-expanded in commands
+  device: cpu                  # coordinator-side; overwritten by prepare
+  device_override: ""
+  metric_name: "the competition metric"
+  lower_is_better: false       # SET THIS PER COMPETITION
+  target_score: ""             # optional early exit
+  short_epochs: 15
+  final_epochs: 100
+  baseline_candidates: 2       # independent initial solutions; best one seeds
+                               # the rounds (a bad seed dooms greedy search)
+  batch_targets: ""            # comma-separated worker targets (REQUIRED)
+  batch_rounds_max: 10
+  max_failed_rounds: 4         # consecutive no-improvement rounds before exit
+                               # (= 12 experiments at K=3 — kaggle plateaus
+                               # then breaks through; don't give up at 2)
+  best_score: "nan"
+  candidate_score: "nan"
+  final_score: "nan"
+  round_no: 0
+  consec_failed_rounds: 0
+  target_met: 0
+  round_ok: 0
+  best_index: -1
+  best_patch: ""
+  sample_submission_cols: ""
+  sample_submission_rows: 0
+  run_branch: ""
+
+workflow:
+  # ---- identical to flow.yaml: stage data, git/ledger, memory, understand, EDA
+  - id: prepare
+    type: command
+    run: 'python3 "{{ flow_dir }}/prepare_comp.py" --comp {{ competition_id }} --data-dir "{{ mlebench_data_dir }}" --device "{{ device_override }}"'
+    set:
+      sample_submission_cols: "SAMPLE_COLS=(.*)"
+      sample_submission_rows: "SAMPLE_ROWS=([0-9]+)"
+      device: "DEVICE=(\\S+)"
+  - id: setup
+    type: command
+    run: 'python3 "{{ flow_dir }}/setup_competition.py" --comp {{ competition_id }} --metric "{{ metric_name }}" --lower-is-better {{ lower_is_better }} --short-epochs {{ short_epochs }} --final-epochs {{ final_epochs }} --branch "{{ run_branch }}"'
+  - id: stage_memory
+    type: command
+    run: 'mkdir -p memory && cp "{{ flow_dir }}/memory/"*.md memory/ 2>/dev/null; ls memory/ 2>/dev/null || true'
+  - id: understand_loop
+    type: retry_loop
+    max_iterations: 3
+    action: { id: comp_understanding, type: agent, skill: comp_understanding, max_steps: 30 }
+    check:  { id: comp_understanding_critic, type: agent, skill: comp_understanding_critic, max_steps: 10, model: deepseek/deepseek-v4-flash }
+  - id: eda_loop
+    type: retry_loop
+    max_iterations: 3
+    action: { id: eda, type: agent, skill: eda, max_steps: 35 }
+    check:  { id: eda_critic, type: agent, skill: eda_critic, max_steps: 10, model: deepseek/deepseek-v4-flash }
+
+  # ---- multi-candidate baselines (coordinator-local, same as flow.yaml) ----
+  - id: seed_baselines
+    type: counting_loop
+    max_iterations: "{{ baseline_candidates }}"
+    body:
+      - id: baseline_build
+        type: retry_loop
+        max_iterations: 3
+        action: { id: build_baseline, type: agent, skill: build_baseline, max_steps: 45 }
+        check:
+          id: baseline_smoke
+          type: command
+          run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+      - id: baseline_reset
+        type: command
+        run: 'echo "CANDIDATE=nan"'
+        set: { candidate_score: "CANDIDATE=(\\S+)" }
+      - id: baseline_train_loop
+        type: retry_loop
+        max_iterations: 2
+        action:
+          id: baseline_train
+          type: command
+          timeout: 7200
+          run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+          set: { candidate_score: "VAL_SCORE=(\\S+)" }
+        check: { id: baseline_verify, type: agent, skill: verify_training, max_steps: 12, model: deepseek/deepseek-v4-flash }
+      - id: baseline_record
+        type: command
+        run: 'python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best {{ best_score }} --failures 0 --lower-is-better {{ lower_is_better }} --target "{{ target_score }}" --baseline auto'
+        set:
+          best_score: "BEST_SCORE=(\\S+)"
+          target_met: "TARGET_MET=([01])"
+  # one-time leakage + data-usage audit (P4)
+  - { id: data_audit, type: agent, skill: data_audit, max_steps: 15 }
+
+  # ---- the researcher: one deliberate pass over the problem class, after
+  # the baseline exists — writes the ranked idea menu every round draws on.
+  # Inner loop gates FORMAT deterministically; the outer critic judges
+  # SUBSTANCE (concrete, budget-real, grounded, honestly ranked).
+  # NOTE nested maxes multiply: 5 critic attempts x 3 format attempts each
+  - id: research_loop
+    type: retry_loop
+    max_iterations: 5
+    action:
+      id: research_format_loop
+      type: retry_loop
+      max_iterations: 3
+      action: { id: research_ideas, type: agent, skill: research_ideas, max_steps: 25 }
+      check:
+        id: check_ideas
+        type: command
+        run: 'python3 "{{ flow_dir }}/check_ideas.py"'
+    check: { id: research_critic, type: agent, skill: research_critic, max_steps: 12, model: deepseek/deepseek-v4-flash }
+
+  # ---- the batched hill-climb: K=3 parallel experiments per round ----
+  - id: batch_rounds
+    type: counting_loop
+    max_iterations: "{{ batch_rounds_max }}"
+    exit_when: "consec_failed_rounds >= max_failed_rounds or target_met == 1"
+    body:
+      - id: propose_loop
+        type: retry_loop
+        max_iterations: 3
+        action: { id: propose_batch, type: agent, skill: propose_batch, max_steps: 25 }
+        check:  { id: propose_critic_batch, type: agent, skill: propose_critic_batch, max_steps: 12, model: deepseek/deepseek-v4-flash }
+
+      # data provisioned once per node: rsync the coordinator's prepared
+      # public split into the node cache (relative to the provision cwd —
+      # ../../ = $SAAGE_CACHE), stamped, so rounds 2+ skip it
+      - id: run_batch
+        type: command
+        run: '"{{ engine_python }}" -m saage.remote.batch
+              --experiment-flow "{{ flow_dir }}/experiment.yaml"
+              --proposals proposals/current/p0.md proposals/current/p1.md proposals/current/p2.md
+              --targets "{{ batch_targets }}"
+              --workspace "{{ workspace }}"
+              --results-dir "batch/round_{{ round_no }}"
+              --set short_epochs={{ short_epochs }}
+              --set competition_id={{ competition_id }}
+              --lower-is-better {{ lower_is_better }}
+              --provision-files "{{ mlebench_data_dir }}/{{ competition_id }}/prepared/public"
+              --provision-cmd "mkdir -p ../../datasets/mlebench/{{ competition_id }} && rm -rf ../../datasets/mlebench/{{ competition_id }}/public && cp -r files ../../datasets/mlebench/{{ competition_id }}/public && pip3 install --user -q scikit-learn pandas xgboost lightgbm"
+              --need-gpu --max-hours 0.5 || true'
+        set:
+          candidate_score: "BEST_SCORE=(\\S+)"
+          best_index: "BEST_INDEX=(-?[0-9]+)"
+          best_patch: "BEST_PATCH=(.*)"
+          round_ok: "ROUND_OK=([0-9]+)"
+
+      - id: integrate
+        type: command
+        run: 'python3 "{{ flow_dir }}/integrate_batch.py"
+              --candidate {{ candidate_score }} --best {{ best_score }}
+              --lower-is-better {{ lower_is_better }}
+              --patch "{{ best_patch }}"
+              --summary "batch/round_{{ round_no }}/summary.json"
+              --target "{{ target_score }}" --failures {{ consec_failed_rounds }}
+              --round {{ round_no }}'
+        set:
+          best_score: "BEST_SCORE=(\\S+)"
+          consec_failed_rounds: "FAILURES=([0-9]+)"
+          target_met: "TARGET_MET=([01])"
+          round_no: "ROUND_NO=([0-9]+)"
+
+  # the climb is over — `saage remote sweep-watch` sees this marker on the
+  # mirror and releases the worker boxes while the tail below runs here
+  - id: mark_batch_done
+    type: command
+    run: 'date -u +%FT%TZ > batch_done.marker && echo MARKED'
+
+  # ---- identical to flow.yaml: final train, self-ensemble, submit, report, grade
+  - id: final_train_loop
+    type: retry_loop
+    max_iterations: 2
+    action:
+      id: final_train
+      type: command
+      timeout: 18000
+      run: 'python3 train.py --device {{ device }} --epochs {{ final_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+      set: { final_score: "VAL_SCORE=(\\S+)" }
+    check: { id: final_verify, type: agent, skill: verify_training, max_steps: 12, model: deepseek/deepseek-v4-flash }
+  - { id: ensemble, type: agent, skill: ensemble, max_steps: 40 }
+  - id: ensemble_eval
+    type: command
+    run: 'python3 "{{ flow_dir }}/read_val_score.py"'
+    set: { candidate_score: "VAL_SCORE=(\\S+)" }
+  - id: ensemble_keep
+    type: command
+    run: 'python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best {{ final_score }} --failures 0 --lower-is-better {{ lower_is_better }} --target "{{ target_score }}"'
+    set: { final_score: "BEST_SCORE=(\\S+)" }
+  - id: submission_loop
+    type: retry_loop
+    max_iterations: 3
+    action: { id: make_submission, type: agent, skill: make_submission, max_steps: 30 }
+    check:
+      id: validate_submission
+      type: command
+      run: 'python3 "{{ flow_dir }}/validate_submission.py"'
+  - { id: report, type: agent, skill: report, max_steps: 25 }
+  - id: grade
+    type: command
+    run: 'python3 "{{ flow_dir }}/grade.py" --comp {{ competition_id }} --data-dir "{{ mlebench_data_dir }}" || true'
+    set:
+      medal: "MEDAL=(\\S+)"
+      test_score: "TEST_SCORE=(\\S+)"
+      above_median: "ABOVE_MEDIAN=(\\S+)"

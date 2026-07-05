@@ -1,0 +1,57 @@
+# One batched hill-climb experiment (worker side). Staged per-proposal by
+# saage.remote.batch: this dir is copied with the proposal at proposal.md
+# and `workspace:` pinned to the coordinator's competition workspace, which
+# ships as a bundle (HEAD = current best). Competition data comes from the
+# node cache (provisioned once per box); the diff travels back as the
+# experiment.patch artifact. Reuses the sequential flow's implement skill
+# and train.py contract unchanged.
+provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
+workspace: /tmp/saage_kaggle          # overwritten per job by batch.py
+artifacts: [eval_results.json, experiment.patch, training.log]
+shared:
+  job_index: "0"
+  competition_id: ""
+  short_epochs: 15
+  device: cuda                        # batch workers are GPU boxes
+  current_proposal: ""
+workflow:
+  # excludes (info/exclude doesn't travel) + data link from the node cache
+  - id: worker_setup
+    type: command
+    run: 'python3 "{{ flow_dir }}/worker_setup.py" --comp {{ competition_id }}'
+
+  # the proposal text into the shared store, so the sequential flow's
+  # implement_experiment skill works unmodified ({{ current_proposal }})
+  - id: stage_proposal
+    type: command
+    run: 'cp "{{ flow_dir }}/proposal.md" proposal.md && echo "PROPOSAL_BEGIN"
+          && cat proposal.md && echo "PROPOSAL_END"'
+    set:
+      current_proposal: "(?s)PROPOSAL_BEGIN\\n(.*)\\nPROPOSAL_END"
+
+  - id: implement_loop
+    type: retry_loop
+    max_iterations: 3
+    action: { id: implement, type: agent, skill: implement_experiment, max_steps: 45 }
+    check:
+      id: smoke
+      type: command
+      run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+
+  - id: train
+    type: command
+    run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }}
+          --data-path data/ --checkpoint-dir checkpoints/ > training.log 2>&1
+          && python3 "{{ flow_dir }}/read_val_score.py"'
+
+  # eval_results.json is TRACKED (the baseline committed it), so the
+  # worker excludes don't apply to it — drop it from the patch explicitly.
+  # An empty patch means the implement agent changed nothing: that is a
+  # FAILED experiment (nan, can't win a round), not a candidate.
+  - id: make_patch
+    type: command
+    run: 'git add -A && git reset -q -- eval_results.json
+          && git diff --cached --binary > experiment.patch && git reset -q
+          && wc -c experiment.patch
+          && { [ -s experiment.patch ]
+               || { echo "EMPTY PATCH: implement made no code changes"; exit 1; }; }'
