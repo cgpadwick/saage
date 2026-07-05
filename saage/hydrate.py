@@ -95,7 +95,8 @@ def build_step(spec: dict, ctx: Context):
                          max_steps=spec.get("max_steps", 20))
     if t == "command":
         return CommandNode(spec["id"], spec["run"], ctx.root,
-                           captures=spec.get("set"), venv=ctx.venv)
+                           captures=spec.get("set"), venv=ctx.venv,
+                           timeout=spec.get("timeout"))
     if t == "retry_loop":
         return retry_loop(spec["id"],
                           build_step(spec["action"], ctx),

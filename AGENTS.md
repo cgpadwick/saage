@@ -75,6 +75,9 @@ workflow:                      # required: an ordered list of steps
 **`command`** — a deterministic shell step (no LLM). `run` is templated; cwd = workspace.
 ```yaml
 - { id: train, type: command, run: "python train.py --epochs {{ train_epochs }}",
+    timeout: 7200,                        # optional: seconds; a hung command is
+                                          # killed and the step returns exit 124
+                                          # (a failed attempt, never a hung run)
     set: { job_id: "job (\\d+)" } }       # optional capture from stdout/stderr
 ```
 

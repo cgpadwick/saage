@@ -118,6 +118,9 @@ workflow:
         action:
           id: baseline_train
           type: command
+          # a train that hangs (e.g. silent CPU fallback) must fail the attempt,
+          # not hold the flow — exit 124 reads as a failed train (nan -> revert)
+          timeout: 7200
           run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
           set: { candidate_score: "VAL_SCORE=(\\S+)" }
         check: { id: baseline_verify, type: agent, skill: verify_training, max_steps: 12, model: deepseek/deepseek-v4-flash }
@@ -186,6 +189,7 @@ workflow:
             action:
               id: train
               type: command
+              timeout: 7200
               run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
               set: { candidate_score: "VAL_SCORE=(\\S+)" }
             check: { id: verify_train, type: agent, skill: verify_training, max_steps: 12, model: deepseek/deepseek-v4-flash }
@@ -204,6 +208,7 @@ workflow:
     action:
       id: final_train
       type: command
+      timeout: 18000
       run: 'python3 train.py --device {{ device }} --epochs {{ final_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
       set: { final_score: "VAL_SCORE=(\\S+)" }
     check: { id: final_verify, type: agent, skill: verify_training, max_steps: 12, model: deepseek/deepseek-v4-flash }
