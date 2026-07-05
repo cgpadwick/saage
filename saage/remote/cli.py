@@ -117,6 +117,13 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     su.add_argument("--bootstrap-timeout", type=int, default=1800)
     su.add_argument("--dirty", choices=["abort", "commit", "ship-head"],
                     default="abort")
+    su.add_argument("--ws-setup", default=None, metavar="CMD",
+                    help="coordinator env/data setup run in its workspace at "
+                         "bootstrap (flow dir at ../flow), e.g. "
+                         "'bash ../flow/cloud_setup.sh'")
+    su.add_argument("--model", default=None,
+                    help="override the flow's model on the coordinator "
+                         "(forces one model for every step)")
 
     sw = rsub.add_parser("sweep-watch",
                          help="babysit a sweep via the R2 mirror: release "
@@ -294,7 +301,8 @@ def _dispatch(args: argparse.Namespace) -> int:
             provision_cmd=args.provision_cmd,
             provision_files=_P(args.provision_files) if args.provision_files else None,
             max_run_days=args.max_run_days,
-            bootstrap_timeout=args.bootstrap_timeout, dirty=args.dirty)
+            bootstrap_timeout=args.bootstrap_timeout, dirty=args.dirty,
+            ws_setup=args.ws_setup, model=args.model)
         state = rs.state()
         print(f"sweep {state['sweep_id']} up — run {rs.run_id}")
         print(f"boxes: {', '.join(state['sweep_boxes'])}")

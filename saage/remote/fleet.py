@@ -241,7 +241,9 @@ def sweep_up(flow: str, *, n_workers: int, cloud: str = "thunder",
              batch_targets_key: str = "batch_targets",
              max_run_days: float = 2.0, sync_interval: int = 60,
              bootstrap_timeout: int = 1800,
-             workspace_mode: str = "auto", dirty: str = "abort") -> RunState:
+             workspace_mode: str = "auto", dirty: str = "abort",
+             ws_setup: str | None = None,
+             model: str | None = None) -> RunState:
     """Spawn 1 coordinator + N workers, scope credentials, hand off the flow.
 
     On ANY failure after the first launch, every box this call spawned is
@@ -289,6 +291,7 @@ def sweep_up(flow: str, *, n_workers: int, cloud: str = "thunder",
             run_id=run_id, need_gpu=True, max_run_days=max_run_days,
             sync_interval=sync_interval, bootstrap_timeout=bootstrap_timeout,
             workspace_mode=workspace_mode, dirty=dirty,
+            ws_setup=ws_setup, model=model,
         )
         rs.update(sweep_id=sweep_id, sweep_cloud=cloud,
                   sweep_boxes=[coord_name, *worker_names])
