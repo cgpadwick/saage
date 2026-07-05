@@ -361,6 +361,29 @@ How it works, briefly:
   [ml-frameworks](https://github.com/cgpadwick/ml-frameworks) with
   driver-aware CUDA selection, dataset staging from HF, headless-EGL libs).
 
+### Fan-out / fan-in: batched parallel hill-climbs
+
+The think→try-K-things-on-K-boxes→collect→repeat loop, recovered from the
+`parallel-sweep` line of work and integrated with the MLE-STAR flow:
+
+```bash
+saage remote add-target box --host … --slots 2      # capacity: runs per box
+saage remote provision box --cmd "…"                # once-per-node cache setup
+saage remote sweep-up flows/kaggle_solver/flow_batch.yaml \
+    --workers 3 --cloud lambda \
+    --set competition_id=… --set lower_is_better=…  # coordinator + workers,
+                                                    # scoped creds, hands off
+saage remote sweep-watch                            # release workers at the
+                                                    # batch-done marker, fetch,
+                                                    # tear everything down
+```
+
+Under the hood: `dispatch_many` (slot-aware scheduler with quarantine,
+deadlines, dead-box requeue), `saage.remote.batch` (K proposals → K parallel
+experiment runs → winner's patch, called by the coordinator flow as an
+ordinary command step — the engine itself never learns what "parallel"
+means). Design: [`docs/batched_hillclimb_plan.md`](docs/batched_hillclimb_plan.md).
+
 Design + field notes: [`docs/remote_handoff_plan.md`](docs/remote_handoff_plan.md).
 
 ## Testing
