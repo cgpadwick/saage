@@ -37,3 +37,4 @@ cache/
 *.db
 *.sqlite
 *.sqlite3
+results/
