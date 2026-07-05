@@ -1,6 +1,6 @@
-# spooky-author-identification — run kaggle_solver-20260704-0941-1ee2
+# spooky-author-identification — run kaggle_solver-20260704-2106-ec27
 
-outcome: medal=none above_median=true val=0.3524 test=0.3638 llm_cost=$1.8485
+outcome: medal=none above_median=true val=0.3496 test=0.3581 llm_cost=$2.0475
 
 ## Research log
 
@@ -21,90 +21,92 @@ Every experiment below is recorded by keep_or_revert.py.
 
 ## Experiments
 
-## Experiment 1 — KEPT ✅ (candidate=0.51919, best=0.51919)
-- changed: competition_understanding.md, eda_entities.py, eda_function_words.png, eda_function_words.py, eda_ngrams.py, eda_overview.py, eda_text_analysis.py, eda_text_length.png, eda_text_lengths.py, memory/nomad2018-predict-transparent-conductors.md, memory/spooky-author-identification.md, model.py, predict.py, test.csv, tests/test_smoke.py, train.csv, train.py
-- commit: ff8f13bb
+## Experiment 1 — KEPT ✅ (candidate=9.35641, best=9.35641)
+- changed: competition_understanding.md, data_analysis.md, eda_chars.py, eda_features.py, eda_function_words.png, eda_ngrams.py, eda_overview.py, eda_punctuation.png, eda_stats.csv, eda_text_length.png, eda_word_count.png, memory/nomad2018-predict-transparent-conductors.md, memory/spooky-author-identification.md, model.py, predict.py, tests/test_smoke.py, train.py
+- commit: add57205
+
+(no summary written)
+
+## Experiment 2 — KEPT ✅ (candidate=0.86666, best=0.86666)
+- changed: model.py, predict.py, train.py
+- commit: 7a81cf35
 
 (no summary written)
 ## Data audit (after baseline)
-
 LEAKAGE: none found
-- TF-IDF vectorizer is fit on `X_train` (the training split only) after `train_test_split` — clean.
-- No target encoding, no feature engineering from labels, no test data influence at training time.
-- Validation split is disjoint (stratified 80/20 holdout).
+UNUSED DATA: all provided files used (train.csv, test.csv, sample_submission.csv, description.md). No extra modalities ignored.
+OPPORTUNITY: 
+- Baseline uses char n-grams only; word-level n-grams or TF-IDF unigrams+bigrams capture topical/semantic signal that chars miss.
+- No pre-trained embeddings (GloVe/fastText/LLM) are used — a 300d GloVe mean-pooling feature would add cheap semantic signal orthogonal to char-SVD.
 
-UNUSED DATA: all data used
-- `data/train.csv` (text + author) and `data/test.csv` (text) are both loaded. `sample_submission.csv` and `description.md` are non-signal metadata.
+## Experiment 3 — reverted ❌ (candidate=n/a, best=0.86666)
+- changed: ablation_history.md, ablation_study.py, ablation_summary.md, train.py
 
-OPPORTUNITY:
-- The baseline uses **only character n-gram TF-IDF**. Adding word n-grams, syntactic features (POS tags, punctuation counts), sentence-length statistics, and vocabulary richness could unlock substantial signal from the same text field.
-- No external corpora (full Poe/Lovecraft/Shelley texts) are leveraged — these are publicly available and could supplement the relatively small training set (~17k sentences).
+Aggressively increase LGBM tree capacity for the 15-round budget: learning_rate 0.05→0.5, num_leaves 63→255, min_child_samples 20→5, reg_alpha/reg_lambda 0.01→0.0, and subsample/colsample_bytree 0.8→1.0. The hypothesis is that the model is severely underfitting at 15 rounds (val log-loss 0.8666 barely beats 0.911 baseline), and per-round capacity must be maximized since overfitting is impossible with so few rounds.
 
-## Experiment 2 — reverted ❌ (candidate=0.618044, best=0.51919)
+## Experiment 4 — KEPT ✅ (candidate=0.562331, best=0.562331)
+- changed: model.py, predict.py, train.py
+- commit: a3126761
+
+Replace LightGBM (gradient boosting) with multinomial LogisticRegression (L2, L-BFGS) in the classifier pipeline, keeping the same char-SVD + stylometric features. The hypothesis is that logistic regression converges in one pass, whereas boosting cannot build a strong ensemble in 15 rounds, so switching classifiers should improve log-loss from 0.8666 toward the ~0.35 level seen in a prior LR run.
+
+## Experiment 5 — reverted ❌ (candidate=n/a, best=0.562331)
+- changed: model.py
+
+Replaced LogisticRegression with RandomForestClassifier (500 trees, min_samples_leaf=5, balanced_subsample) and removed StandardScaler since tree models are scale-invariant. The goal is to capture non-linear feature interactions (e.g., short sentence + high punctuation density → Poe) that the linear decision boundary misses, improving validation log-loss from 0.56233 to below 0.50.
+
+## Experiment 6 — reverted ❌ (candidate=0.606389, best=0.562331)
+- changed: model.py
+
+Replace LogisticRegression with MLPClassifier (single 100-neuron hidden layer, ReLU, Adam, early stopping) to capture non-linear feature interactions that linear LR misses, while directly optimizing log-loss (cross-entropy) for better calibrated probability estimates than RandomForest.
+
+## Experiment 7 — KEPT ✅ (candidate=0.480233, best=0.480233)
+- changed: model.py, train.py
+- commit: 16e0c5ac
+
+Remove TruncatedSVD(300) from the char TF-IDF pipeline so that the full 50k-dimensional sparse n-gram matrix feeds directly into LogisticRegression, plus increase max_iter to 1000 for convergence. The hypothesis is that SVD discards rare but highly discriminative character patterns (e.g., "'ymon'", "'n't'", "'....'") that are the strongest authorship signals, and restoring them should improve validation log-loss from 0.56233 toward ~0.40–0.45.
+
+## Experiment 8 — KEPT ✅ (candidate=0.427741, best=0.427741)
 - changed: ablation_history.md, ablation_study.py, ablation_summary.md, model.py
+- commit: 867a47ee
 
-Swap LogisticRegression regularization from pure L2 (lbfgs) to elastic net L1+L2 (saga solver, l1_ratio=0.5) to test whether L1 sparsity improves validation log loss by selecting only discriminative character n-grams while retaining L2 stability. All other code (TF-IDF vectorizer, pipeline, training args) stays identical.
+Weaken L2 regularization by changing LogisticRegression C from 1.0 to 3.0, so the model can assign non-trivial weight to mid-frequency author-specific char n-gram patterns (e.g., named entities, dialect markers) that were over-regularized before. A diagnostic sweep on the exact pipeline shows C=3.0 achieves val_loss ≈0.428 vs C=1.0's 0.479, an ~11% improvement, while keeping the coefficient norm (≈98) well below the catastrophic regime seen at C=1e10.
 
-## Experiment 3 — reverted ❌ (candidate=0.790573, best=0.51919)
-- changed: train.py
-
-Decreased LogisticRegression C from 1.0 to 0.1 (10× stronger L2 regularization) by changing the default --lr from 1.0 to 10.0. Since the 50k-dimensional char n-gram model is highly regularization-dependent (ablation without regularization exploded log loss from 0.70 to 2.14), stronger shrinkage should curb overfitting to rare n-grams and improve validation log loss while preserving the proven L2+lbfgs combination.
-
-## Experiment 4 — KEPT ✅ (candidate=0.453225, best=0.453225)
-- changed: model.py, tests/test_smoke.py, train.py
-- commit: 5f3f44f7
-
-Replace the single char-n-gram TF-IDF (50k) with a FeatureUnion of char TF-IDF (35k, ngram_range 2-7) plus word uni+bigram TF-IDF (15k, ngram_range 1-2) into LogisticRegression (C=1.0). The hypothesis is that word n-grams capture complementary topical signal — the ablation study showed removing them degraded loss by +0.0459 — so adding them should improve validation log loss over the char-only model.
-
-## Experiment 5 — KEPT ✅ (candidate=0.450648, best=0.450648)
+## Experiment 9 — reverted ❌ (candidate=0.430378, best=0.427741)
 - changed: model.py
-- commit: 942e7d62
 
-Added a StylometricExtractor as a third FeatureUnion branch alongside char TF-IDF (35k) and word TF-IDF (15k), producing ~70 handcrafted features: punctuation densities, function-word ratios, sentence/word length stats, uppercase ratio, and vocabulary richness. The hypothesis is that these direct stylometric signals (function-word profiles and punctuation habits) are more discriminative for authorship than TF-IDF captures indirectly, especially for short texts.
+Added `class_weight='balanced'` to LogisticRegression (keeping C=3.0) to force the model to pay equal attention to each author class via inverse-frequency loss reweighting, countering moderate class imbalance (EAP 40% vs HPL 29%) that biases the unweighted L2 model toward overconfident majority-class predictions and hurts calibration log-loss.
 
-## Experiment 6 — KEPT ✅ (candidate=0.438104, best=0.438104)
+## Experiment 10 — reverted ❌ (candidate=n/a, best=0.427741)
+- changed: model.py, train.py
+
+Replaces the logistic regression solver from lbfgs (L2 only) to saga with ElasticNet penalty (l1_ratio=0.15, C=3.0 unchanged) so that irrelevant rare char n-gram weights are driven to exactly zero while preserving L2 stability, testing whether this built-in feature selection reduces overfitting on the 50k-dimensional sparse feature space and improves validation log-loss beyond the C=3.0 baseline.
+
+## Experiment 11 — KEPT ✅ (candidate=0.427423, best=0.427423)
 - changed: model.py
-- commit: 2d4e56f9
+- commit: 7c289bcb
 
-Switches the char TF-IDF vectorizer's analyzer from `char` to `char_wb` (word-boundary-aware n-grams) to give the classifier cleaner features for function words and punctuation — the strongest authorship signals. A single-line code change, with no other modifications to the pipeline.
+Adds min_df=3 to the char TfidfVectorizer (ngram_range (2,7), max_features=50k) to prune n-grams appearing in ≤2 training documents. This directly regularizes the feature extraction stage—complementing prior classifier-side regularization (C=3.0)—by dropping rare noise patterns that cause memorization, forcing the model to rely on more generalizable char subword signals.
 
-## Experiment 7 — reverted ❌ (candidate=0.439465, best=0.438104)
+## Experiment 12 — reverted ❌ (candidate=n/a, best=0.427423)
+- changed: model.py
+
+Switched LogisticRegression from L2 penalty (solver='lbfgs') to pure L1/Lasso (solver='saga', penalty='l1') while keeping C=3.0 and all other pipeline components unchanged, hypothesizing that L1's feature selection will zero out most of the 50k noisy char n-gram features and focus capacity on the rare, highly discriminative subword patterns (e.g., 'ymon', "an'", '....') to break through the current 0.4274 log-loss plateau.
+
+## Experiment 13 — KEPT ✅ (candidate=0.39342, best=0.39342)
 - changed: ablation_history.md, ablation_study.py, ablation_summary.md, model.py
+- commit: 13cfe60f
 
-Increase the char_wb TfidfVectorizer ngram_range upper bound from 7 to 10 (keeping max_features=35000 fixed) to let the model capture full long words (13% of tokens are >7 chars) that are author-discriminative, like Lovecraft's "eldritch" or Poe's "nevermore", which the current limit only captures as fragmented substrings. The richer candidate pool should improve validation log loss and follows the phase's focus on the highest-leverage char TF-IDF component.
+Adds word n-gram TF-IDF (ngram_range=(1,2), max_features=15000) as a third FeatureUnion branch alongside char TF-IDF and stylometric features. Hypothesis: function-word ratios (the, upon, her, etc.) are the strongest discriminators and are captured cleanly at word level, whereas char n-grams only approximate them via noisy substrings.
 
-## Experiment 8 — KEPT ✅ (candidate=0.437663, best=0.437663)
-- changed: model.py
-- commit: 0717fe4e
-
-Adds `max_df=0.85` to the char_wb TfidfVectorizer (previously default 1.0, keeping all n-grams). This prunes ultra-common character substrings (e.g., "the", "and", "ing") that appear in >85% of documents and carry negligible authorship signal, freeing feature slots for more discriminative mid-frequency patterns. Based on literature recommending moderate document-frequency filtering for character n-gram authorship attribution.
-
-## Experiment 9 — reverted ❌ (candidate=0.44099, best=0.437663)
+## Experiment 14 — reverted ❌ (candidate=0.39342, best=0.39342)
 - changed: model.py
 
-Switches the char_wb TfidfVectorizer from frequency-based to binary (presence/absence) encoding via `binary=True`, based on the hypothesis that authorship attribution relies more on which character n-grams an author uses (stylistic fingerprint) than on their exact frequency, reducing topic noise and text-length confounding.
+Changed word TF-IDF max_df from 0.85 to 1.0 to restore highly discriminative function words (e.g., "upon", "her", "she") that appear in >85% of documents and were being silently dropped. The hypothesis is that these features provide orthogonal signal that char n-grams cannot cleanly capture, making the word branch non-redundant and improving author discrimination.
 
-## Experiment 10 — KEPT ✅ (candidate=0.435932, best=0.435932)
+## Experiment 15 — KEPT ✅ (candidate=0.387757, best=0.387757)
 - changed: model.py
-- commit: 3b276544
+- commit: 6fed0d43
 
-Disables lowercase normalization in the char_wb TfidfVectorizer (`lowercase=True`→`False`) so capitalized author-significant names (e.g., Cthulhu, Ligeia, Frankenstein) remain distinct from their lowercase forms, preserving a capitalization signal that prior experiments erased. Hypothesis: this boosts validation log loss because author-specific capitalization patterns are discriminative.
-
-## Experiment 11 — reverted ❌ (candidate=0.436177, best=0.435932)
-- changed: model.py
-
-Changed TfidfVectorizer sublinear_tf True→False for char_wb features in model.py. With lowercase=False (kept) creating rare capitalized n-grams and max_df=0.85 (kept) already pruning ubiquitous features, linear TF preserves discriminative frequency ratios that sublinear scaling would compress and dilute for authorship attribution.
-
-## Experiment 12 — reverted ❌ (candidate=0.437449, best=0.435932)
-- changed: ablation_history.md, ablation_study.py, ablation_summary.md, model.py
-
-Changes TfidfVectorizer ngram_range (1,2)→(1,3) to add word trigrams, capturing author-specific three-word collocations (e.g., "the tell-tale" for Poe) that bigrams miss. This is the first refinement of the word n-gram pipeline since Experiment 4, intended to improve validation log loss by diversifying signal beyond the plateaued char_wb features.
-
-## Experiment 13 — KEPT ✅ (candidate=0.435504, best=0.435504)
-- changed: model.py
-- commit: 9669666e
-
-Sets word TF-IDF sublinear_tf to False (was True) to preserve linear function-word frequency ratios — the strongest authorship signal per Mosteller & Wallace (1964) — rather than compressing them with log scaling. Char_wb retains sublinear_tf=True since its character patterns have a different signal profile. Single-parameter change on the word branch only.
-
-## Experiment 14 — KEPT ✅ (candidate=0.4
+Weaken LogisticRegression L2 regularization by increasing C from 3.0 to 10.0, testing whether a 3.3× reduction in regularization lets the model assign stronger w
 … (truncated)
