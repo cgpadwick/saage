@@ -1,6 +1,6 @@
-# spooky-author-identification — run kaggle_solver-20260705-1638-a123
+# spooky-author-identification — run kaggle_solver-20260705-2239-fedd
 
-outcome: medal=none above_median=false val=0.3663 test=0.5713 llm_cost=$0.8904
+outcome: medal=none above_median=true val=0.3973 test=0.4188 llm_cost=$0.8608
 
 ## Research log
 
@@ -21,100 +21,79 @@ Every experiment below is recorded by keep_or_revert.py.
 
 ## Experiments
 
-## Experiment 1 — KEPT ✅ (candidate=19.617, best=19.617)
-- changed: competition_understanding.md, data_analysis.md, memory/nomad2018-predict-transparent-conductors.md, memory/spooky-author-identification.md, model.py, predict.py, tests/test_smoke.py, train.py
-- commit: 0208dc3f
+## Round 1 (2026-07-05T23:34Z)
+
+- p0: Two-layer stacking ensemble with orthogonal base models [ensembling] — 0.42156 (done)
+- p1: Chi-squared feature selection on combined char+word TF-IDF + SGDClassi — 0.56291 (done)
+- p2: Temperature scaling for probability calibration [optimization & schedu — 0.44239 (done)
+
+**Verdict:** round best 0.42156 did not beat 0.56287
+
+## Round 2 (2026-07-06T00:34Z)
+
+- p0: Stylometric feature vector augmentation on char+word TF-IDF + SGDClass — 0.77018 (done)
+- p1: Label smoothing via label-noise SGD, fix vectorizer leak [optimization — 0.59854 (done)
+- p2: L2-regularized LogisticRegression with balanced class weights on char+ — 0.56291 (done)
+
+**Verdict:** round best 0.56291 did not beat 0.56287
+
+## Round 3 (2026-07-06T00:54Z)
+
+- p0: Char-only TF-IDF + LogisticRegression with L2 [feature representation] — 0.56291 (done)
+- p1: Complement Naive Bayes as primary classifier [model family] — 0.44463 (done)
+- p2: Confidence-weighted convex blend of three orthogonal sub-models [ensem — 0.4736 (done)
+
+**Verdict:** KEPT p1 (Complement Naive Bayes as primary classifier [model family]) — new best 0.44463
+
+## Round 4 (2026-07-06T01:13Z)
+
+- p0: GloVe-enhanced LogisticRegression with char+word TF-IDF [feature repre — 0.45105 (done)
+- p1: Temperature scaling on current best ComplementNB [optimization & sched — 0.44463 (done)
+- p2: Char-only TF-IDF + ComplementNB (remove word features) [feature repres — 0.55137 (done)
+
+**Verdict:** round best 0.44463 did not beat 0.44463
+
+## Round 5 (2026-07-06T01:20Z)
+
+- p0: Expand char n-grams to (2,7) with more features, remove sublinear_tf [ — 0.43512 (done)
+- p1: Stylometric features added to TF-IDF + ComplementNB [feature represent — 0.44463 (done)
+- p2: Remove word bigrams — word unigrams only [regularization] — 0.45222 (done)
+
+**Verdict:** KEPT p0 (Expand char n-grams to (2,7) with more features, remove sublinear_tf [) — new best 0.43512
+
+## Round 6 (2026-07-06T01:39Z)
+
+- p0: LogisticRegression on current best features [model family] — 0.43512 (done)
+- p1: Multi-channel: raw-count char features + TF-IDF word features [data ha — 2.2837 (done)
+- p2: Adaptive alpha search for ComplementNB across epochs [optimization & s — 0.43512 (done)
+
+**Verdict:** round best 0.43512 did not beat 0.43512
+
+## Round 9 (2026-07-06T02:43Z)
+
+- p0: Word-only TF-IDF + LogisticRegression with C search [model family] — 0.42797 (done)
+- p1: SGDClassifier with elasticnet penalty + incremental training [regulari — 0.3908 (done)
+- p2: Targeted goldmine stylometric features + current best CNB [feature rep — 0.40306 (done)
+
+**Verdict:** round best 0.3908 did not beat 0.40306
+
+## Round 10 (2026-07-06T03:03Z)
+
+- p0: Mutual information feature selection + CNB on reduced feature set [reg — 0.40306 (done)
+- p1: Bootstrap-aggregated (bagging) CNB ensemble [ensembling] — 0.39725 (done)
+- p2: Dual-channel CNB: separate char and word models with averaged predicti — 0.44979 (done)
+
+**Verdict:** KEPT p1 (Bootstrap-aggregated (bagging) CNB ensemble [ensembling]) — new best 0.39725
+
+## Round 11 (2026-07-06T03:23Z)
+
+- p0: LogisticRegression bagging ensemble [model family] — 0.39725 (done)
+- p1: Stylometric feature augmentation for bagging CNB [feature representati — 0.43983 (done)
+- p2: Word-only TF-IDF bagging CNB ensemble (remove character n-grams) [regu — 0.44917 (done)
+
+**Verdict:** round best 0.39725 did not beat 0.39725
+
+## Experiment 39 — reverted ❌ (candidate=n/a, best=0.397456)
+- changed: model.py, train.py
 
 (no summary written)
-
-## Experiment 2 — KEPT ✅ (candidate=0.554884, best=0.554884)
-- changed: model.py, predict.py, tests/test_smoke.py, train.py
-- commit: 8ce77635
-
-(no summary written)
-
-## Data audit (after baseline)
-LEAKAGE: none found
-UNUSED DATA: all data used — train.csv (id, text, author), test.csv (id, text), sample_submission.csv are all used by the pipeline.
-OPPORTUNITY: the only unused signal is **description.md** (no model-usable features). No additional modalities exist in this dataset (pure NLP competition, only text + labels).
-
-
-## Round 0 (2026-07-05T17:25Z)
-
-- p0: Full sparse TF-IDF + LogisticRegression (no SVD, no MLP) [model family — 0.5679 (done)
-- p1: Enhanced stylometric features from EDA findings [feature representatio — 0.5679 (done)
-- p2: Post-hoc temperature scaling of MLP probabilities [regularization] — 0.55327 (done)
-
-**Verdict:** KEPT p2 (Post-hoc temperature scaling of MLP probabilities [regularization]) — new best 0.55327
-
-## Round 1 (2026-07-05T17:46Z)
-
-- p0: Replace MLP with LogisticRegression on SVD+stylo features [model famil — 0.49871 (done)
-- p1: Label smoothing via PyTorch MLP [regularization] — 0.51564 (done)
-- p2: Weighted ensemble: MLP(SVD) + LR(sparse) + LR(char-only) [ensembling] — 0.51929 (done)
-
-**Verdict:** KEPT p0 (Replace MLP with LogisticRegression on SVD+stylo features [model famil) — new best 0.49871
-
-## Round 2 (2026-07-05T18:20Z)
-
-- p0: GloVe 300d TF-IDF-weighted average embeddings [feature representation] — 0.50509 (done)
-- p1: 5-fold cross-validation stacking with LR meta-learner [ensembling] — 0.39976 (done)
-- p2: Iterative hard-example reweighting via focal-loss-inspired sample weig — 0.49811 (done)
-
-**Verdict:** KEPT p1 (5-fold cross-validation stacking with LR meta-learner [ensembling]) — new best 0.39976
-
-## Round 3 (2026-07-05T18:40Z)
-
-- p0: Expand char n-gram range and max_features in stacking base models [fea — 0.3979 (done)
-- p1: Enhanced stylometric features in stacking Model A [feature representat — 0.39946 (done)
-- p2: GloVe 300d TF-IDF-weighted average as 3rd stacking base model [feature — 0.39976 (done)
-
-**Verdict:** KEPT p0 (Expand char n-gram range and max_features in stacking base models [fea) — new best 0.3979
-
-## Round 4 (2026-07-05T19:05Z)
-
-- p0: Orthogonalize stacking base models: char-only vs word-only [feature re — 0.37904 (done)
-- p1: Calibrated LinearSVC as 3rd stacking base model for algorithmic divers — 0.3837 (done)
-- p2: Inject EDA-discovered goldmine features into stylometrics [feature rep — 0.3979 (done)
-
-**Verdict:** KEPT p0 (Orthogonalize stacking base models: char-only vs word-only [feature re) — new best 0.37904
-
-## Round 5 (2026-07-05T19:26Z)
-
-- p0: Add ComplementNB as a 3rd stacking base model [model family] — 0.37904 (done)
-- p1: Add case-sensitive character TF-IDF to Model A [feature representation — 0.37904 (done)
-- p2: Per-base-model temperature scaling before meta-learner [regularization — 0.37904 (done)
-
-**Verdict:** round best 0.37904 did not beat 0.37904
-
-## Round 6 (2026-07-05T19:59Z)
-
-- p0: Per-class calibrated convex blend meta-learner [regularization] — 0.38684 (done)
-- p1: Character-level 1D CNN as 3rd stacking base model (budget-compliant) [ — 0.37904 (done)
-- p2: Raw-count char n-gram model as 3rd stacking base model [feature repres — 0.37882 (done)
-
-**Verdict:** KEPT p2 (Raw-count char n-gram model as 3rd stacking base model [feature repres) — new best 0.37882
-
-## Round 7 (2026-07-05T20:43Z)
-
-- p0: Enhanced EDA goldmine stylometric features [feature representation] — 0.37831 (done)
-- p1: Weighted ensemble: stacking + sparse TF-IDF+LR with optimized blend [e — 0.36654 (done)
-- p2: Full sparse char+word TF-IDF + LogisticRegression replacing stacking [ — 0.36794 (done)
-
-**Verdict:** KEPT p1 (Weighted ensemble: stacking + sparse TF-IDF+LR with optimized blend [e) — new best 0.36654
-
-## Round 8 (2026-07-05T21:22Z)
-
-- p0: Enhanced EDA stylometric features in WeightedEnsemble [feature represe — 0.3674 (done)
-- p1: 2-model stacking: meta-LR on OOF predictions from both sub-models [ens — FAILED (timeout)
-- p2: Per-class OvR LogisticRegression replacing multinomial in SparseLRMode — 0.36652 (done)
-
-**Verdict:** round best 0.36652 did not beat 0.36654
-
-## Round 9 (2026-07-05T21:49Z)
-
-- p0: PyTorch learned word embedding as 4th stacking base model [model famil — 0.36632 (done)
-- p1: Per-class blend weights for WeightedEnsemble [ensembling] — 0.36629 (done)
-- p2: Label-smoothed PyTorch meta-learner replacing sklearn LR [regularizati — 0.36654 (done)
-
-**Verdict:** KEPT p1 (Per-class blend weights for WeightedEnsemble [ensembling]) — new best 0.36629
