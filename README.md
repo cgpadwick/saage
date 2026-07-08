@@ -293,7 +293,7 @@ Each is a runnable demo and a deterministic integration test:
 | `guessing_game` | multi-agent feedback loop: guesser + judge (higher/lower) homing in on a hidden target via `counting_loop` + `exit_when` |
 | `interactive_demo` | the opt-in `ask_user` tool: a flow that pauses for human input |
 | `greenfield_ml` | full ML auto-research: baseline classifier + hill-climb on MNIST |
-| `kaggle_solver` | the flagship: autonomous Kaggle competitions end-to-end — EDA, baseline, retrieval-grounded hill-climb, submission, `mlebench` grade ([results](flows/kaggle_solver/BENCHMARK_RESULTS.md)) |
+| `kaggle_solver` | the flagship: autonomous Kaggle competitions end-to-end — EDA, baseline, retrieval-grounded hill-climb, submission, `mlebench` grade ([results](flows/kaggle_solver/README.md#results)) |
 
 Heavier, application-specific flows live in [`contrib/`](contrib) — currently the
 le-wm world-model hill-climbs (`lewm_hillclimb`, `lewm_hillclimb_guided`).

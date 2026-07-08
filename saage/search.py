@@ -135,9 +135,12 @@ def apply_blocklist(results: list[Result],
     Returns (kept, dropped_count)."""
     if not blocked:
         return results, 0
-    kept = [r for r in results
-            if not any(_host(r.url) == d or _host(r.url).endswith("." + d)
-                       for d in blocked)]
+
+    def allowed(r: Result) -> bool:
+        host = _host(r.url)              # parse once per result
+        return not any(host == d or host.endswith("." + d) for d in blocked)
+
+    kept = [r for r in results if allowed(r)]
     return kept, len(results) - len(kept)
 
 
