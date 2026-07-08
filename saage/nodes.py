@@ -196,7 +196,7 @@ class CommandNode(Node):
             # experiment's train.py silently fell back to CPU and would have
             # held the flow for hours. Timeout -> exit 124 (the `timeout(1)`
             # convention), so retry_loops/captures treat it as a failed attempt.
-            log.warning("  ✗ %s → timed out after %.0fs (killed)", self.id,
+            log.warning("  ✗ %s → timed out after %gs (killed)", self.id,
                         self.timeout or 0)
             out = (e.stdout or b"").decode("utf-8", "replace") \
                 if isinstance(e.stdout, bytes) else (e.stdout or "")
@@ -204,7 +204,7 @@ class CommandNode(Node):
                 if isinstance(e.stderr, bytes) else (e.stderr or "")
             return {"exit": 124, "stdout": out,
                     "stderr": err + f"\nERROR: command timed out after "
-                                    f"{self.timeout:.0f}s and was killed"}
+                                    f"{self.timeout:g}s and was killed"}
         log.info("  ✓ %s → exit=%d", self.id, r.returncode)
         return {"exit": r.returncode, "stdout": r.stdout, "stderr": r.stderr}
 
