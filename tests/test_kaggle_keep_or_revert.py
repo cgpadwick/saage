@@ -123,3 +123,15 @@ def test_baseline_parent_zero_and_has_sha(repo):
     rec = _last_experiment(repo)
     assert rec["kept"] is True and rec["parent_step"] == 0
     assert rec["commit_sha"] == _head_sha(repo)
+
+
+def test_baseline_auto_records_first_then_compares(repo):
+    # first candidate: best is nan -> auto behaves like --baseline true (keep)
+    out = _run(repo, 0.75, "nan", baseline="auto")
+    assert out["RESULT"] == "keep" and out["BEST_SCORE"] == "0.75"
+    # second candidate worse -> auto compares and reverts
+    out = _run(repo, 0.70, 0.75, baseline="auto")
+    assert out["RESULT"] == "revert" and out["BEST_SCORE"] == "0.75"
+    # third candidate better -> kept
+    out = _run(repo, 0.80, 0.75, baseline="auto")
+    assert out["RESULT"] == "keep" and out["BEST_SCORE"] == "0.8"

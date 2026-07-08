@@ -4,8 +4,9 @@ description: |
   Hill-climb: current best validation score = {{ best_score }}
   ({{ 'lower' if lower_is_better else 'higher' }} is better;
   consecutive failures: {{ consecutive_failures }}).
+  This phase's ablation-chosen refinement target: {{ target_block }}.
   Propose ONE experiment to improve it.
-tools: [read_file, write_file, run_command]
+tools: [read_file, write_file, run_command, web_search]
 ---
 SKILL_ID: propose
 
@@ -16,10 +17,17 @@ do NOT write solution code or train anything.
 WORKFLOW:
 1. Read `research_log.md` — the full experiment history. Do NOT repeat an
    experiment the log shows failed, unless you can say why this time differs.
-2. Read the current `model.py`, `train.py`, `predict.py` (and
+2. Read `ablation_summary.md` — this phase's ablation study chose the
+   component `{{ target_block }}` as the highest-leverage refinement target.
+   Your experiment MUST refine that component (its scope, not its filename —
+   e.g. target `feature_extraction` allows changes wherever features are
+   built). Only deviate if the log shows that component is exhausted (2+
+   consecutive reverts on it) — then say so explicitly and pick the
+   ablation's runner-up.
+3. Read the current `model.py`, `train.py`, `predict.py` (and
    `competition_understanding.md` / `data_analysis.md` for context;
    `git log --oneline` via run_command shows kept experiments).
-3. Decide what to try next.
+4. Decide what to try next.
 
 YOUR PROPOSAL MUST contain:
 - HYPOTHESIS: what you expect to improve and why (one sentence)
@@ -34,6 +42,12 @@ GUIDELINES:
 - If recent experiments plateaued (reverts, tiny gains), be BOLD: a different
   model family, feature representation, or modality — especially data
   modalities (images/text) that exist but are unused.
+- When plateaued or unsure what wins on this KIND of task, use `web_search`
+  (1–2 queries) for current recipes and ground the proposal in what you find
+  (cite the URL in RATIONALE). Search rules (benchmark integrity —
+  violations invalidate the run): characterize the task generically; NEVER
+  put the competition's name/id/dataset name or any identifying string in a
+  query; never search for a specific competition's solutions or leaderboard.
 - Address the actual bottleneck: overfitting? underfitting? wrong features?
 - Do NOT propose changing the training budget (epochs are fixed by the
   harness for fair comparison) or the validation protocol.

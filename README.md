@@ -170,6 +170,22 @@ per flow with an optional `retry:` sub-block:
 provider: { type: anthropic, model: claude-opus-4-8, retry: { max_attempts: 8, base_delay: 1.0 } }
 ```
 
+### Cost cap (the money fuse)
+
+For autonomous runs, cap the estimated LLM spend:
+
+```bash
+saage run flows/kaggle_solver/flow.yaml --max-cost 10        # USD
+```
+
+The agent loop checks the running cost estimate (see `saage/pricing.py`)
+before every model call and stops the run with a clear error once the cap is
+crossed. The stopped run keeps its checkpoint — raise the cap and
+`saage resume` to continue. Also settable as `SAAGE_MAX_COST_USD` in the
+environment (e.g. via `saage remote handoff --env`). A model without a known
+rate can't trip the cap; the engine warns once when that makes the cap
+unenforceable (add rates via `SAAGE_PRICES`).
+
 ### Selecting provider/model from the CLI
 
 You can override the flow's `provider` block without editing the YAML using
@@ -275,7 +291,9 @@ Each is a runnable demo and a deterministic integration test:
 | `fix_failing_test` | `retry_loop` driving real `pytest`, with feedback re-injection |
 | `poll_job` | command capture + `polling_loop` + wall-clock timeout cap |
 | `guessing_game` | multi-agent feedback loop: guesser + judge (higher/lower) homing in on a hidden target via `counting_loop` + `exit_when` |
+| `interactive_demo` | the opt-in `ask_user` tool: a flow that pauses for human input |
 | `greenfield_ml` | full ML auto-research: baseline classifier + hill-climb on MNIST |
+| `kaggle_solver` | the flagship: autonomous Kaggle competitions end-to-end — EDA, baseline, retrieval-grounded hill-climb, submission, `mlebench` grade ([results](flows/kaggle_solver/README.md#results)) |
 
 Heavier, application-specific flows live in [`contrib/`](contrib) — currently the
 le-wm world-model hill-climbs (`lewm_hillclimb`, `lewm_hillclimb_guided`).
@@ -315,12 +333,13 @@ recorded `best_score`/iteration. To keep the trained best model across a box
 death, list its (workspace-relative) path in the flow's `artifacts:`.
 
 Targets are just SSH hosts (a LAN box, a hand-launched cloud instance —
-`--port` and `--key` cover NAT'd ports and per-instance keys, e.g. Thunder
-Compute). For Lambda Cloud there's provisioning built in:
+`--port` and `--key` cover NAT'd ports and per-instance keys). For Lambda
+Cloud and Thunder Compute there's provisioning built in:
 
 ```bash
-saage remote spawn --gpu a100        # launch + register as a target (live capacity/pricing)
-saage remote terminate <target>      # stops the meter (the only thing that does, on Lambda)
+saage remote spawn --gpu a100                      # Lambda: launch + register as a target
+saage remote spawn --provider thunder --gpu a6000  # Thunder: ~$0.35/hr, cheapest sweep box
+saage remote terminate <target>      # stops the meter, whichever cloud the box is in
 ```
 
 How it works, briefly:
@@ -363,7 +382,12 @@ ANTHROPIC_API_KEY=... saage run flows/story_writer/flow.yaml
 
 ## Status
 
-Working. ~800 lines across 9 modules. See [`docs/plan.md`](docs/plan.md) for the full design.
+Working: the engine (~2k lines), remote handoff (~2k lines), and application
+flows are all live — the kaggle_solver flow runs autonomously on rented GPU
+boxes end-to-end. See [`docs/plan.md`](docs/plan.md) for the original design,
+[`docs/remote_handoff_plan.md`](docs/remote_handoff_plan.md) for the remote
+architecture, and [`docs/kaggle_solver_plan.md`](docs/kaggle_solver_plan.md)
+for the benchmark roadmap.
 
 ## License
 

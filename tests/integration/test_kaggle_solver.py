@@ -72,6 +72,19 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
         ],
         # consumed in order: baseline_verify, verify_train (exp 1), final_verify
         "verify_training": [resp("ACTION: pass")] * 3,
+        "data_audit": [
+            resp(calls=[call("append_file", path="research_log.md",
+                             content="## Data audit (after baseline)\n"
+                                     "LEAKAGE: none found\n"
+                                     "UNUSED DATA: all data used\n")]),
+            resp("audit appended"),
+        ],
+        "ablation": [
+            resp(calls=[call("write_file", path="ablation_summary.md",
+                             content="ABLATION encoding: 0.6\nencoding matters most")]),
+            resp("chosen target\nTARGET_BLOCK=encoding"),
+        ],
+        "ensemble": [resp("nothing cheap applies here\nENSEMBLE: none")],
         "propose": [resp("HYPOTHESIS: better feature helps.\n"
                          "CHANGE: train.py, improve encoding.\nRATIONALE: EDA.")],
         "proposal_critic": [resp("ACTION: pass")],
@@ -101,6 +114,7 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
     shared = run_flow(flow_yaml, provider=provider, workspace=ws, shared={
         "competition_id": "fake-comp",
         "mlebench_data_dir": str(data_root),
+        "baseline_candidates": 1,   # scripted turns cover one baseline build
         "target_score": "0.8",
         "device": "cpu",
         "device_override": "cpu",   # hermetic: don't probe the host for a GPU
@@ -114,9 +128,13 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
     assert shared["final_score"] == 0.8
     assert shared["medal"] == "unknown"          # mlebench not installed; step tolerant
 
-    # the hillclimb exited because the target was met, after exactly one experiment
+    # the hillclimb exited because the target was met, after exactly one
+    # experiment in the first ablation phase (outer=hillclimb, inner=refine)
     assert shared["_iter"]["hillclimb"] == 1
+    assert shared["_iter"]["refine"] == 1
     assert shared["_exit_reason"]["hillclimb"] == "exit_when"
+    assert shared["_exit_reason"]["refine"] == "exit_when"
+    assert shared["target_block"] == "encoding"     # ablation capture flowed
 
     # both deterministic E2 checks actually ran and passed (real pytest, real validator)
     assert shared["results"]["baseline_smoke"]["exit"] == 0
@@ -126,9 +144,12 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
     assert (ws / "submission.csv").read_text() == SUBMISSION
     ledger = [json.loads(line) for line in
               (ws / "experiments.jsonl").read_text().splitlines()]
-    assert len(ledger) == 2                       # baseline + experiment 1
+    assert len(ledger) == 3           # baseline + experiment 1 + ensemble attempt
     assert ledger[0]["candidate"] == 0.75 and ledger[0]["kept"] is True
     assert ledger[1]["candidate"] == 0.8 and ledger[1]["kept"] is True
+    # the no-op ensemble scored a tie (0.8) — ties revert, final model stands
+    assert ledger[2]["candidate"] == 0.8 and ledger[2]["kept"] is False
+    assert shared["final_score"] == 0.8
 
     # git history: setup snapshot, baseline keep, experiment keep, final submission
     log = subprocess.run(["git", "-C", str(ws), "log", "--oneline"],
@@ -163,6 +184,9 @@ def test_failed_experiment_reverts_and_counts(flow_copy, tmp_path):
             resp("baseline"),
         ],
         "verify_training": [resp("ACTION: pass")] * 3,   # baseline, exp1, final
+        "data_audit": [resp("LEAKAGE: none found")],
+        "ablation": [resp("baseline too simple to ablate\nTARGET_BLOCK=model")],
+        "ensemble": [resp("nothing applies\nENSEMBLE: none")],
         "propose": [resp("HYPOTHESIS: x CHANGE: y RATIONALE: z")],
         "proposal_critic": [resp("ACTION: pass")],
         "summarize": [
@@ -191,6 +215,7 @@ def test_failed_experiment_reverts_and_counts(flow_copy, tmp_path):
     shared = run_flow(flow_yaml, provider=provider, workspace=ws, shared={
         "competition_id": "fake-comp",
         "mlebench_data_dir": str(data_root),
+        "baseline_candidates": 1,   # scripted turns cover one baseline build
         "max_consecutive_failures": 1,            # exit after the one failure
         "device": "cpu",
         "device_override": "cpu",   # hermetic: don't probe the host for a GPU
@@ -198,9 +223,12 @@ def test_failed_experiment_reverts_and_counts(flow_copy, tmp_path):
 
     assert shared["best_score"] == 0.75           # the worse 0.70 did not win
     assert shared["consecutive_failures"] == 1
+    assert shared["_exit_reason"]["refine"] == "exit_when"
     assert shared["_exit_reason"]["hillclimb"] == "exit_when"
     # the revert restored the baseline train.py (git checkout undid v-worse)
     assert "0.75" in (ws / "train.py").read_text()
     ledger = [json.loads(line) for line in
               (ws / "experiments.jsonl").read_text().splitlines()]
-    assert ledger[-1]["kept"] is False and ledger[-1]["candidate"] == 0.7
+    # rows: baseline, failed experiment, tie-reverted no-op ensemble
+    assert ledger[-2]["kept"] is False and ledger[-2]["candidate"] == 0.7
+    assert ledger[-1]["kept"] is False and ledger[-1]["candidate"] == 0.75

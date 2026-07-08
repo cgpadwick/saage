@@ -4,7 +4,7 @@ description: |
   Understand the Kaggle competition and write competition_understanding.md.
   The competition brief is in task.md. Submission contract: columns
   [{{ sample_submission_cols }}], {{ sample_submission_rows }} rows.
-tools: [read_file, write_file, run_command]
+tools: [read_file, write_file, run_command, web_search]
 ---
 SKILL_ID: comp_understanding
 
@@ -38,6 +38,21 @@ competition_understanding.md MUST include:
 - STRATEGY NOTES — what baseline makes sense, which advanced techniques are
   promising and why, which modalities to exploit, main risks (overfitting,
   imbalance, leakage), ensemble potential. Discussion, not a rigid plan.
+- STATE OF THE ART — use `web_search` (2–4 queries) to find which model
+  families and techniques currently win on this KIND of task, and fold what
+  you learn into the strategy notes (cite the source URLs).
+- PAST-RUN LESSONS — if `memory/` exists, list it and read any note about a
+  similar task family (`ls memory/` then read_file). These are distilled
+  outcomes of previous autonomous runs: what worked, what wasted budget.
+  Fold applicable lessons into the strategy notes.
+
+WEB SEARCH RULES (benchmark integrity — violations invalidate the run):
+- Characterize the task generically ("short-text authorship attribution
+  best models", "regression on crystal structure formation energy").
+- NEVER include the competition's name, id, host site, dataset name, or any
+  string that identifies THIS competition in a query.
+- Do NOT search for leaderboards, winning solutions, or write-ups of any
+  specific competition. Recipes for the task family, not answers.
 
 End your reply with a one-paragraph summary of the competition and your
 recommended angle of attack.

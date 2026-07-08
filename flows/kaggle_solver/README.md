@@ -15,9 +15,62 @@ log-reading.
 
 ## Results
 
-| competition | model | medal | val score | test score | cost | run |
-|---|---|---|---|---|---|---|
-| _(results land here as the benchmark sweeps run — M1/M2/M3)_ | | | | | | |
+The curated results live in this README; the full machine-readable journal
+(`benchmark_journal.jsonl` → `BENCHMARK_RESULTS.md`) is regenerated locally
+by `bench.py collect`/`table` and is run output, not part of the repo.
+
+| competition | flow | brain | medal | above median | val | test | LLM cost | GPU h | run |
+|---|---|---|---|---|---|---|---|---|---|
+| spooky-author-identification | **MLE-STAR³** | v4-flash | none | **yes** | 0.3332 | **0.3481** | $5.66 | 10.6 | `…1824-759b` |
+| spooky-author-identification | MLE-STAR⁵ | v4-flash | none | **yes** | 0.3524 | 0.3638 | $1.85 | 11.3 | `…0941-1ee2` |
+| spooky-author-identification | MLE-STAR⁶ | v4-flash | none | **yes** | 0.3496 | 0.3581 | $2.05 | 10.1 | `…2106-ec27` |
+| spooky-author-identification | flat | v4-flash | none | **yes** | 0.3985 | 0.4129 | $2.24 | 2.4 | `…1603-dc9a` |
+| nomad2018-transparent-conductors | flat | v4-flash | none | no² | 0.0518 | 0.1424 | $7.26 | 5.7 | `…1603-d093` |
+| nomad2018-transparent-conductors | MLE-STAR | minimax-m3 | none | no⁴ | 0.0518 | 0.5154 | $19.77 | 12.3 | `…0617-b546` |
+| spooky-author-identification | flat | v4-flash | ungraded¹ | — | 0.3207 | — | $4.95 | 10.2 | `…0425-fdc6` |
+
+GPU: single Lambda A10 ($1.29/hr) unless noted.
+
+¹ ran before the grade.py `--output-dir` fix; submission wasn't mirrored, so it
+can't be re-graded. Its research log lives on as the first `memory/` note.
+² val 0.0518 → test 0.1424: a 2.7× generalization gap on a ~2400-row dataset —
+the validation-overfit failure mode the newer flow's data_audit + leakage
+critics exist to catch (this run predates them).
+³ **A/B on the same competition, same model, same budget: the MLE-STAR flow
+(retrieval + ablation-targeted phases + self-ensemble + memory) beat the flat
+hillclimb by 16% on test (0.3481 vs 0.4129)** with a near-zero val→test gap
+(0.3526 → 0.3481). The self-ensemble stage earned its keep: the full-budget
+final train overfit (val 0.3901); the agent's 3-seed ensemble recovered to
+0.3526 and the deterministic keep-gate took it.
+⁵ the "gold attempt": A100, 40 experiments (8 phases). Val tied 759b
+(0.3524 vs 0.3526) — deepseek-class solutions plateau at ~0.35 on this comp;
+medal range needs cross-run ensembling (blend independent runs' submissions)
+and/or stronger model families. Two earlier arms with deepseek-v4-pro brains
+locked into weak classical pipelines twice and were killed — the finding that
+motivated multi-candidate baseline seeding (now in the flow).
+⁴ val 0.0518 → test 0.5154, a **10×** gap — nomad's second catastrophic
+validation leak (2/2 runs, different flows AND different brains). The one-shot
+`data_audit` + prompt-side critics are not enough on a 2,400-row dataset;
+MLE-STAR's answer is a code-level leakage check on *every* generated solution
+before execution — the flow's next engineering priority.
+
+⁶ first run with multi-candidate baseline seeding (caught a broken 9.36-logloss
+candidate on the spot) and the cross-family ensemble endgame: the agent dug the
+losing baseline family out of git history (`git show`), built a LightGBM branch,
+blended — and the deterministic keep-gate correctly reverted it (the second
+family was too weak to help). Best validation score of the campaign (0.3496).
+
+### Cross-run ensembling (offline evidence, not a benchmark row)
+
+Blending the two strong spooky runs' submissions with an equal-weight
+**geometric mean** ([blend.py](blend.py) — recipe fixed a priori, no
+test-tuning) graded **0.29470** vs 0.34808/0.36381 alone — a 15% gain,
+**0.0009 short of bronze** (threshold 0.29381). Diverse errors cancel; this
+is MLE-STAR's parallel-candidates + ensembling result reproduced across
+runs. A blend of runs isn't a legal benchmark submission (one run = one
+submission), so the ensemble skill now teaches the in-run equivalent:
+resurrect a losing model family from git history and blend cross-family
+inside the run.
 
 ## Run it
 
@@ -42,18 +95,48 @@ Key knobs (`--set`): `short_epochs` (per-experiment budget, default 15),
 `final_epochs` (default 100), `max_consecutive_failures` (default 10),
 `target_score` (optional early exit), `device` (auto-detected).
 
+### Retrieval-grounded proposals (and keeping the benchmark honest)
+
+The `comp_understanding` and `propose` skills may `web_search` for
+state-of-the-art recipes for the task *family*. Because these are old
+competitions with public solutions, benchmark runs use mechanical
+contamination guards, not just prompt rules:
+
+- **Domain blocklist** — run with
+  `SAAGE_SEARCH_BLOCK_DOMAINS=kaggle.com` in the environment (locally:
+  `export …`; remote: `--env SAAGE_SEARCH_BLOCK_DOMAINS=kaggle.com`).
+  Results from a blocked domain (and its subdomains) are dropped by the
+  engine before the model sees them.
+- **Query hygiene** — the skills are instructed to characterize the task
+  generically and never put the competition's name/id in a query; every
+  query is visible in `saage.log` (`⚙ web_search …`), so runs are auditable.
+
 ## How it works
 
+The hill-climb follows MLE-STAR's ablation-targeted shape
+([arXiv:2506.15692](https://arxiv.org/abs/2506.15692)): each outer *phase*
+runs an ablation study to find the pipeline component with the biggest
+performance impact, then the inner loop refines only that component.
+
 ```
-prepare(cmd) → setup(cmd: git branch + ledger)
-  → comp_understanding ⇄ critic → eda ⇄ critic
+prepare(cmd) → setup(cmd: git branch + ledger) → stage_memory(cmd)
+  → comp_understanding ⇄ critic (web-search grounded) → eda ⇄ critic
   → build_baseline ⇄ pytest-smoke(cmd)
-  → short-train(cmd) → verify_training → record
-  → hillclimb ×30: propose ⇄ critic → implement ⇄ pytest(cmd)
-       → short-train(cmd) → verify → keep_or_revert(cmd, git)
+  → short-train(cmd) → verify_training → record → data_audit (leakage/usage)
+  → hillclimb ×6 phases:
+       ablation (writes+runs ablation_study.py → TARGET_BLOCK)
+       → refine ×5: propose(targeted) ⇄ critic → implement ⇄ pytest(cmd)
+            → short-train(cmd) → verify → keep_or_revert(cmd, git)
      (exit: consecutive failures or target met)
-  → final-train(cmd) → make_submission ⇄ validate(cmd) → report → grade(cmd)
+  → final-train(cmd)
+  → ensemble (seeds/ckpt-averaging/TTA) → eval(cmd) → keep_or_revert(cmd)
+  → make_submission ⇄ validate(cmd) → report → grade(cmd)
 ```
 
-Artifacts per run: `experiments.jsonl`, `research_log.md`,
-`report.html`, `submission.csv`, git history of kept experiments.
+Cross-competition memory (P5): `bench.py collect` distills each graded run
+into `memory/<comp>.md`; `stage_memory` copies those notes into the next
+run's workspace, where comp_understanding reads them.
+
+Artifacts per run: `experiments.jsonl`, `research_log.md`, `report.html`,
+`submission.csv`, solution code + best checkpoint, git history of kept
+experiments.

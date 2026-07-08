@@ -13,10 +13,12 @@ from .lambda_api import LambdaAPI, LambdaError, SAAGE_KEY_NAME, pick_instance_ty
 from .sshio import SSHError
 from .state import find_run
 from .target import PreflightError, SshTarget
+from .thunder_api import ThunderAPI, ThunderError
 from .workspace import DirtyWorkspace, WorkspaceError
 
 _ERRORS = (CredsError, HandoffError, PreflightError, WorkspaceError,
-           DirtyWorkspace, SSHError, LambdaError, ResumeError, FileNotFoundError)
+           DirtyWorkspace, SSHError, LambdaError, ThunderError, ResumeError,
+           FileNotFoundError)
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -44,6 +46,10 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                     default=[], help="passed through to `saage run` on the node")
     ho.add_argument("--env", dest="env", metavar="KEY=VALUE", action="append",
                     default=[], help="extra env for the run (e.g. SAAGE_FORCE_CPU=1)")
+    ho.add_argument("--model", default=None,
+                    help="override the flow's model on the node (forces ONE "
+                         "model for every step, like `saage run --model`) — "
+                         "for trying a different model without editing the flow")
     ho.add_argument("--workspace-mode", choices=["auto", "ephemeral", "package"],
                     default="auto",
                     help="auto: package the flow's workspace iff it is a git repo")
@@ -68,14 +74,19 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                          "--ws-setup; raise it when ws-setup stages a large "
                          "dataset; default 1800)")
 
-    sp = rsub.add_parser("spawn", help="launch a Lambda Cloud instance and register it as a target")
+    sp = rsub.add_parser("spawn", help="launch a cloud GPU instance and register it as a target")
+    sp.add_argument("--provider", choices=["lambda", "thunder"], default="lambda",
+                    help="cloud to provision from (default lambda; thunder's "
+                         "a6000 is the cheapest box saage can rent)")
     sp.add_argument("--gpu", default="auto",
-                    help="GPU class (a10/a100/h100/gh200), exact instance type, "
-                         "or 'auto' = cheapest with capacity (default)")
-    sp.add_argument("--name", default=None, help="target name (default: lambda-<hhmm>)")
+                    help="lambda: class (a10/a100/h100/gh200) or exact instance "
+                         "type; thunder: a6000/l40/a100xl/h100; "
+                         "'auto' = cheapest with capacity (default)")
+    sp.add_argument("--name", default=None,
+                    help="target name (default: <provider>-<hhmm>)")
     sp.add_argument("--extra-key", action="append", default=[],
-                    help="also authorize this Lambda-registered ssh key name on "
-                         "the node (repeatable)")
+                    help="(lambda) also authorize this Lambda-registered ssh "
+                         "key name on the node (repeatable)")
 
     tm = rsub.add_parser("terminate", help="terminate a spawned instance (stops billing)")
     tm.add_argument("target", help="target name or instance IP")
@@ -195,6 +206,7 @@ def _dispatch(args: argparse.Namespace) -> int:
             need_gpu=args.need_gpu,
             ws_setup=args.ws_setup,
             bootstrap_timeout=args.bootstrap_timeout,
+            model=args.model,
         )
         print(f"run {rs.run_id} handed off — `saage remote status {rs.run_id}`")
         return 0
@@ -231,8 +243,62 @@ def _lambda_api() -> LambdaAPI:
     return LambdaAPI(key)
 
 
+def _thunder_api() -> ThunderAPI:
+    token = (load_creds().get("thundercompute") or {}).get("api_token")
+    if not token:
+        raise CredsError("no [thundercompute] api_token in credentials.toml — "
+                         "spawn/terminate --provider thunder need it")
+    return ThunderAPI(token)
+
+
+def _spawn_thunder(args: argparse.Namespace) -> int:
+    from datetime import datetime, timezone
+    from .creds import ssh_key_path
+    from .thunder_api import pick_gpu, wait_running
+    api = _thunder_api()
+    gpu_type, price = pick_gpu(api, args.gpu)
+    name = args.name or f"thunder-{datetime.now(timezone.utc).strftime('%H%M')}"
+    print(f"creating {gpu_type} (${price:.2f}/hr) as {name!r} …")
+    iid, private_key = api.create(gpu_type)
+    # billing starts NOW — persist the returned key FIRST (it is shown only
+    # once; without it the instance is unreachable), then never leak the node
+    key_path = ssh_key_path().parent / f"thunder_{iid}"
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.write_text(private_key)
+    key_path.chmod(0o600)
+    print(f"instance {iid} creating (billing started; key: {key_path})")
+    try:
+        # thunder cold-starts can take ~10 minutes (k8s provisioning)
+        inst = wait_running(api, iid, timeout_s=1200)  # deletes on timeout
+        ip = inst["ip"]
+        port = int(inst.get("port") or 22)   # ssh is NAT'd on k8s instances
+        print(f"instance {iid} running at {ip}:{port}; waiting for ssh …")
+        wait_ssh(ip, "ubuntu", str(key_path), port=port)
+        add_target(name, ip, user="ubuntu", port=port, hourly_usd=price,
+                   key=str(key_path))
+    except BaseException:
+        _ensure_deleted(api, iid)
+        raise
+    print(f"target {name!r} registered ({ip}:{port}, ${price:.2f}/hr) — "
+          f"`saage remote handoff <flow> --target {name}`")
+    print(f"REMEMBER: `saage remote terminate {name}` when done — billing runs until then")
+    return 0
+
+
+def _ensure_deleted(api, iid: str) -> None:
+    """Best-effort cleanup when a thunder spawn fails after create."""
+    try:
+        api.delete(iid)
+        print(f"spawn failed — deleted {iid} (billing stopped)", file=sys.stderr)
+    except ThunderError as exc:
+        print(f"spawn failed AND delete failed ({exc}) — instance {iid} may "
+              f"still be billing; delete it in the Thunder console", file=sys.stderr)
+
+
 def _spawn(args: argparse.Namespace) -> int:
     from datetime import datetime, timezone
+    if getattr(args, "provider", "lambda") == "thunder":
+        return _spawn_thunder(args)
     api = _lambda_api()
     key_path = ensure_ssh_key()
     api.ensure_ssh_key(SAAGE_KEY_NAME, key_path.with_suffix(".pub").read_text().strip())
@@ -287,17 +353,40 @@ def _ensure_terminated(api: LambdaAPI, iid: str) -> None:
 
 
 def _terminate(args: argparse.Namespace) -> int:
-    api = _lambda_api()
+    """Find the instance behind a target name/IP in whichever cloud has it
+    (Lambda, then Thunder) and stop its billing."""
     host = args.target
     targets = list_targets()
     if args.target in targets:
         host = targets[args.target].host
-    matches = [i for i in api.instances() if i.get("ip") == host]
-    if not matches:
-        statuses = [f'{i.get("ip")}={i["status"]}' for i in api.instances()]
-        raise LambdaError(f"no instance with IP {host}. Account instances: "
-                          f"{', '.join(statuses) or '(none)'}")
-    done = api.terminate([i["id"] for i in matches])
-    for i in done:
-        print(f"terminated {i['id'][:12]}… ({host}) — billing stopped")
-    return 0
+
+    seen: list[str] = []
+    try:                                        # -- Lambda ---------------------
+        api = _lambda_api()
+    except CredsError:
+        api = None
+    if api is not None:
+        matches = [i for i in api.instances() if i.get("ip") == host]
+        if matches:
+            done = api.terminate([i["id"] for i in matches])
+            for i in done:
+                print(f"terminated {i['id'][:12]}… ({host}) — billing stopped")
+            return 0
+        seen += [f'lambda:{i.get("ip")}={i["status"]}' for i in api.instances()]
+
+    try:                                        # -- Thunder --------------------
+        tapi = _thunder_api()
+    except CredsError:
+        tapi = None
+    if tapi is not None:
+        insts = tapi.instances(update_ips=True)
+        matches = [iid for iid, m in insts.items() if m.get("ip") == host]
+        if matches:
+            for iid in matches:
+                tapi.delete(iid)
+                print(f"deleted thunder instance {iid} ({host}) — billing stopped")
+            return 0
+        seen += [f'thunder:{m.get("ip")}={m.get("status")}' for m in insts.values()]
+
+    raise LambdaError(f"no instance with IP {host} in any configured cloud. "
+                      f"Account instances: {', '.join(seen) or '(none)'}")

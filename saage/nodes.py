@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import re
+import subprocess
 import time
 
 from jinja2 import Environment, Undefined, make_logging_undefined
@@ -173,20 +174,37 @@ class CommandNode(Node):
     """Deterministic shell step (no LLM)."""
 
     def __init__(self, id: str, command: str, root, captures: dict | None = None,
-                 venv: str | None = None):
+                 venv: str | None = None, timeout: float | None = None):
         super().__init__()
         self.id = id
         self.command = command
         self.root = root
         self.captures = captures
         self.venv = venv
+        self.timeout = timeout
 
     def prep(self, shared):
         return render(self.command, shared)
 
     def exec(self, cmd):
         log.info("$ %s", cmd)
-        r = run_shell(cmd, cwd=self.root, env=venv_env(self.root, self.venv))
+        try:
+            r = run_shell(cmd, cwd=self.root, env=venv_env(self.root, self.venv),
+                          timeout=self.timeout)
+        except subprocess.TimeoutExpired as e:
+            # a hung command must fail the STEP, never the run — seen live: an
+            # experiment's train.py silently fell back to CPU and would have
+            # held the flow for hours. Timeout -> exit 124 (the `timeout(1)`
+            # convention), so retry_loops/captures treat it as a failed attempt.
+            log.warning("  ✗ %s → timed out after %gs (killed)", self.id,
+                        self.timeout or 0)
+            out = (e.stdout or b"").decode("utf-8", "replace") \
+                if isinstance(e.stdout, bytes) else (e.stdout or "")
+            err = (e.stderr or b"").decode("utf-8", "replace") \
+                if isinstance(e.stderr, bytes) else (e.stderr or "")
+            return {"exit": 124, "stdout": out,
+                    "stderr": err + f"\nERROR: command timed out after "
+                                    f"{self.timeout:g}s and was killed"}
         log.info("  ✓ %s → exit=%d", self.id, r.returncode)
         return {"exit": r.returncode, "stdout": r.stdout, "stderr": r.stderr}
 

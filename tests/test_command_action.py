@@ -64,3 +64,13 @@ def test_command_as_retry_loop_check(tmp_path):
     retry_loop("smoke", action, check, max_iterations=3).run(shared)
     assert shared["_trace"].count("chk") == 1          # passed on first try
     assert shared["_trace"].count("act") == 1          # no retry happened
+
+
+def test_command_timeout_fails_step_not_run(tmp_path):
+    """A hung command must fail the STEP (exit 124, timeout note in stderr),
+    never crash the flow — seen live: a train.py silently fell back to CPU."""
+    from saage.nodes import CommandNode
+    node = CommandNode("hang", "sleep 30", tmp_path, timeout=0.3)
+    out = node.exec(node.prep({}))
+    assert out["exit"] == 124
+    assert "timed out after" in out["stderr"]

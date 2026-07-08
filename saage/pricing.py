@@ -19,6 +19,10 @@ import os
 # "gpt-4o"). Rough public list prices as of mid-2026 — update as they change.
 _PRICES: dict[str, tuple[float, float]] = {
     "deepseek": (0.27, 1.10),
+    "deepseek-v4-flash": (0.09, 0.18),   # openrouter list, 2026-07
+    "deepseek-v4-pro": (0.435, 0.87),
+    "minimax-m3": (0.30, 1.20),          # openrouter list, 2026-07
+    "gemini-3-flash": (0.50, 3.00),
     "claude-opus": (15.0, 75.0),
     "claude-sonnet": (3.0, 15.0),
     "claude-haiku": (0.80, 4.0),

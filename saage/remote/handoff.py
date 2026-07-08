@@ -27,7 +27,10 @@ log = logging.getLogger("saage.remote")
 # that `pip install -e` doesn't need (README.md/LICENSE must travel: the build
 # backend requires them)
 ENGINE_EXCLUDES = (".git", ".venv", "venv", "__pycache__", ".pytest_cache",
-                   "*.log", ".github", ".claude", "docs", "tests", "flows")
+                   "*.log", ".github", ".claude", "docs", "tests", "flows",
+                   # fetched run artifacts can hold multi-GB checkpoints — the
+                   # node needs the engine source, never local results/contrib
+                   "results", "contrib", "*.egg-info")
 
 
 class HandoffError(RuntimeError):
@@ -116,7 +119,8 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
             extra_env: dict[str, str] | None = None, workspace_mode: str = "auto",
             dirty: str = "abort", max_run_days: float = 12.0,
             sync_interval: int = 300, need_gpu: bool = False,
-            ws_setup: str | None = None, bootstrap_timeout: int = 1800) -> RunState:
+            ws_setup: str | None = None, bootstrap_timeout: int = 1800,
+            model: str | None = None) -> RunState:
     flow_path = Path(flow).resolve()
     flow_doc = _load_flow(flow_path)
     flow_dir = flow_path.parent
@@ -143,7 +147,7 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
 
     # -- record intent ---------------------------------------------------------
     spec = RunSpec(run_id=run_id, flow_file=flow_path.name, ws_mode=ws_plan.mode,
-                   set_args=set_args or {}, venv_arg=venv_arg,
+                   set_args=set_args or {}, venv_arg=venv_arg, model_arg=model,
                    sync_interval=sync_interval, max_run_days=max_run_days,
                    r2=storage is not None, ws_setup=ws_setup,
                    artifacts=_flow_artifacts(flow_doc))
@@ -152,6 +156,7 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
         "flow": str(flow_path),
         "target": target.name,
         "set": spec.set_args,
+        "model": spec.model_arg,
         "provider": provider_type,
         "workspace": None if ws_plan.mode == "ephemeral" else {
             "dir": str(ws_plan.workspace),

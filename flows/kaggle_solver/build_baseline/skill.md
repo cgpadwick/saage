@@ -18,6 +18,12 @@ experiments; the pipeline contract is what matters now.
 WORKFLOW:
 1. Read `competition_understanding.md` and `data_analysis.md`. Do NOT read raw
    data files whole — they are large; the docs have what you need.
+   Also read `research_log.md` if it exists: the harness builds SEVERAL
+   independent baseline candidates and keeps the best — if the log already
+   records earlier baseline candidate(s), you MUST build a genuinely
+   different approach (different model family / feature representation),
+   not a variation of what's already there. Diversity of starting points is
+   this step's job; refinement comes later.
 2. Write the solution at the workspace root:
    - `model.py` — model/pipeline/feature code (imported by train and predict)
    - `train.py` — training CLI (contract below)
@@ -33,9 +39,12 @@ breaks the run):
 - argparse with allow_abbrev=False and flags:
   `--device` (cpu/cuda), `--epochs`, `--data-path` (default data/),
   `--checkpoint-dir` (default checkpoints/), `--lr`
-- split train/validation (e.g. 80/20), print train AND validation metrics
-  per epoch, save the best checkpoint by validation metric, early-stop with
-  patience 5
+- YOU own the validation protocol (holdout, K-fold, OOF — your call; state it
+  in a comment at the top of train.py). The only rule: the reported score
+  must be an honest estimate of leaderboard performance — a protocol that
+  flatters validation but not the leaderboard loses the competition. Print
+  train AND validation metrics per epoch, save the best checkpoint by
+  validation metric, early-stop with patience 5
 - write `training.log`-style progress to stdout (the harness captures it)
 - AT EXIT write `eval_results.json` at the workspace root:
   `{"metric_name": "<metric>", "value": <best validation score as float>}`

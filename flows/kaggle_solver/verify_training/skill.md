@@ -20,6 +20,11 @@ actually trained — not whether the score is good.
    way that screams bug (e.g. exactly 0.0 with a loss that never moved).
    A LOW score is NOT a failure — keep/revert judges quality, you judge
    integrity.
+4. FAIL also on a TOO-GOOD score: a near-perfect validation number on the
+   first epochs (e.g. logloss ≈ 0, AUC ≈ 1.0) usually means leakage —
+   check `train.py` for preprocessing fit on all rows before the split or
+   features derived from the target, and name the offending line in the
+   feedback.
 
 When failing, summarize the actual error from the log in 1-3 lines (this is
 re-injected as feedback for the retry).

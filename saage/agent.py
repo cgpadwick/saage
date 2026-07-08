@@ -2,12 +2,51 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from .llm import LLMProvider
 from .spinner import Spinner
 from .tools import Tool
 
 log = logging.getLogger(__name__)
+
+
+class CostLimitExceeded(RuntimeError):
+    """The run's estimated LLM spend crossed SAAGE_MAX_COST_USD. Raised between
+    model calls, so the checkpoint has the last completed step — after raising
+    (or unsetting) the cap, `saage resume` continues the run where it stopped."""
+
+
+_warned_unpriced = False
+
+
+def _check_cost_cap() -> None:
+    """Money fuse for autonomous runs: SAAGE_MAX_COST_USD caps the estimated
+    LLM spend of this process (`saage run` sets it from --max-cost). Checked
+    before each model call. A model with no known rate can't trip the cap —
+    warn once so a cap that can't fire is visible, not silently useless."""
+    global _warned_unpriced
+    cap = os.environ.get("SAAGE_MAX_COST_USD")
+    if not cap:
+        return
+    try:
+        cap_usd = float(cap)
+    except ValueError:
+        return
+    from .llm import USAGE
+    spent = USAGE.cost
+    if spent is None:
+        if USAGE.calls and not _warned_unpriced:
+            _warned_unpriced = True
+            log.warning("SAAGE_MAX_COST_USD=%s is set but the model has no "
+                        "known rate (saage.pricing) — the cap cannot fire; "
+                        "add a rate via SAAGE_PRICES to enforce it", cap)
+        return
+    if spent > cap_usd:
+        raise CostLimitExceeded(
+            f"estimated LLM cost ~${spent:.2f} exceeds the "
+            f"SAAGE_MAX_COST_USD cap (${cap_usd:.2f}) — raise the cap and "
+            f"`saage resume` to continue this run")
 
 
 def _brief(args: dict) -> str:
@@ -50,6 +89,7 @@ def run_agent(provider: LLMProvider, system: str, task: str,
     messages: list[dict] = [{"role": "user", "text": task}]
     last_text = ""
     for _ in range(max_steps):
+        _check_cost_cap()                # money fuse; raises between model calls
         log.debug("    · model call")
         with Spinner():                           # animated only on a real TTY
             resp = provider.complete(system, messages, tools)

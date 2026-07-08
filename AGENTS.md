@@ -66,12 +66,18 @@ workflow:                      # required: an ordered list of steps
 ```yaml
 - { id: write_query, type: agent, skill: write_query,
     set: { score: "SCORE=([0-9.]+)" },   # optional: capture from the agent's final text
-    max_steps: 20 }                       # optional tool-call budget (default 20)
+    max_steps: 20,                        # optional tool-call budget (default 20)
+    model: "deepseek/deepseek-v4-flash" } # optional: this step only — cheap model for
+                                          # critics, strong model for propose/implement
+                                          # (CLI --model still forces one model everywhere)
 ```
 
 **`command`** — a deterministic shell step (no LLM). `run` is templated; cwd = workspace.
 ```yaml
 - { id: train, type: command, run: "python train.py --epochs {{ train_epochs }}",
+    timeout: 7200,                        # optional: seconds; a hung command is
+                                          # killed and the step returns exit 124
+                                          # (a failed attempt, never a hung run)
     set: { job_id: "job (\\d+)" } }       # optional capture from stdout/stderr
 ```
 
@@ -174,6 +180,10 @@ lists it in `tools:`).
   reliable keyed backend, or pin one with `SAAGE_SEARCH_BACKEND=ddg|tavily|brave`
   (default `auto`). Any failure (no key/lib, rate-limit, network) returns an
   `ERROR:` string, never crashing the run.
+  - **Domain blocklist:** set `SAAGE_SEARCH_BLOCK_DOMAINS` (comma-separated,
+    e.g. `kaggle.com`) to have the engine drop results from those domains (and
+    subdomains) before the model sees them — a mechanical guard for benchmark
+    flows where searching up the answer would invalidate the run.
   - **Network egress:** like all harness tools, `web_search` is in the default set,
     so a skill with **no `tools:` allow-list can call it**. To keep a skill off the
     network, give it a `tools:` allow-list that omits `web_search` (and
@@ -237,6 +247,7 @@ saage run flows/<name>/flow.yaml \
   [--workspace DIR] [--venv DIR] \
   [--provider openrouter --model "..."] [--base-url URL] \
   [--config engine.yaml] \              # tune the run_command safety policy
+  [--max-cost USD] \                    # stop once estimated LLM spend exceeds this
   [--set key=value ...]                 # seed/override shared values (JSON-parsed)
 ```
 
