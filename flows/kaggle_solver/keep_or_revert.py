@@ -171,7 +171,10 @@ def _record_experiment(candidate: float, best: float, kept: bool,
     step = len(rows) + 1
     # parent_step = the most recent KEPT step (the experiment this branched off);
     # 0 = the baseline
-    parent_step = next((r["step"] for r in reversed(rows) if r.get("kept")), 0)
+    # batched rounds write round/slot rows into the same ledger (no "step") —
+    # the parent is the most recent KEPT row that has one; 0 = the baseline
+    parent_step = next((r["step"] for r in reversed(rows)
+                        if r.get("kept") and "step" in r), 0)
     _append_research_log(step, candidate, best, kept, commit_sha,
                          files_changed, summary)
     record = {"step": step, "parent_step": parent_step,

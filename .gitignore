@@ -37,6 +37,8 @@ cache/
 *.db
 *.sqlite
 *.sqlite3
+results/
+
 # run-derived kaggle_solver state: travels with the flow dir on disk (handoff
 # ships the working tree, so remote runs still get it) but it is experiment
 # output — never committed

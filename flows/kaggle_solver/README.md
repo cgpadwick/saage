@@ -25,6 +25,8 @@ by `bench.py collect`/`table` and is run output, not part of the repo.
 | spooky-author-identification | MLE-STAR⁵ | v4-flash | none | **yes** | 0.3524 | 0.3638 | $1.85 | 11.3 | `…0941-1ee2` |
 | spooky-author-identification | MLE-STAR⁶ | v4-flash | none | **yes** | 0.3496 | 0.3581 | $2.05 | 10.1 | `…2106-ec27` |
 | spooky-author-identification | flat | v4-flash | none | **yes** | 0.3985 | 0.4129 | $2.24 | 2.4 | `…1603-dc9a` |
+| spooky-author-identification | **batched sweep⁷** | v4-flash | none | **yes** | 0.3973 | 0.4188 | $0.86 | ~5.5 coord | `…2239-fedd` |
+| spooky-author-identification | batched sweep⁸ | v4-flash | none | no | 0.3663 | 0.5713 | $0.89 | ~5.5 coord | `…1638-a123` |
 | nomad2018-transparent-conductors | flat | v4-flash | none | no² | 0.0518 | 0.1424 | $7.26 | 5.7 | `…1603-d093` |
 | nomad2018-transparent-conductors | MLE-STAR | minimax-m3 | none | no⁴ | 0.0518 | 0.5154 | $19.77 | 12.3 | `…0617-b546` |
 | spooky-author-identification | flat | v4-flash | ungraded¹ | — | 0.3207 | — | $4.95 | 10.2 | `…0425-fdc6` |
@@ -59,6 +61,19 @@ candidate on the spot) and the cross-family ensemble endgame: the agent dug the
 losing baseline family out of git history (`git show`), built a LightGBM branch,
 blended — and the deterministic keep-gate correctly reverted it (the second
 family was too weak to help). Best validation score of the campaign (0.3496).
+
+⁷ second sweep, all fixes live: 12 rounds × 3 parallel experiments across 4
+worker boxes (~21 min/round — ~3.5× sequential experiment throughput),
+workers auto-released at the batch-done marker, coordinator graded and tore
+itself down. Full clean lifecycle. Note the patience lesson: rounds 1–3 all
+missed, the breakthrough came at round 4 (max_failed_rounds=4 is
+load-bearing) — and outcomes are baseline-roll-sensitive (raise
+`baseline_candidates` for sweeps).
+⁸ first live sweep: the rounds worked perfectly (0.5549 → 0.3663 val,
+30 experiments, $0.89 of LLM) but the tail broke — a checker non-answer
+slipped a crashed final train through, and the round winner had been
+validated on a WORKER's package set (sklearn API skew). Three bugs, all
+reproduced in tests and fixed; the second sweep validated the fixes.
 
 ### Cross-run ensembling (offline evidence, not a benchmark row)
 

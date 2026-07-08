@@ -135,11 +135,14 @@ def test_venv_flag_passthrough():
 
 
 def test_ws_setup_hook_runs_in_ws_after_clone():
+    # the hook is serialized under a content-keyed flock so K concurrent
+    # bootstraps on one box populate the shared cache once, not K times
     script = bootstrap_sh(_spec(ws_mode="bundle", ws_setup="bash ../flow/cloud_setup.sh"))
-    hook = "( cd ws && bash ../flow/cloud_setup.sh )"
-    assert hook in script
-    assert script.index("./ws.bundle ws") < script.index(hook)   # clone first
-    assert script.index(hook) < script.index("BOOTSTRAP_OK")
+    hook_start = "( cd ws && flock "
+    assert hook_start in script
+    assert "bash -c 'bash ../flow/cloud_setup.sh'" in script
+    assert script.index("./ws.bundle ws") < script.index(hook_start)  # clone first
+    assert script.index(hook_start) < script.index("BOOTSTRAP_OK")
     assert "( cd ws &&" not in bootstrap_sh(_spec())             # absent by default
     _bash_n(script)
 

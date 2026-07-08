@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -219,6 +220,10 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
     seed.setdefault("flow_dir", str(flow_dir.resolve()))   # for bundled scripts
     # the interpreter launcher for helper scripts: Windows has no `python3`
     seed.setdefault("python", "python" if os.name == "nt" else "python3")
+    # the ENGINE's interpreter — the one with saage importable. For steps that
+    # call back into the engine (`{{ engine_python }} -m saage.remote.batch`),
+    # which must work both locally and inside a remote node's per-run venv
+    seed.setdefault("engine_python", sys.executable)
     return top, seed
 
 

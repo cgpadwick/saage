@@ -7,7 +7,9 @@ import sys
 from . import observe
 from .creds import (CredsError, add_target, cred_path, ensure_ssh_key,
                     get_target, list_targets, load_creds, storage_config)
+from .fleet import FleetError
 from .handoff import HandoffError, handoff
+from .provision import ProvisionError
 from .resume import ResumeError
 from .lambda_api import LambdaAPI, LambdaError, SAAGE_KEY_NAME, pick_instance_type, wait_active, wait_ssh
 from .sshio import SSHError
@@ -16,9 +18,9 @@ from .target import PreflightError, SshTarget
 from .thunder_api import ThunderAPI, ThunderError
 from .workspace import DirtyWorkspace, WorkspaceError
 
-_ERRORS = (CredsError, HandoffError, PreflightError, WorkspaceError,
-           DirtyWorkspace, SSHError, LambdaError, ThunderError, ResumeError,
-           FileNotFoundError)
+_ERRORS = (CredsError, HandoffError, PreflightError, ProvisionError,
+           WorkspaceError, DirtyWorkspace, SSHError, LambdaError,
+           ThunderError, FleetError, ResumeError, FileNotFoundError)
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:
@@ -36,6 +38,9 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                      help="rented box? status/ps will show running cost")
     add.add_argument("--key", default=None,
                      help="private key path for this target (default: the saage key)")
+    add.add_argument("--slots", type=int, default=1, metavar="N",
+                     help="concurrent runs this box may host (default 1; "
+                          "GPU contention is your call)")
     add.add_argument("--no-check", action="store_true",
                      help="skip the ssh reachability check")
 
@@ -74,6 +79,66 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                          "--ws-setup; raise it when ws-setup stages a large "
                          "dataset; default 1800)")
 
+    pv = rsub.add_parser("provision",
+                         help="one-time node setup into the shared cache "
+                              "(content-keyed, locked, stamped — safe to repeat)")
+    pv.add_argument("target", help="a registered target name")
+    pv.add_argument("--cmd", required=True,
+                    help="setup command; runs with $SAAGE_CACHE exported, "
+                         "cwd = $SAAGE_CACHE/provision/<key>/")
+    pv.add_argument("--files", default=None, metavar="DIR",
+                    help="local dir rsynced into the provision cwd first")
+    pv.add_argument("--key", default=None,
+                    help="cache key (default: hash of --cmd)")
+    pv.add_argument("--env", dest="env", metavar="KEY=VALUE", action="append",
+                    default=[], help="extra env for the setup command")
+    pv.add_argument("--timeout", type=int, default=3600)
+    pv.add_argument("--force", action="store_true",
+                    help="drop the stamp and re-run even if already provisioned")
+
+    su = rsub.add_parser("sweep-up",
+                         help="fire-and-forget a batched flow: spawn a "
+                              "coordinator + N workers, scope creds, hand off")
+    su.add_argument("flow", metavar="flow.yaml")
+    su.add_argument("--workers", type=int, required=True)
+    su.add_argument("--cloud", choices=["thunder", "lambda"], default="thunder")
+    su.add_argument("--gpu", default="auto")
+    su.add_argument("--slots", type=int, default=1,
+                    help="concurrent runs per worker box")
+    su.add_argument("--set", dest="overrides", metavar="KEY=VALUE",
+                    action="append", default=[])
+    su.add_argument("--env", dest="env", metavar="KEY=VALUE",
+                    action="append", default=[])
+    su.add_argument("--provision-cmd", default=None,
+                    help="one-time coordinator setup (cwd has ./files)")
+    su.add_argument("--provision-files", default=None, metavar="DIR",
+                    help="local dir staged for --provision-cmd")
+    su.add_argument("--max-run-days", type=float, default=2.0)
+    su.add_argument("--bootstrap-timeout", type=int, default=1800)
+    su.add_argument("--dirty", choices=["abort", "commit", "ship-head"],
+                    default="abort")
+    su.add_argument("--ws-setup", default=None, metavar="CMD",
+                    help="coordinator env/data setup run in its workspace at "
+                         "bootstrap (flow dir at ../flow), e.g. "
+                         "'bash ../flow/cloud_setup.sh'")
+    su.add_argument("--model", default=None,
+                    help="override the flow's model on the coordinator "
+                         "(forces one model for every step)")
+
+    sw = rsub.add_parser("sweep-watch",
+                         help="babysit a sweep via the R2 mirror: release "
+                              "workers at the batch-done marker, fetch + "
+                              "tear down everything at the final phase")
+    sw.add_argument("run", nargs="?", default=None, help="run id (default: latest)")
+    sw.add_argument("--interval", type=int, default=60)
+    sw.add_argument("--dest", default=None, help="fetch destination")
+
+    sd = rsub.add_parser("sweep-down",
+                         help="terminate a sweep's boxes (artifacts stay on "
+                              "the mirror)")
+    sd.add_argument("sweep_id")
+    sd.add_argument("--only-workers", action="store_true")
+
     sp = rsub.add_parser("spawn", help="launch a cloud GPU instance and register it as a target")
     sp.add_argument("--provider", choices=["lambda", "thunder"], default="lambda",
                     help="cloud to provision from (default lambda; thunder's "
@@ -84,6 +149,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
                          "'auto' = cheapest with capacity (default)")
     sp.add_argument("--name", default=None,
                     help="target name (default: <provider>-<hhmm>)")
+    sp.add_argument("--slots", type=int, default=1, metavar="N",
+                    help="concurrent runs the new box may host (default 1)")
     sp.add_argument("--extra-key", action="append", default=[],
                     help="(lambda) also authorize this Lambda-registered ssh "
                          "key name on the node (repeatable)")
@@ -184,7 +251,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     if cmd == "add-target":
         ensure_ssh_key()
         path = add_target(args.name, args.host, args.user, args.port,
-                          args.hourly_usd, key=args.key)
+                          args.hourly_usd, key=args.key, max_runs=args.slots)
         print(f"target {args.name!r} added to {path}")
         if not args.no_check:
             warnings = SshTarget(get_target(args.name)).preflight()
@@ -211,6 +278,53 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(f"run {rs.run_id} handed off — `saage remote status {rs.run_id}`")
         return 0
 
+    if cmd == "provision":
+        from pathlib import Path as _P
+
+        from .provision import provision_node
+        result = provision_node(
+            get_target(args.target), args.cmd, key=args.key,
+            files=_P(args.files) if args.files else None,
+            env=_parse_kv(args.env, "--env"), timeout=args.timeout,
+            force=args.force)
+        print(f"provision on {args.target!r}: {result}")
+        return 0
+    if cmd == "sweep-up":
+        from pathlib import Path as _P
+
+        from .fleet import sweep_up
+        rs = sweep_up(
+            args.flow, n_workers=args.workers, cloud=args.cloud, gpu=args.gpu,
+            worker_slots=args.slots,
+            set_args=_parse_kv(args.overrides, "--set"),
+            extra_env=_parse_kv(args.env, "--env"),
+            provision_cmd=args.provision_cmd,
+            provision_files=_P(args.provision_files) if args.provision_files else None,
+            max_run_days=args.max_run_days,
+            bootstrap_timeout=args.bootstrap_timeout, dirty=args.dirty,
+            ws_setup=args.ws_setup, model=args.model)
+        state = rs.state()
+        print(f"sweep {state['sweep_id']} up — run {rs.run_id}")
+        print(f"boxes: {', '.join(state['sweep_boxes'])}")
+        print(f"watch + auto-teardown:  saage remote sweep-watch {rs.run_id}")
+        print(f"manual teardown:        saage remote sweep-down {state['sweep_id']}")
+        return 0
+    if cmd == "sweep-watch":
+        from pathlib import Path as _P
+
+        from .fleet import sweep_watch
+        out = sweep_watch(args.run, interval=args.interval,
+                          fetch_dest=_P(args.dest) if args.dest else None)
+        print(f"run finished: {out['phase']}; fetched {len(out['fetched'])} "
+              f"file(s) → {out['dest']}")
+        print(f"terminated: {', '.join(out['terminated']) or '(nothing live)'}")
+        return 0
+    if cmd == "sweep-down":
+        from .fleet import sweep_down
+        done = sweep_down(args.sweep_id, only_workers=args.only_workers)
+        print(f"terminated: {', '.join(done) or '(nothing live)'} — "
+              f"targets de-registered")
+        return 0
     if cmd == "spawn":
         return _spawn(args)
     if cmd == "terminate":
@@ -275,7 +389,7 @@ def _spawn_thunder(args: argparse.Namespace) -> int:
         print(f"instance {iid} running at {ip}:{port}; waiting for ssh …")
         wait_ssh(ip, "ubuntu", str(key_path), port=port)
         add_target(name, ip, user="ubuntu", port=port, hourly_usd=price,
-                   key=str(key_path))
+                   key=str(key_path), max_runs=args.slots)
     except BaseException:
         _ensure_deleted(api, iid)
         raise
@@ -327,7 +441,8 @@ def _spawn(args: argparse.Namespace) -> int:
                 conn = SSHConn(host=ip, user="ubuntu", key=key_path)
                 conn.run("cat >> ~/.ssh/authorized_keys", input="\n".join(extras) + "\n")
 
-        add_target(name, ip, user="ubuntu", hourly_usd=price)
+        add_target(name, ip, user="ubuntu", hourly_usd=price,
+                   max_runs=args.slots)
     except BaseException:
         _ensure_terminated(api, iid)
         raise
