@@ -101,7 +101,7 @@ def bootstrap_sh(spec: RunSpec) -> str:
     boto3 = " boto3" if spec.r2 else ""
     # flow-specific env/data prep (e.g. le-wm's cloud_setup.sh) — runs inside
     # the workspace, with the flow dir reachable at ../flow. Serialized under
-    # an flock keyed by the command, so K concurrent bootstraps on one box
+    # a flock keyed by the command, so K concurrent bootstraps on one box
     # populate $SAAGE_CACHE once instead of racing K dataset pulls; with a
     # warm cache the critical section is just the cheap per-run linking.
     ws_setup_hook = ""

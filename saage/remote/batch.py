@@ -96,25 +96,28 @@ def run_round(experiment_flow: Path, proposals: list[Path], targets: list,
     opts = {"dirty": "ship-head", "sync_interval": 30, **(handoff_opts or {})}
 
     stage_root = Path(tempfile.mkdtemp(prefix="saage_batch_"))
-    jobs = []
-    for i, prop in enumerate(proposals):
-        flow_file = stage_job_flow(experiment_flow, prop, workspace,
-                                   stage_root, i)
-        jobs.append(Job(name=f"p{i}", flow_file=str(flow_file),
-                        retry_timeouts=False,   # a too-slow experiment is a
-                                                # result, not a retry
-                        set_args={**(set_args or {}), "job_index": str(i)}))
+    try:
+        jobs = []
+        for i, prop in enumerate(proposals):
+            flow_file = stage_job_flow(experiment_flow, prop, workspace,
+                                       stage_root, i)
+            jobs.append(Job(name=f"p{i}", flow_file=str(flow_file),
+                            retry_timeouts=False,   # a too-slow experiment is
+                                                    # a result, not a retry
+                            set_args={**(set_args or {}), "job_index": str(i)}))
 
-    extra = {"clock": clock} if clock is not None else {}
-    d = dispatcher_cls(str(experiment_flow), jobs, targets, ops=ops,
-                       provision_cmd=provision_cmd,
-                       provision_files=provision_files,
-                       max_hours=max_hours, poll_interval=poll_interval,
-                       stale_after=stale_after, fetch_dest=results_dir,
-                       dispatch_workers=max(4, len(jobs)),
-                       handoff_opts=opts, **extra)
-    d.run()
-    shutil.rmtree(stage_root, ignore_errors=True)
+        extra = {"clock": clock} if clock is not None else {}
+        d = dispatcher_cls(str(experiment_flow), jobs, targets, ops=ops,
+                           provision_cmd=provision_cmd,
+                           provision_files=provision_files,
+                           max_hours=max_hours, poll_interval=poll_interval,
+                           stale_after=stale_after, fetch_dest=results_dir,
+                           dispatch_workers=max(4, len(jobs)),
+                           handoff_opts=opts, **extra)
+        d.run()
+    finally:
+        # staging must not leak when dispatch raises mid-round
+        shutil.rmtree(stage_root, ignore_errors=True)
 
     results = []
     for i, (job, prop) in enumerate(zip(jobs, proposals)):

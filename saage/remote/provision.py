@@ -3,7 +3,7 @@
 A *provision* is a setup command whose effects live in the node's shared
 cache (``$SAAGE_CACHE = ~/.saage_cache``): dataset pulls, ML venvs, repo
 mirrors. It is keyed by its content (default: hash of the command), guarded
-by an flock (concurrent callers wait, never duplicate work), and stamped on
+by a flock (concurrent callers wait, never duplicate work), and stamped on
 success — so re-provisioning a node is always safe and a *replacement* box
 needs no special recovery path: no stamp, so it provisions cold, exactly
 like a first-time node.

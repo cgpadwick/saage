@@ -49,13 +49,17 @@ def _status_from_bucket(storage: Storage, run_id: str) -> dict:
 
 
 def bucket_names(storage: Storage, run_id: str) -> set[str]:
-    """Object basenames in the run's mirror prefix (cheap LIST, no GETs)."""
+    """Object basenames in the run's mirror prefix (cheap LISTs, no GETs).
+    Paginated: a prefix past 1000 objects must not hide later keys — the
+    sweep watcher's batch_done.marker lookup depends on seeing everything."""
     try:
         client = _bucket_client(storage)
-        listed = client.list_objects_v2(Bucket=storage.bucket,
-                                        Prefix=storage.run_prefix(run_id) + "/")
-        return {obj["Key"].rsplit("/", 1)[-1]
-                for obj in listed.get("Contents", [])}
+        names: set[str] = set()
+        for page in client.get_paginator("list_objects_v2").paginate(
+                Bucket=storage.bucket, Prefix=storage.run_prefix(run_id) + "/"):
+            names |= {obj["Key"].rsplit("/", 1)[-1]
+                      for obj in page.get("Contents", [])}
+        return names
     except Exception:
         return set()
 
