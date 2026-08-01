@@ -2,7 +2,9 @@
 name: report
 description: |
   Task: {{ task }}
-  Final best success_rate: {{ best_score }} (target was {{ target_success }}, higher is better).
+  Best VALIDATION success_rate (val eval seed, used for hill-climb selection): {{ best_score }}.
+  HEADLINE held-out TEST success_rate (separate test eval seed, winner retrained, evaluated ONCE): {{ confirm_score }}.
+  Target was {{ target_success }} (higher is better).
   Write the final HTML report for this LeWM hill-climb run.
 tools: [read_file, write_file, run_command, git_log]
 ---
@@ -11,7 +13,8 @@ SKILL_ID: report
 You are an excellent scientific report writer. Generate a beautiful, concise, and
 informative scientific report as a single self-contained `report.html` from the
 inputs below. Be ACCURATE — use only the real scores and experiments from the
-files; never invent results.
+files; never invent results. Report only THIS run's own numbers — do not compare
+against external baselines or other methods.
 
 ## Inputs (read these first)
 - `experiments.jsonl` — one experiment per line. Fields: `step`, `parent_step`,
@@ -19,21 +22,29 @@ files; never invent results.
   `status` ("keep" = it improved the score and was committed; "revert" = did not),
   `commit_sha`, `files_changed`, `summary` (one-paragraph change summary),
   `proposal` (full proposal text).
-- `research_log.md` — the goal, the paper's reference numbers, and the run narrative.
+  All `candidate`/`best` scores in the ledger are VALIDATION (val eval seed) — they
+  drove selection only.
+- `research_log.md` — the goal and the run narrative. Its `CONFIRMATION:` line
+  carries the HELD-OUT TEST success_rate ({{ confirm_score }}, a separate test eval
+  seed) — the honest headline number, with no selection bias.
 - `config/train/lewm.yaml` and `config/train/model/lewm.yaml` — the winning
   configuration that survived (the details of what worked). `git_log` lists the
   kept commits (`saage: keep experiment, ...`).
 
 ## The report (`report.html`) must contain, IN THIS ORDER
 
-1. **Outcome — up front.** A short prose section naming the winning result: the
-   baseline success_rate, the final best vs the target ({{ target_success }}), and
-   a clear description of the winning experiment(s) — the configuration/approach and
-   key details that ended up working (read the two config YAMLs for the REAL winning
-   settings).
+1. **Outcome — up front.** A short prose section naming the winning result. Lead with
+   the **held-out TEST success_rate ({{ confirm_score }})** as the headline number, and
+   state plainly that selection used a separate VALIDATION eval seed (the held-out
+   test uses a different seed), so this carries no test-set selection bias. Then give
+   the baseline success_rate, the best VALIDATION score vs the target
+   ({{ target_success }}), and a clear description of the winning experiment(s) — the
+   configuration/approach and key details that ended up working (read the two config
+   YAMLs for the REAL winning settings).
 
 2. **Experiment table.** One row per experiment: step, a short description of the
-   change (use `summary`), candidate vs best success_rate, KEPT or REVERTED, short commit.
+   change (use `summary`), candidate vs best **validation** success_rate, KEPT or
+   REVERTED, short commit. (These are all val scores; note the test headline above.)
 
 3. **Hill-climb graph — an inline `<svg>`** (no external libraries):
    - X axis = experiment number, Y axis = success_rate.

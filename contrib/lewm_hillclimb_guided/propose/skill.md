@@ -35,6 +35,8 @@ auto-activated.
    - NEVER touch the eval protocol: `eval.py`, anything under `config/eval/`
      (including the CEM solver settings), or the eval seed/num_eval. The
      harness pins the paper's planning budget; the metric must stay trustworthy.
+     The held-out TEST eval seed and its size are harness-controlled (the flow sets
+     them); never reference, widen, or tune the eval set.
    - NEVER change the training budget: `trainer.max_epochs`, `output_model_name`,
      `subdir`, or the wandb/logging setup — the harness fixes those.
    - The training budget is SHORT ({{ train_epochs }} epochs at ~2.5 h each), so

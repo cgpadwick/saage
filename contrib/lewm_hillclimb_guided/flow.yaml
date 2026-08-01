@@ -7,6 +7,7 @@
 #     -> hillclimb counting_loop (until target or max_iterations):
 #          [propose -> proposal_critic]x3 -> [implement -> verify]x3
 #          -> reset_candidate -> clean -> train -> eval -> keep_or_revert
+#     -> confirm_clean/train/eval/record (winner retrained, held-out TEST eval)
 #     -> report(agent: self-contained report.html) -> report_commit(cmd)
 #
 # The workspace IS the existing le-wm repo (brownfield): agents edit its config
@@ -21,6 +22,16 @@
 # config/eval/cube.yaml (50 episodes, seed 42) + solver.n_steps=10 (the paper's
 # CEM budget for cube, App. D); agents may not modify it.
 #
+# HELD-OUT TEST (saage-only, no le-wm change): hill-climb selection (baseline_eval
+# + in-loop eval -> keep_or_revert) evaluates with seed={{ val_seed }}; the final
+# confirm_eval uses a DIFFERENT seed ({{ test_seed }}). eval.py samples its episodes
+# from the dataset by `seed`, so a different seed = a different episode sample the
+# selection loop never scored — the reported number carries (essentially) no
+# test-set selection bias. The two samples are drawn from the same pool, so a tiny
+# overlap (~1-2 episodes) is possible; it is negligible next to the 50-episode
+# sampling noise. (Same intent as flows/greenfield_ml's val/test split, achieved
+# with seeds on stock eval.py.)
+#
 # Run (long-lived — use tmux/nohup):
 #   OPENROUTER_API_KEY=... saage run contrib/lewm_hillclimb_guided/flow.yaml
 #   ... --set train_epochs=8 --set target_success=74.0   # tunable
@@ -33,10 +44,8 @@ shared:
   task: >-
     Improve the training of LeWorldModel (LeWM) — a JEPA world model (ViT-tiny
     encoder + autoregressive transformer predictor, loss = next-embedding MSE +
-    lambda * SIGReg) — on the OGBench-Cube manipulation task. The paper reports
-    74%; our measured baseline (this exact repo state, 8 epochs, A100) is 76.0;
-    DINO-WM reaches 86 on this task. The goal is the BEST achievable
-    success_rate on the frozen eval protocol — every point counts.
+    lambda * SIGReg) — on the OGBench-Cube manipulation task. The goal is the BEST
+    achievable success_rate on the frozen eval protocol — every point counts.
     Metric: success_rate in [0, 100] from eval.py (higher is better).
   target_success: 100.0           # best-score mode: never exit early on a target
   best_score: -1.0
@@ -54,6 +63,12 @@ shared:
   confirm_epochs: 10             # final confirmation run at the paper's budget
   confirm_name: lewm_cube_confirm
   confirm_score: -1.0
+  val_seed: 42                   # eval seed for hill-climb SELECTION (baseline + loop);
+                                 # matches cube.yaml's default so val == the usual eval
+  test_seed: 1234                # DIFFERENT eval seed for the held-out TEST confirm eval
+                                 # -> a sample the selection loop never scored
+  test_num_eval: 200             # held-out TEST size for the confirm eval (heavy);
+                                 # in-loop val stays at cube.yaml's 50 (cheap selection)
   run_branch: saage-hillclimb    # experiment branch; remote handoff overrides it
                                  # (--set run_branch=saage-run-<id>) so kept
                                  # commits land on the branch the node pushes back
@@ -73,7 +88,7 @@ workflow:
     run: 'STABLEWM_HOME="{{ stablewm_home }}" python train.py data=ogb output_model_name={{ exp_name }} subdir={{ exp_name }} trainer.max_epochs={{ train_epochs }} num_workers={{ num_workers }} wandb.enabled=False'
   - id: baseline_eval
     type: command
-    run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ exp_name }}/weights_epoch_{{ train_epochs }}.pt solver.n_steps=10'
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ exp_name }}/weights_epoch_{{ train_epochs }}.pt solver.n_steps=10 seed={{ val_seed }}'
     set: { best_score: "'success_rate': (-?[0-9.]+)" }
   - id: baseline_record
     type: command
@@ -122,7 +137,7 @@ workflow:
         run: 'STABLEWM_HOME="{{ stablewm_home }}" python train.py data=ogb output_model_name={{ exp_name }} subdir={{ exp_name }} trainer.max_epochs={{ train_epochs }} num_workers={{ num_workers }} wandb.enabled=False'
       - id: eval
         type: command
-        run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ exp_name }}/weights_epoch_{{ train_epochs }}.pt solver.n_steps=10'
+        run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ exp_name }}/weights_epoch_{{ train_epochs }}.pt solver.n_steps=10 seed={{ val_seed }}'
         set: { candidate_score: "'success_rate': (-?[0-9.]+)" }
       - id: keep_or_revert
         type: command
@@ -142,11 +157,11 @@ workflow:
     run: 'STABLEWM_HOME="{{ stablewm_home }}" python train.py data=ogb output_model_name={{ confirm_name }} subdir={{ confirm_name }} trainer.max_epochs={{ confirm_epochs }} num_workers={{ num_workers }} wandb.enabled=False'
   - id: confirm_eval
     type: command
-    run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ confirm_name }}/weights_epoch_{{ confirm_epochs }}.pt solver.n_steps=10'
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ confirm_name }}/weights_epoch_{{ confirm_epochs }}.pt solver.n_steps=10 seed={{ test_seed }} eval.num_eval={{ test_num_eval }}'
     set: { confirm_score: "'success_rate': (-?[0-9.]+)" }
   - id: confirm_record
     type: command
-    run: 'echo "- CONFIRMATION: best config retrained at {{ confirm_epochs }} epochs -> success_rate={{ confirm_score }} (best 8-epoch score: {{ best_score }})" >> research_log.md && echo "CONFIRMED={{ confirm_score }}"'
+    run: 'echo "- CONFIRMATION: best config retrained at {{ confirm_epochs }} epochs -> HELD-OUT TEST success_rate={{ confirm_score }} (test seed {{ test_seed }}; best VAL score used for selection: {{ best_score }})" >> research_log.md && echo "CONFIRMED={{ confirm_score }}"'
 
   # ---- final report: one LLM agent writes the whole self-contained report.html
   # (outcome/winner prose, per-experiment table, inline-SVG hill-climb chart),

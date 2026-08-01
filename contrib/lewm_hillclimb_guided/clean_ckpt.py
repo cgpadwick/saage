@@ -21,8 +21,13 @@ import shutil
 import sys
 from pathlib import Path
 
-# explicit allow-list: the only directories this script may ever delete
-ALLOWED = {"lewm_cube_exp", "lewm_cube_best", "lewm_smoke"}
+# explicit allow-list: the only directories this script may ever delete.
+# These are saage's own per-run checkpoint dirs under $STABLEWM_HOME/checkpoints/<name>/
+# (created by train.py via output_model_name=/subdir=; eval.py writes artifacts under
+# $STABLEWM_HOME/<name>/). The list keeps clean_ckpt from ever touching the user's
+# real checkpoints (e.g. lewm, lewm_cube).
+ALLOWED = {"lewm_cube_exp", "lewm_cube_best", "lewm_smoke",
+           "lewm_cube_confirm"}   # the winner-confirmation retrain
 
 
 def cache_dir() -> Path:
