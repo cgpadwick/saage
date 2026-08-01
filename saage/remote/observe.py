@@ -11,7 +11,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .creds import Storage, get_target, list_targets, storage_config
+from .creds import (Storage, get_target, list_targets, remove_target,
+                    storage_config)
 from .state import RunState, find_run, list_runs
 from .target import SshTarget
 
@@ -183,14 +184,23 @@ def reconcile(local_runs: list[dict], sessions_by_target: dict[str, list[str]]) 
     return rows
 
 
+def _dest(target) -> str:
+    return f"{target.user}@{target.host}" if target.user else target.host
+
+
 def ps() -> int:
     sessions_by_target: dict[str, list[str]] = {}
     for name, target in list_targets().items():
+        # each probe can eat a full ConnectTimeout on a dead box — narrate so a
+        # wall of stale targets reads as progress, not a hang
+        print(f"checking {name} ({_dest(target)})… ", end="", flush=True)
         node = SshTarget(target)
         try:
             sessions_by_target[name] = node.sessions()
+            print(f"ok ({len(sessions_by_target[name])} sessions)")
         except Exception as exc:                      # unreachable box: report, keep going
-            log.warning("target %s unreachable: %s", name, exc)
+            print("unreachable")
+            log.debug("target %s unreachable: %s", name, exc)
             sessions_by_target[name] = []
     local = []
     for rs in list_runs():
@@ -208,6 +218,43 @@ def ps() -> int:
     for r in rows:
         print(fmt.format(r["run_id"], r["phase"], r["target"],
                          "yes" if r["alive"] else "no", r["note"]))
+    return 0
+
+
+def cleanup(check: bool = False, ask=input) -> int:
+    """Interactive target pruning: one y/N prompt per registered target.
+
+    Removal only drops the credentials.toml entry — it never terminates a box
+    (that's `saage remote terminate`), so the worst case is re-running
+    add-target. --check probes reachability as information for the human;
+    it never decides anything (offline, every box would look dead)."""
+    targets = list_targets()
+    if not targets:
+        print("no targets registered.")
+        return 0
+    active: dict[str, list[str]] = {}
+    for rs in list_runs():                     # local ledger only — no network
+        state = rs.state()
+        if state.get("phase") not in _FINAL:
+            active.setdefault(state.get("target", ""), []).append(rs.run_id)
+    removed = []
+    for name, target in sorted(targets.items()):
+        if check:
+            print(f"checking {name} ({_dest(target)})… ", end="", flush=True)
+            try:
+                SshTarget(target).sessions()
+                print("reachable")
+            except Exception:
+                print("unreachable — network down or box gone")
+        for run_id in active.get(name, []):
+            print(f"⚠  run {run_id} (not finished) uses target {name!r}")
+        if ask(f"remove {name} ({_dest(target)})? [y/N] ").strip().lower() in ("y", "yes"):
+            remove_target(name)
+            print(f"removed {name!r}")
+            removed.append(name)
+    if removed:
+        print("note: removing a target does not terminate the box — a rented "
+              "box keeps billing until `saage remote terminate`.")
     return 0
 
 

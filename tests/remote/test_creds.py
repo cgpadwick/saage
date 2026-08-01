@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from saage.remote.creds import (CredsError, add_target, cred_path, get_target,
-                                list_targets, load_creds)
+                                list_targets, load_creds, remove_target)
 
 # POSIX file modes don't exist on NTFS: chmod is a no-op and stat reports
 # 0o666, so the 0600 check (and these tests of it) are POSIX-only
@@ -93,3 +93,59 @@ def test_multiple_targets(saage_home):
     targets = list_targets()
     assert set(targets) == {"a", "b"}
     assert targets["b"].port == 2222
+
+
+def test_remove_target_middle_section(saage_home):
+    add_target("a", "h1")
+    add_target("b", "h2", user="u", port=2222)
+    add_target("c", "h3")
+    remove_target("b")
+    assert set(list_targets()) == {"a", "c"}
+    assert get_target("c").host == "h3"
+
+
+def test_remove_target_last_section(saage_home):
+    add_target("a", "h1")
+    add_target("b", "h2")
+    remove_target("b")
+    assert set(list_targets()) == {"a"}
+
+
+def test_remove_target_unknown_name(saage_home):
+    add_target("a", "h1")
+    with pytest.raises(CredsError, match="unknown target"):
+        remove_target("nope")
+
+
+def test_remove_target_preserves_rest_of_file(saage_home):
+    # non-target content (comments, [storage], [lambda]) must survive removal
+    # byte-for-byte — a TOML re-emit would strip comments
+    add_target("a", "h1")
+    path = cred_path()
+    path.write_text("# keep this comment\n[storage]\nbucket = \"b\"\n"
+                    + path.read_text())
+    add_target("b", "h2")
+    remove_target("a")
+    text = path.read_text()
+    assert "# keep this comment" in text
+    assert "[storage]" in text
+    assert "[targets.a]" not in text
+    assert set(list_targets()) == {"b"}
+
+
+def test_remove_target_keeps_key_file(saage_home):
+    # per-target keys (Thunder) are unrecoverable — removal must not touch them
+    (saage_home / "ssh").mkdir()
+    key = saage_home / "ssh" / "thunder_k1"
+    key.write_text("KEY")
+    add_target("t1", "h", key=str(key))
+    remove_target("t1")
+    assert key.exists()
+
+
+@_posix_only
+def test_remove_target_keeps_0600(saage_home):
+    add_target("a", "h1")
+    add_target("b", "h2")
+    remove_target("a")
+    assert (cred_path().stat().st_mode & 0o077) == 0

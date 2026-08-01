@@ -6,12 +6,12 @@ import sys
 
 from . import observe
 from .creds import (CredsError, add_target, cred_path, ensure_ssh_key,
-                    get_target, list_targets, load_creds, storage_config)
+                    get_target, list_targets, load_creds, remove_target,
+                    ssh_key_path, storage_config)
 from .handoff import HandoffError, handoff
 from .resume import ResumeError
 from .lambda_api import LambdaAPI, LambdaError, SAAGE_KEY_NAME, pick_instance_type, wait_active, wait_ssh
 from .sshio import SSHError
-from .state import find_run
 from .target import PreflightError, SshTarget
 from .workspace import DirtyWorkspace, WorkspaceError
 
@@ -87,6 +87,12 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     lg.add_argument("run", nargs="?", default=None)
     lg.add_argument("--lines", type=int, default=100)
     lg.add_argument("--live", action="store_true", help="follow (ssh tail -f)")
+
+    rsub.add_parser("list", help="registered targets (local, no network)")
+
+    cu = rsub.add_parser("cleanup", help="interactively remove stale targets")
+    cu.add_argument("--check", action="store_true",
+                    help="ssh-probe each target first (info only; slow on dead boxes)")
 
     rsub.add_parser("ps", help="all targets: sessions vs local state (orphan detector)")
 
@@ -199,6 +205,25 @@ def _dispatch(args: argparse.Namespace) -> int:
         print(f"run {rs.run_id} handed off — `saage remote status {rs.run_id}`")
         return 0
 
+    if cmd == "list":
+        targets = list_targets()
+        if not targets:
+            print("(none registered) — saage remote add-target <name> --host <host>")
+            return 0
+        default_key = ssh_key_path()
+        fmt = "{:<16} {:<30} {:>9} {}"
+        print(fmt.format("TARGET", "DEST", "$/HR", "KEY"))
+        for name, t in sorted(targets.items()):
+            dest = f"{t.user}@{t.host}" if t.user else t.host
+            rate = f"{t.hourly_usd:.2f}" if t.hourly_usd else "-"
+            key = "-" if t.key == default_key else t.key.name
+            print(fmt.format(name, f"{dest}:{t.port}" if t.port != 22 else dest,
+                             rate, key))
+        return 0
+
+    if cmd == "cleanup":
+        return observe.cleanup(check=args.check)
+
     if cmd == "spawn":
         return _spawn(args)
     if cmd == "terminate":
@@ -300,4 +325,9 @@ def _terminate(args: argparse.Namespace) -> int:
     done = api.terminate([i["id"] for i in matches])
     for i in done:
         print(f"terminated {i['id'][:12]}… ({host}) — billing stopped")
+    # the box is gone — drop its registration too, or dead targets pile up
+    for name, t in targets.items():
+        if t.host == host:
+            remove_target(name)
+            print(f"target {name!r} unregistered")
     return 0
