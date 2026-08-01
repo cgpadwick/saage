@@ -300,7 +300,9 @@ saage remote kill <run>        # stop the run — never the box
 
 saage remote list              # registered targets (local, no network)
 saage remote cleanup           # prune stale targets: y/N prompt per target
-                               #   (--check to ssh-probe first, info only)
+                               #   (--check to ssh-probe first, info only;
+                               #   removal only forgets the ssh entry — it
+                               #   never terminates a box)
 ```
 
 A killed remote run is resumable. The engine checkpoint (and any file listed in
@@ -325,6 +327,7 @@ Compute). For Lambda Cloud there's provisioning built in:
 ```bash
 saage remote spawn --gpu a100        # launch + register as a target (live capacity/pricing)
 saage remote terminate <target>      # stops the meter (the only thing that does, on Lambda)
+                                     #   and unregisters the target
 ```
 
 How it works, briefly:
