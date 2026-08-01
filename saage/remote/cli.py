@@ -260,12 +260,13 @@ def _spawn(args: argparse.Namespace) -> int:
     from datetime import datetime, timezone
     api = _lambda_api()
     key_path = ensure_ssh_key()
-    api.ensure_ssh_key(SAAGE_KEY_NAME, key_path.with_suffix(".pub").read_text().strip())
+    key_name = api.ensure_ssh_key(SAAGE_KEY_NAME,
+                                  key_path.with_suffix(".pub").read_text().strip())
 
     itype, region, price = pick_instance_type(api.instance_types(), args.gpu)
     name = args.name or f"lambda-{datetime.now(timezone.utc).strftime('%H%M')}"
     print(f"launching {itype} in {region} (${price:.2f}/hr) as {name!r} …")
-    iid = api.launch(itype, region, SAAGE_KEY_NAME, f"saage-{name}")
+    iid = api.launch(itype, region, key_name, f"saage-{name}")
     # billing starts NOW — print the id before anything that can fail, and
     # terminate on ANY failure (incl. Ctrl-C) so an error never leaks a node
     print(f"instance {iid} launching (billing started)")
