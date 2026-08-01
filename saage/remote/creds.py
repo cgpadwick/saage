@@ -189,6 +189,24 @@ def add_target(name: str, host: str, user: str | None = None, port: int = 22,
     return path
 
 
+def remove_target(name: str) -> Path:
+    """Delete the [targets.<name>] section by text splice, leaving the rest of
+    the file byte-identical (a TOML re-emit would strip comments). Never touches
+    key files — per-target keys (e.g. Thunder) are unrecoverable."""
+    if name not in list_targets():
+        known = ", ".join(sorted(list_targets())) or "(none registered)"
+        raise CredsError(f"unknown target {name!r} — known targets: {known}")
+    path = cred_path()
+    lines = path.read_text().splitlines(keepends=True)
+    header = f"[targets.{name}]"
+    start = next(i for i, ln in enumerate(lines) if ln.strip() == header)
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].lstrip().startswith("[")), len(lines))
+    path.write_text("".join(lines[:start] + lines[end:]))
+    path.chmod(0o600)
+    return path
+
+
 def ensure_ssh_key() -> Path:
     """Generate the dedicated saage keypair if missing; return the private key path."""
     key = ssh_key_path()

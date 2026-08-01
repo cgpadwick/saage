@@ -297,6 +297,10 @@ saage remote logs --live       # follow the engine log
 saage remote ps                # every target: sessions vs local state (orphan detector)
 saage remote fetch             # pull artifacts back: ./results/<run_id>/
 saage remote kill <run>        # stop the run — never the box
+
+saage remote list              # registered targets (local, no network)
+saage remote cleanup           # prune stale targets: y/N prompt per target
+                               #   (--check to ssh-probe first, info only)
 ```
 
 A killed remote run is resumable. The engine checkpoint (and any file listed in
