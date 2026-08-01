@@ -100,6 +100,35 @@ def test_ps_prints_progress_per_target(saage_home, capsys, monkeypatch):
     assert "unreachable" in out
 
 
+def test_sessions_raises_when_ssh_fails(saage_home, monkeypatch):
+    # ssh exits 255 on connection failure; check=False must not turn a dead box
+    # into "0 sessions" — ps/cleanup rely on the exception to say "unreachable"
+    import subprocess
+    from saage.remote.sshio import SSHError
+    from saage.remote.target import SshTarget
+    add_target("dead", "h1")
+    from saage.remote.creds import get_target
+    node = SshTarget(get_target("dead"))
+    fake = subprocess.CompletedProcess(args=[], returncode=255, stdout="", stderr="")
+    monkeypatch.setattr(type(node.conn), "run",
+                        lambda self, *a, **k: fake)
+    with pytest.raises(SSHError):
+        node.sessions()
+
+
+def test_sessions_empty_when_no_tmux_server(saage_home, monkeypatch):
+    # a reachable box with no tmux server: tmux ls exits 1 — that IS 0 sessions
+    import subprocess
+    from saage.remote.target import SshTarget
+    add_target("up", "h1")
+    from saage.remote.creds import get_target
+    node = SshTarget(get_target("up"))
+    fake = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="")
+    monkeypatch.setattr(type(node.conn), "run",
+                        lambda self, *a, **k: fake)
+    assert node.sessions() == []
+
+
 # -- list ----------------------------------------------------------------------
 
 def test_list_prints_targets(saage_home, capsys):

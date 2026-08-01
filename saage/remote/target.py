@@ -85,6 +85,9 @@ class SshTarget:
 
     def sessions(self) -> list[str]:
         proc = self.conn.run("tmux ls 2>/dev/null", check=False)
+        if proc.returncode == 255:      # ssh-level failure, not "no sessions"
+            raise SSHError(f"ssh to {self.target.host} failed (rc 255): "
+                           f"{proc.stderr.strip() or 'connection failed'}")
         names = [line.split(":")[0] for line in proc.stdout.splitlines() if ":" in line]
         return [n for n in names if n.startswith("saage-")]
 
