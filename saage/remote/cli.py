@@ -72,7 +72,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     sp.add_argument("--gpu", default="auto",
                     help="GPU class (a10/a100/h100/gh200), exact instance type, "
                          "or 'auto' = cheapest with capacity (default)")
-    sp.add_argument("--name", default=None, help="target name (default: lambda-<hhmm>)")
+    sp.add_argument("--name", default=None,
+                    help="target name (default: lambda-<yyyymmdd-hhmmss>)")
     sp.add_argument("--extra-key", action="append", default=[],
                     help="also authorize this Lambda-registered ssh key name on "
                          "the node (repeatable)")
@@ -256,15 +257,19 @@ def _lambda_api() -> LambdaAPI:
     return LambdaAPI(key)
 
 
-def _spawn(args: argparse.Namespace) -> int:
+def _default_spawn_name() -> str:
     from datetime import datetime, timezone
+    return f"lambda-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+
+
+def _spawn(args: argparse.Namespace) -> int:
     api = _lambda_api()
     key_path = ensure_ssh_key()
     key_name = api.ensure_ssh_key(SAAGE_KEY_NAME,
                                   key_path.with_suffix(".pub").read_text().strip())
 
     itype, region, price = pick_instance_type(api.instance_types(), args.gpu)
-    name = args.name or f"lambda-{datetime.now(timezone.utc).strftime('%H%M')}"
+    name = args.name or _default_spawn_name()
     print(f"launching {itype} in {region} (${price:.2f}/hr) as {name!r} …")
     iid = api.launch(itype, region, key_name, f"saage-{name}")
     # billing starts NOW — print the id before anything that can fail, and
