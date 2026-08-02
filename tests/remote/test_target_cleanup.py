@@ -147,6 +147,16 @@ def test_list_no_targets(saage_home, capsys):
     assert "none registered" in capsys.readouterr().out
 
 
+# -- spawn default name ----------------------------------------------------------
+
+def test_default_spawn_name_is_full_timestamp():
+    # lambda-<hhmm> collided across days and told you nothing about age;
+    # the full stamp sorts and dates the box at a glance
+    import re
+    from saage.remote.cli import _default_spawn_name
+    assert re.fullmatch(r"lambda-\d{8}-\d{6}", _default_spawn_name())
+
+
 # -- terminate unregisters -----------------------------------------------------
 
 class _FakeLambda:

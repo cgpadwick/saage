@@ -16,12 +16,18 @@ Gotchas encoded here so nobody re-learns them:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import subprocess
 import time
 import urllib.error
 import urllib.request
+
+
+def _fp8(pubkey: str) -> str:
+    """Short stable fingerprint used to derive a per-machine key-name variant."""
+    return hashlib.sha256(pubkey.encode()).hexdigest()[:8]
 
 log = logging.getLogger("saage.remote")
 
@@ -79,10 +85,26 @@ class LambdaAPI:
 
     # -- write -----------------------------------------------------------------
 
-    def ensure_ssh_key(self, name: str, public_key: str) -> None:
-        if any(k["name"] == name for k in self.ssh_keys()):
-            return
-        self._request("/ssh-keys", {"name": name, "public_key": public_key})
+    def ensure_ssh_key(self, name: str, public_key: str) -> str:
+        """Return the name of a registered key whose CONTENT matches public_key.
+
+        Matching by name alone is a trap: a second machine's saage key would be
+        shadowed by the name registered from the first machine, the instance
+        would boot authorized for the wrong key, and ssh would never come up.
+        On a content mismatch the key is registered under a stable
+        '<name>-<fp8>' variant (never touching the other machine's entry)."""
+        want = " ".join(public_key.split()[:2])     # 'type blob' — comment varies
+        keys = {k["name"]: " ".join(k["public_key"].split()[:2])
+                for k in self.ssh_keys()}
+        alt = f"{name}-{_fp8(want)}"
+        for cand in (name, alt):
+            if keys.get(cand) == want:
+                return cand
+            if cand not in keys:
+                self._request("/ssh-keys", {"name": cand, "public_key": public_key})
+                return cand
+        raise LambdaError(f"ssh key names {name!r} and {alt!r} are both taken by "
+                          f"different keys — remove one in the Lambda dashboard")
 
     def launch(self, instance_type: str, region: str, ssh_key_name: str,
                name: str) -> str:
@@ -175,5 +197,11 @@ def wait_ssh(host: str, user: str, key_path: str, timeout_s: int = 300) -> None:
             capture_output=True)
         if proc.returncode == 0:
             return
+        if b"Permission denied" in proc.stderr:
+            # auth rejection is deterministic — waiting out the timeout would
+            # only bury the real problem (wrong key authorized on the node)
+            raise LambdaError(
+                f"ssh to {host} rejected the saage key (Permission denied) — "
+                f"the node is up but authorized for a different key")
         time.sleep(10)
     raise LambdaError(f"instance at {host} is active but ssh never came up")
