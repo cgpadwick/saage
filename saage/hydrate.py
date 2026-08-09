@@ -81,9 +81,14 @@ def build_step(spec: dict, ctx: Context):
             raise ValueError(
                 f"step {spec.get('id', '?')!r}: timeout must be a positive "
                 f"number of seconds, got {timeout!r}")
+        measure_hw = spec.get("measure_hw", False)
+        if not isinstance(measure_hw, bool):
+            raise ValueError(
+                f"step {spec.get('id', '?')!r}: measure_hw must be true/false, "
+                f"got {measure_hw!r}")
         return CommandNode(spec["id"], spec["run"], ctx.root,
                            captures=spec.get("set"), venv=ctx.venv,
-                           timeout=timeout)
+                           timeout=timeout, measure_hw=measure_hw)
     if t == "retry_loop":
         return retry_loop(spec["id"],
                           build_step(spec["action"], ctx),
