@@ -144,3 +144,69 @@ def test_hydrate_rejects_non_bool_measure_hw(tmp_path):
     with pytest.raises(ValueError, match="measure_hw must be true/false"):
         build_flow(_flow(tmp_path, ", measure_hw: 'yes'"), provider=object(),
                    workspace=str(tmp_path))
+
+
+# ---------------------------------------------- review fixes (PR 42 pass) --
+
+def test_bad_sample_interval_env_never_breaks_the_step(tmp_path, monkeypatch):
+    for bad in ("1s", "abc", "0", "-3", "nan"):
+        monkeypatch.setenv("SAAGE_HW_SAMPLE_SECS", bad)
+        s = HwSampler()
+        assert s.interval == HwSampler._DEFAULT_INTERVAL, bad
+
+
+def test_sample_interval_floor_prevents_busy_loop():
+    assert HwSampler(interval=0.001).interval == HwSampler._MIN_INTERVAL
+
+
+def test_gpu_util_is_max_across_gpus(monkeypatch):
+    import saage.hwmon as hwmon
+
+    class Out:
+        stdout = "3\n87\n"
+    monkeypatch.setattr(hwmon.subprocess, "run", lambda *a, **k: Out())
+    assert hwmon._gpu_util() == 87
+
+
+def test_sampler_stopped_when_run_shell_raises(tmp_path, monkeypatch):
+    """A non-timeout launch failure must not leak the sampling thread."""
+    import saage.nodes as nodes_mod
+
+    stopped = []
+
+    class FakeSampler:
+        def start(self):
+            return self
+        def stop(self):
+            stopped.append(1)
+            return {}
+
+    monkeypatch.setattr(nodes_mod, "HwSampler", FakeSampler)
+    monkeypatch.setattr(nodes_mod, "run_shell",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    node = CommandNode("t", "echo hi", tmp_path, measure_hw=True)
+    with pytest.raises(OSError):
+        node.exec("echo hi")
+    assert stopped == [1]
+
+
+def test_failure_tail_keeps_both_streams(tmp_path):
+    """A stray stderr warning must not hide the stdout traceback."""
+    shared: dict = {}
+    CommandNode(
+        "t",
+        "echo 'AssertionError: real failure'; echo 'DeprecationWarning: x' >&2; exit 1",
+        tmp_path).run(shared)
+    tail = shared["step_metrics"]["t"]["stderr_tail"]
+    assert "DeprecationWarning" in tail
+    assert "AssertionError: real failure" in tail
+
+
+def test_hydrate_rejects_measure_hw_on_agent_step(tmp_path):
+    f = tmp_path / "flow.yaml"
+    f.write_text(
+        "workflow:\n"
+        "  - { id: a, type: agent, skill: nope, measure_hw: true }\n",
+        encoding="utf-8")
+    with pytest.raises(ValueError, match="only supported on command steps"):
+        build_flow(str(f), provider=object(), workspace=str(tmp_path))

@@ -18,12 +18,20 @@ import threading
 
 
 def _gpu_util() -> int:
-    """Current GPU utilization %, first GPU (raises on any problem)."""
+    """Current GPU utilization %: the MAX across all GPUs (raises on any
+    problem). Max, not first-GPU: on a multi-GPU box the job may be pinned to
+    any device (CUDA_VISIBLE_DEVICES=1), and the question this metric answers
+    is "is ANY GPU doing the work" — reporting an idle GPU 0 while GPU 1
+    trains would be confidently wrong evidence."""
     out = subprocess.run(
         ["nvidia-smi", "--query-gpu=utilization.gpu",
          "--format=csv,noheader,nounits"],
         capture_output=True, text=True, timeout=5)
-    return int(float(out.stdout.strip().splitlines()[0]))
+    values = [int(float(line)) for line in out.stdout.strip().splitlines()
+              if line.strip()]
+    if not values:
+        raise ValueError("nvidia-smi returned no utilization values")
+    return max(values)
 
 
 class HwSampler:
@@ -33,10 +41,19 @@ class HwSampler:
     interval gets a reading.
     """
 
+    _DEFAULT_INTERVAL = 5.0
+    _MIN_INTERVAL = 0.05          # floor: never busy-loop nvidia-smi
+
     def __init__(self, interval: float | None = None):
         if interval is None:
-            interval = float(os.environ.get("SAAGE_HW_SAMPLE_SECS", "5"))
-        self.interval = interval
+            raw = os.environ.get("SAAGE_HW_SAMPLE_SECS", "")
+            try:
+                interval = float(raw) if raw else self._DEFAULT_INTERVAL
+            except ValueError:    # a typo'd env var must never break the step
+                interval = self._DEFAULT_INTERVAL
+        if not (interval > 0):    # rejects 0, negatives, and NaN
+            interval = self._DEFAULT_INTERVAL
+        self.interval = max(interval, self._MIN_INTERVAL)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._gpu: list[int] = []
@@ -67,16 +84,23 @@ class HwSampler:
         return self
 
     def stop(self) -> dict:
-        """Return {} when nothing could be sampled; JSON-safe floats otherwise."""
+        """Return {} when nothing could be sampled; JSON-safe floats otherwise.
+
+        The join is short (a wedged nvidia-smi holds a sample for up to its
+        5s subprocess timeout; the step must not inherit that stall), and the
+        lists are SNAPSHOTTED before aggregating — an in-flight sample may
+        still append after an expired join, and sum/len/max must agree."""
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=5)
+            self._thread.join(timeout=1.5)
+        gpu = list(self._gpu)     # consistent snapshots (list() is atomic)
+        load = list(self._load)
         out: dict = {}
-        if self._gpu:
-            out["gpu_util_avg"] = round(sum(self._gpu) / len(self._gpu), 1)
-            out["gpu_util_max"] = max(self._gpu)
-        if self._load:
-            out["load_avg"] = round(sum(self._load) / len(self._load), 2)
+        if gpu:
+            out["gpu_util_avg"] = round(sum(gpu) / len(gpu), 1)
+            out["gpu_util_max"] = max(gpu)
+        if load:
+            out["load_avg"] = round(sum(load) / len(load), 2)
         if out:
-            out["hw_samples"] = max(len(self._gpu), len(self._load))
+            out["hw_samples"] = max(len(gpu), len(load))
         return out
