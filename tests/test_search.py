@@ -23,6 +23,14 @@ DDG_RAW = [{"title": "France", "href": "https://en.wikipedia.org/wiki/France",
             "body": "country in Europe"}]
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_blocklist(monkeypatch):
+    """The suite must be a pure function of its mocks: a developer's exported
+    SAAGE_SEARCH_BLOCK_DOMAINS (e.g. from running the kaggle flow) must not
+    change any test's behavior. Blocklist tests set the var explicitly."""
+    monkeypatch.delenv("SAAGE_SEARCH_BLOCK_DOMAINS", raising=False)
+
+
 def test_tavily_parses_results_and_answer():
     results, answer = tavily_search("capital of france", api_key="x",
                                     fetch=lambda url, **kw: TAVILY_JSON)
@@ -151,13 +159,61 @@ def test_web_search_blocklist_end_to_end(monkeypatch):
     assert "1 result(s) withheld by the domain blocklist" in out
 
 
-def test_web_search_blocklist_drops_backend_answer(monkeypatch):
-    # a synthesized answer can't be domain-filtered, so the blocklist drops it
+def test_web_search_answer_dropped_only_when_results_filtered(monkeypatch):
+    # a synthesized answer can't be domain-filtered, so it drops WITH filtered
+    # results; when nothing was filtered, the answer stays (an idle blocklist
+    # must not degrade every query)
     monkeypatch.setenv("SAAGE_SEARCH_BACKEND", "tavily")
     monkeypatch.setenv("SAAGE_SEARCH_BLOCK_DOMAINS", "kaggle.com")
+    monkeypatch.setitem(search._BACKENDS, "tavily",
+                        lambda q, n: ([Result("t", "https://a.dev/x", "s"),
+                                       Result("k", "https://kaggle.com/c", "s")],
+                                      "the answer"))
+    out = web_search("q")
+    assert "the answer" not in out       # something was filtered -> answer goes
+    assert "a.dev" in out
+
     monkeypatch.setitem(search._BACKENDS, "tavily",
                         lambda q, n: ([Result("t", "https://a.dev/x", "s")],
                                       "the answer"))
     out = web_search("q")
-    assert "the answer" not in out
-    assert "a.dev" in out
+    assert "Answer: the answer" in out   # nothing filtered -> answer stays
+
+
+def test_blocklist_trailing_dot_fqdn_is_blocked():
+    kept, dropped = search.apply_blocklist(
+        [Result("t", "https://www.kaggle.com./c/x", "s")], ("kaggle.com",))
+    assert kept == [] and dropped == 1
+
+
+def test_blocklist_schemeless_url_is_blocked():
+    kept, dropped = search.apply_blocklist(
+        [Result("t", "www.kaggle.com/c/x", "s")], ("kaggle.com",))
+    assert kept == [] and dropped == 1
+
+
+def test_blocklist_unparseable_url_fails_closed():
+    # a guard that can't identify the source must drop, not allow
+    kept, dropped = search.apply_blocklist(
+        [Result("t", "http://[::bad", "s")], ("kaggle.com",))
+    assert kept == [] and dropped == 1
+
+
+def test_dots_only_blocklist_entry_is_ignored(monkeypatch):
+    monkeypatch.setenv("SAAGE_SEARCH_BLOCK_DOMAINS", ".")
+    assert search._blocked_domains() == ()
+    monkeypatch.setenv("SAAGE_SEARCH_BLOCK_DOMAINS", ". , kaggle.com")
+    assert search._blocked_domains() == ("kaggle.com",)
+
+
+def test_all_results_withheld_says_so(monkeypatch):
+    # every hit blocked: the model must learn to rephrase, not "no results"
+    monkeypatch.setenv("SAAGE_SEARCH_BACKEND", "tavily")
+    monkeypatch.setenv("SAAGE_SEARCH_BLOCK_DOMAINS", "kaggle.com")
+    monkeypatch.setitem(search._BACKENDS, "tavily",
+                        lambda q, n: ([Result("k", "https://kaggle.com/c", "s")],
+                                      ""))
+    out = web_search("q")
+    assert "withheld by the domain blocklist" in out
+    assert "No web results" not in out
+    assert "rephrase" in out

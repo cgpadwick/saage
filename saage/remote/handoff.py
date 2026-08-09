@@ -96,6 +96,13 @@ def _collect_secrets(provider_type: str, ws_plan: WorkspacePlan,
                 f"flow uses provider {provider_type!r} but {var} is not set in "
                 f"this environment — the node needs a key to run agent steps"
             )
+    # engine-behavior env vars must survive the handoff: the search blocklist
+    # is a contamination guard — a benchmark run whose guard silently vanishes
+    # on the node is worse than no guard, because the operator trusts it
+    for var in ("SAAGE_SEARCH_BLOCK_DOMAINS",):
+        value = os.environ.get(var)
+        if value:
+            env[var] = value
     if ws_plan.run_branch:
         env["WS_RUN_BRANCH"] = ws_plan.run_branch
     if ws_plan.repo_url:
