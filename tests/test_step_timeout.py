@@ -120,3 +120,78 @@ def test_hydrate_rejects_bad_timeout(tmp_path, bad):
     with pytest.raises(ValueError, match="timeout must be a positive number"):
         build_flow(_flow(tmp_path, f", timeout: {bad}"), provider=object(),
                    workspace=str(tmp_path))
+
+
+# ---------------------------------------------- review fixes (PR 41 pass) --
+
+@posix_only
+def test_timed_out_decider_routes_fail_not_partial_action(tmp_path):
+    """A killed check must FAIL even if its partial stdout said 'ACTION: pass'."""
+    node = CommandNode("chk", "echo 'ACTION: pass'; sleep 30", tmp_path,
+                       timeout=0.4)
+    node.successors = {"pass": object(), "fail": object()}
+    shared: dict = {}
+    action = node.run(shared)
+    assert action == "fail"
+    assert shared["results"]["chk"]["exit"] == 124
+
+
+@posix_only
+def test_timed_out_step_does_not_bind_captures(tmp_path):
+    """Partial stdout must not enter shared as truth (mid-write VAL_SCORE)."""
+    node = CommandNode("t", "echo 'VAL_SCORE=0.99'; sleep 30", tmp_path,
+                       timeout=0.4, captures={"val": r"VAL_SCORE=(\S+)"})
+    shared: dict = {}
+    node.run(shared)
+    assert "val" not in shared
+
+
+@posix_only
+def test_nontimeout_exception_still_kills_the_group(tmp_path, monkeypatch):
+    """Ctrl-C during communicate() must not orphan the process group."""
+    from saage import shell as shell_mod
+
+    killed = []
+    monkeypatch.setattr(shell_mod, "_kill_tree",
+                        lambda p: killed.append(p.pid))
+    real_communicate = subprocess.Popen.communicate
+
+    def boom(self, *a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(subprocess.Popen, "communicate", boom)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            run_shell("sleep 30", cwd=tmp_path, timeout=5)
+    finally:
+        monkeypatch.setattr(subprocess.Popen, "communicate", real_communicate)
+    assert len(killed) == 1
+
+
+def test_kill_tree_windows_uses_taskkill_tree_flags(monkeypatch):
+    """The Windows branch must ask taskkill for the TREE (/T) with force (/F)."""
+    from saage import shell as shell_mod
+
+    argvs = []
+    monkeypatch.setattr(shell_mod.subprocess, "run",
+                        lambda argv, **k: argvs.append(argv))
+    shell_mod._kill_tree_windows(4242)
+    assert argvs == [["taskkill", "/F", "/T", "/PID", "4242"]]
+
+
+@pytest.mark.parametrize("bad", [".nan", ".inf"])
+def test_hydrate_rejects_nonfinite_timeout(tmp_path, bad):
+    with pytest.raises(ValueError, match="timeout must be a positive number"):
+        build_flow(_flow(tmp_path, f", timeout: {bad}"), provider=object(),
+                   workspace=str(tmp_path))
+
+
+def test_hydrate_rejects_timeout_on_agent_step(tmp_path):
+    f = tmp_path / "flow.yaml"
+    (tmp_path / "sk").mkdir(exist_ok=True)
+    f.write_text(
+        "workflow:\n"
+        "  - { id: a, type: agent, skill: nope, timeout: 5 }\n",
+        encoding="utf-8")
+    with pytest.raises(ValueError, match="only supported on command steps"):
+        build_flow(str(f), provider=object(), workspace=str(tmp_path))

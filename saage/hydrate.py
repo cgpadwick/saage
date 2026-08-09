@@ -6,6 +6,7 @@ sub-flow; top-level steps are chained with PocketFlow's `>>`.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,6 +67,15 @@ def make_provider(spec: dict):
 def build_step(spec: dict, ctx: Context):
     t = spec["type"]
     log.debug("building step %s [%s]", spec.get("id", "?"), t)
+    if t != "command":
+        # command-only keys on other step types are config errors, not no-ops:
+        # an author who writes `timeout:` on an agent step believes a hang cap
+        # exists — silently ignoring it costs a wasted multi-hour run
+        for key in ("timeout", "measure_hw"):
+            if key in spec:
+                raise ValueError(
+                    f"step {spec.get('id', '?')!r}: {key}: is only supported "
+                    f"on command steps (type {t!r} ignores it)")
     if t == "agent":
         skill = ctx.skills[spec["skill"]]
         return AgentNode(spec["id"], skill, ctx.provider, ctx.tools,
@@ -75,6 +85,7 @@ def build_step(spec: dict, ctx: Context):
         timeout = spec.get("timeout")
         if timeout is not None and (isinstance(timeout, bool)
                                     or not isinstance(timeout, (int, float))
+                                    or not math.isfinite(timeout)
                                     or timeout <= 0):
             # catch "2h"/"abc"/negative at build time — a bad timeout must fail
             # the flow load, not silently run untimed for hours first

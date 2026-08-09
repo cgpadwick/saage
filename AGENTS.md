@@ -76,16 +76,21 @@ workflow:                      # required: an ordered list of steps
     timeout: 21600,                       # optional wall-clock cap in seconds
     measure_hw: true }                    # optional: sample GPU util + loadavg
 ```
-On timeout the whole process tree is killed and the step reports exit 124 —
-the step fails, the run continues (retry loops / checks route as usual). Set it
+On timeout the whole process group is killed and the step reports exit 124 —
+the step FAILS: it routes its `fail` edge when it has one (else `default`),
+and its partial output is neither ACTION-routed nor `set:`-captured. Set it
 on any step that can hang or silently run long (training, downloads); a run
 with no timeout on such a step blocks forever when the command does.
+`timeout:` is a command-step key only — hydrate rejects it on other step
+types rather than silently ignoring it.
 
 Every command step records compact evidence under `step_metrics.<id>` in the
 shared store: always `exit` and `wall_seconds`; with `measure_hw: true` also
-`gpu_util_avg`/`gpu_util_max`/`load_avg` (sampled while the command runs;
-keys appear only where the box supports them); on failure a bounded
-`stderr_tail`. Template it into any later prompt — e.g. a verifier that sees
+`gpu_util_avg`/`gpu_util_max`/`load_avg`/`hw_samples` (sampled while the
+command runs; GPU numbers are the max across GPUs per sample, so a job pinned
+to any device counts; keys appear only where the box supports them); on
+failure a bounded `stderr_tail` drawn from both streams. Like `timeout:`,
+`measure_hw:` is a command-step key only (rejected elsewhere). Template it into any later prompt — e.g. a verifier that sees
 `{{ step_metrics.train.wall_seconds }}s at {{ step_metrics.train.gpu_util_avg }}% GPU`
 can flag a "successful" train that starved the GPU, and a proposer that sees
 wall-times can price its next experiment.
