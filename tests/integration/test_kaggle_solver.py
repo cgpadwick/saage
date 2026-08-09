@@ -70,6 +70,21 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
             resp(calls=[call("write_file", path="tests/test_smoke.py", content=SMOKE)]),
             resp("baseline: logistic regression"),
         ],
+        # consumed in order: baseline_perf_review, perf_review (exp 1)
+        "perf_review": [
+            resp(calls=[call("run_command", command="cat hardware.md")],
+                 ),
+            resp("baseline fits the box. PERF: ok"),
+            resp("diff fits the box. PERF: ok"),
+        ],
+        "data_audit": [
+            resp(calls=[call("append_file", path="research_log.md",
+                             content="\n## Data audit (after baseline)\n"
+                                     "LEAKAGE: none found\n"
+                                     "UNUSED DATA: all data used\n"
+                                     "OPPORTUNITY: none\n")]),
+            resp("audit appended"),
+        ],
         # consumed in order: baseline_verify, verify_train (exp 1), final_verify
         "verify_training": [resp("ACTION: pass")] * 3,
         "propose": [resp("HYPOTHESIS: better feature helps.\n"
@@ -122,6 +137,18 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
     assert shared["results"]["baseline_smoke"]["exit"] == 0
     assert "ACTION: pass" in shared["results"]["validate_submission"]["stdout"]
 
+    # the hardware probe wrote real specs, and the perf reviewer could read them
+    hw = (ws / "hardware.md").read_text()
+    assert "CPU cores:" in hw and "GPU:" in hw
+
+    # step metrics: every train step left wall-time evidence (measure_hw on)
+    for sid in ("baseline_train", "train", "final_train"):
+        m = shared["step_metrics"][sid]
+        assert m["exit"] == 0 and m["wall_seconds"] >= 0
+
+    # the data audit's findings are in the log the proposer re-reads
+    assert "Data audit (after baseline)" in (ws / "research_log.md").read_text()
+
     # real artifacts in the workspace
     assert (ws / "submission.csv").read_text() == SUBMISSION
     ledger = [json.loads(line) for line in
@@ -162,6 +189,8 @@ def test_failed_experiment_reverts_and_counts(flow_copy, tmp_path):
             resp(calls=[call("write_file", path="tests/test_smoke.py", content=SMOKE)]),
             resp("baseline"),
         ],
+        "perf_review": [resp("PERF: ok")] * 2,           # baseline, exp1
+        "data_audit": [resp("no findings. audit done")],
         "verify_training": [resp("ACTION: pass")] * 3,   # baseline, exp1, final
         "propose": [resp("HYPOTHESIS: x CHANGE: y RATIONALE: z")],
         "proposal_critic": [resp("ACTION: pass")],

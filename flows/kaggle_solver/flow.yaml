@@ -1,16 +1,24 @@
 # Kaggle solver: hill-climbing on an mle-bench competition.
 # Port of mle-beast's benchmark pipeline (docs/kaggle_solver_plan.md §5):
 #
-#   prepare(cmd) -> setup(cmd: git branch + ledger)
+#   prepare(cmd) -> hardware_probe(cmd: hardware.md) -> setup(cmd)
 #     -> comp_understanding -> eda          (agent+critic retry_loops)
 #     -> build_baseline (agent; DETERMINISTIC pytest smoke check)
-#     -> baseline short-train (cmd, fixed budget) -> verify -> record
+#     -> perf_review (agent: hardware-fitness; can apply mechanical fixes)
+#     -> baseline short-train (cmd, timeout+measure_hw) -> verify -> record
+#     -> data_audit (agent: leakage + data-usage, one-time)
 #     -> hillclimb counting_loop:
-#          [propose -> critic]x3 -> [implement -> pytest]x3
-#          -> reset -> train(cmd) -> verify -> keep_or_revert(cmd)
+#          [propose -> critic]x3 -> [implement -> pytest]x3 -> perf_review
+#          -> reset -> train(cmd, timeout+measure_hw) -> verify -> keep_or_revert(cmd)
 #        exits on consecutive failures or target met
-#     -> final train (cmd, long budget) -> make_submission (agent;
-#        DETERMINISTIC validate_submission.py check) -> report -> grade
+#     -> final train (cmd, long budget, timeout+measure_hw) -> make_submission
+#        (agent; DETERMINISTIC validate_submission.py check) -> report -> grade
+#
+# Guards (docs: flows/kaggle_solver/README.md):
+# - train steps carry `timeout:` (a hung train fails the STEP, tree-killed) and
+#   `measure_hw: true` (GPU/load sampled into step_metrics for the verifier)
+# - perf_review vets code against hardware.md BEFORE training budget is spent
+# - benchmark honesty: run with SAAGE_SEARCH_BLOCK_DOMAINS=kaggle.com
 #
 # The validation score driving keep/revert comes from eval_results.json
 # (train.py contract) — a deterministic capture, never LLM log-reading.
@@ -53,6 +61,9 @@ workflow:
       sample_submission_cols: "SAMPLE_COLS=(.*)"
       sample_submission_rows: "SAMPLE_ROWS=([0-9]+)"
       device: "DEVICE=(\\S+)"
+  - id: hardware_probe
+    type: command
+    run: 'python3 "{{ flow_dir }}/hardware_probe.py"'
   - id: setup
     type: command
     run: 'python3 "{{ flow_dir }}/setup_competition.py" --comp {{ competition_id }} --metric "{{ metric_name }}" --lower-is-better {{ lower_is_better }} --short-epochs {{ short_epochs }} --final-epochs {{ final_epochs }} --branch "{{ run_branch }}"'
@@ -78,6 +89,10 @@ workflow:
       id: baseline_smoke
       type: command
       run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+  # hardware-fitness gate BEFORE the training budget is spent: reviews the
+  # baseline against hardware.md, applies mechanical fixes (device placement,
+  # de-pinned threads, batched inference) and re-runs the smoke tests
+  - { id: baseline_perf_review, type: agent, skill: perf_review, max_steps: 20 }
   - id: baseline_train_loop
     type: retry_loop
     max_iterations: 2
@@ -86,6 +101,8 @@ workflow:
       type: command
       run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
       set: { candidate_score: "VAL_SCORE=(\\S+)" }
+      timeout: 21600      # 6h: a hung/pathological train fails the step (exit 124)
+      measure_hw: true    # GPU/load sampled into step_metrics for the verifier
     check: { id: baseline_verify, type: agent, skill: verify_training, max_steps: 12 }
   - id: baseline_record
     type: command
@@ -94,6 +111,10 @@ workflow:
       best_score: "BEST_SCORE=(\\S+)"
       consecutive_failures: "FAILURES=([0-9]+)"
       target_met: "TARGET_MET=([01])"
+
+  # one-time leakage + data-usage audit; findings land in research_log.md so
+  # every later propose/implement iteration sees them
+  - { id: data_audit, type: agent, skill: data_audit, max_steps: 15 }
 
   # ---- hill-climb: one experiment per iteration, keep what improves ----
   - id: hillclimb
@@ -124,6 +145,8 @@ workflow:
           id: implement_smoke
           type: command
           run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+      # hardware-fitness gate on the experiment's diff (see baseline_perf_review)
+      - { id: perf_review, type: agent, skill: perf_review, max_steps: 20 }
       # a failed train must read as nan (revert), never the previous score
       - id: reset_candidate
         type: command
@@ -137,6 +160,8 @@ workflow:
           type: command
           run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
           set: { candidate_score: "VAL_SCORE=(\\S+)" }
+          timeout: 21600
+          measure_hw: true
         check: { id: verify_train, type: agent, skill: verify_training, max_steps: 12 }
       - id: keep_or_revert
         type: command
@@ -155,6 +180,8 @@ workflow:
       type: command
       run: 'python3 train.py --device {{ device }} --epochs {{ final_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
       set: { final_score: "VAL_SCORE=(\\S+)" }
+      timeout: 43200      # 12h: the long budget still gets a hard ceiling
+      measure_hw: true
     check: { id: final_verify, type: agent, skill: verify_training, max_steps: 12 }
   - id: submission_loop
     type: retry_loop

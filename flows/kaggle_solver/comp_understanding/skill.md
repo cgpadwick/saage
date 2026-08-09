@@ -4,7 +4,7 @@ description: |
   Understand the Kaggle competition and write competition_understanding.md.
   The competition brief is in task.md. Submission contract: columns
   [{{ sample_submission_cols }}], {{ sample_submission_rows }} rows.
-tools: [read_file, write_file, run_command]
+tools: [read_file, write_file, run_command, web_search]
 ---
 SKILL_ID: comp_understanding
 
@@ -38,6 +38,17 @@ competition_understanding.md MUST include:
 - STRATEGY NOTES — what baseline makes sense, which advanced techniques are
   promising and why, which modalities to exploit, main risks (overfitting,
   imbalance, leakage), ensemble potential. Discussion, not a rigid plan.
+
+You MAY use `web_search` to ground the strategy notes in what actually works
+for this problem CLASS. Query hygiene (benchmark honesty — the engine also
+enforces a domain blocklist, and every query is logged for audit):
+- Describe the task family GENERICALLY: "short text 3-class classification
+  log loss state of the art", "small tabular regression gradient boosting
+  tricks" — the shape of the problem, never its identity.
+- NEVER include the competition name/id, dataset names, file names, or any
+  phrase quoted from the description in a query.
+- You are looking for transferable techniques, not this competition's
+  solutions.
 
 End your reply with a one-paragraph summary of the competition and your
 recommended angle of attack.
