@@ -72,8 +72,18 @@ def build_step(spec: dict, ctx: Context):
                          captures=spec.get("set"),
                          max_steps=spec.get("max_steps", 20))
     if t == "command":
+        timeout = spec.get("timeout")
+        if timeout is not None and (isinstance(timeout, bool)
+                                    or not isinstance(timeout, (int, float))
+                                    or timeout <= 0):
+            # catch "2h"/"abc"/negative at build time — a bad timeout must fail
+            # the flow load, not silently run untimed for hours first
+            raise ValueError(
+                f"step {spec.get('id', '?')!r}: timeout must be a positive "
+                f"number of seconds, got {timeout!r}")
         return CommandNode(spec["id"], spec["run"], ctx.root,
-                           captures=spec.get("set"), venv=ctx.venv)
+                           captures=spec.get("set"), venv=ctx.venv,
+                           timeout=timeout)
     if t == "retry_loop":
         return retry_loop(spec["id"],
                           build_step(spec["action"], ctx),

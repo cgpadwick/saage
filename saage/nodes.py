@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import re
+import subprocess
 import time
 
 from jinja2 import Environment, Undefined, make_logging_undefined
@@ -173,20 +174,33 @@ class CommandNode(Node):
     """Deterministic shell step (no LLM)."""
 
     def __init__(self, id: str, command: str, root, captures: dict | None = None,
-                 venv: str | None = None):
+                 venv: str | None = None, timeout: float | None = None):
         super().__init__()
         self.id = id
         self.command = command
         self.root = root
         self.captures = captures
         self.venv = venv
+        self.timeout = timeout
 
     def prep(self, shared):
         return render(self.command, shared)
 
     def exec(self, cmd):
         log.info("$ %s", cmd)
-        r = run_shell(cmd, cwd=self.root, env=venv_env(self.root, self.venv))
+        try:
+            r = run_shell(cmd, cwd=self.root, env=venv_env(self.root, self.venv),
+                          timeout=self.timeout)
+        except subprocess.TimeoutExpired as e:
+            # A hung command fails the STEP, never the run: the step reports
+            # exit 124 (coreutils timeout convention) and normal routing —
+            # retry loops, checks — proceeds. run_shell killed the whole
+            # process tree, so nothing survives to fight later attempts.
+            log.info("  ✗ %s → timed out after %gs (process tree killed)",
+                     self.id, self.timeout)
+            note = f"\n[saage] step timed out after {self.timeout}s; process tree killed"
+            return {"exit": 124, "stdout": e.output or "",
+                    "stderr": (e.stderr or "") + note}
         log.info("  ✓ %s → exit=%d", self.id, r.returncode)
         return {"exit": r.returncode, "stdout": r.stdout, "stderr": r.stderr}
 

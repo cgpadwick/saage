@@ -72,8 +72,13 @@ workflow:                      # required: an ordered list of steps
 **`command`** — a deterministic shell step (no LLM). `run` is templated; cwd = workspace.
 ```yaml
 - { id: train, type: command, run: "python train.py --epochs {{ train_epochs }}",
-    set: { job_id: "job (\\d+)" } }       # optional capture from stdout/stderr
+    set: { job_id: "job (\\d+)" },        # optional capture from stdout/stderr
+    timeout: 21600 }                      # optional wall-clock cap in seconds
 ```
+On timeout the whole process tree is killed and the step reports exit 124 —
+the step fails, the run continues (retry loops / checks route as usual). Set it
+on any step that can hang or silently run long (training, downloads); a run
+with no timeout on such a step blocks forever when the command does.
 
 **`retry_loop`** — `action → check`; on `fail` loop back to `action` *with the
 checker's feedback injected*, until `pass` or `max_iterations`.
