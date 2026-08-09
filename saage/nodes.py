@@ -193,13 +193,14 @@ class CommandNode(Node):
                           timeout=self.timeout)
         except subprocess.TimeoutExpired as e:
             # A hung command fails the STEP, never the run: the step reports
-            # exit 124 (coreutils timeout convention) and normal routing —
-            # retry loops, checks — proceeds. run_shell killed the whole
-            # process tree, so nothing survives to fight later attempts.
-            log.info("  ✗ %s → timed out after %gs (process tree killed)",
+            # exit 124 (coreutils timeout convention). run_shell killed the
+            # process group (double-forked descendants may survive — the
+            # message must not overclaim).
+            log.info("  ✗ %s → timed out after %gs (process group killed)",
                      self.id, self.timeout)
-            note = f"\n[saage] step timed out after {self.timeout}s; process tree killed"
-            return {"exit": 124, "stdout": e.output or "",
+            note = (f"\n[saage] step timed out after {self.timeout}s; "
+                    f"process group killed")
+            return {"exit": 124, "timed_out": True, "stdout": e.output or "",
                     "stderr": (e.stderr or "") + note}
         log.info("  ✓ %s → exit=%d", self.id, r.returncode)
         return {"exit": r.returncode, "stdout": r.stdout, "stderr": r.stderr}
@@ -207,6 +208,16 @@ class CommandNode(Node):
     def post(self, shared, prep_res, out):
         shared.setdefault("results", {})[self.id] = out
         _trace(shared, self.id)
+        if out.get("timed_out"):
+            # a killed step FAILS: its partial stdout must neither ACTION-route
+            # (a truncated decider could still say "pass") nor bind captures
+            # (a mid-write VAL_SCORE would enter shared as truth). Route to
+            # the step's fail edge when it has one, else fall through.
+            succ = getattr(self, "successors", {}) or {}
+            action = "fail" if "fail" in succ else "default"
+            log.info("  ✗ %s → %s (timed out; output not trusted)",
+                     self.id, action)
+            return action
         capture_into(shared, out["stdout"], self.captures)
         # commands can drive loop checks deterministically by printing
         # `ACTION: pass|fail|...` (same convention as agent skills); without

@@ -75,10 +75,13 @@ workflow:                      # required: an ordered list of steps
     set: { job_id: "job (\\d+)" },        # optional capture from stdout/stderr
     timeout: 21600 }                      # optional wall-clock cap in seconds
 ```
-On timeout the whole process tree is killed and the step reports exit 124 —
-the step fails, the run continues (retry loops / checks route as usual). Set it
+On timeout the whole process group is killed and the step reports exit 124 —
+the step FAILS: it routes its `fail` edge when it has one (else `default`),
+and its partial output is neither ACTION-routed nor `set:`-captured. Set it
 on any step that can hang or silently run long (training, downloads); a run
 with no timeout on such a step blocks forever when the command does.
+`timeout:` is a command-step key only — hydrate rejects it on other step
+types rather than silently ignoring it.
 
 **`retry_loop`** — `action → check`; on `fail` loop back to `action` *with the
 checker's feedback injected*, until `pass` or `max_iterations`.
