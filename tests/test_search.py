@@ -114,3 +114,50 @@ def test_web_search_is_in_default_tools(tmp_path):
     from saage.tools import default_tools
     names = {t.name for t in default_tools(tmp_path)}
     assert "web_search" in names
+
+
+# --------------------------------------------------------------------------- #
+# domain blocklist (SAAGE_SEARCH_BLOCK_DOMAINS) — the mechanical contamination
+# guard for benchmark flows
+# --------------------------------------------------------------------------- #
+BLOCK_RESULTS = [
+    Result("ok", "https://en.wikipedia.org/wiki/X", "fine"),
+    Result("blocked", "https://www.kaggle.com/c/some-comp/discussion", "leak"),
+    Result("blocked2", "https://kaggle.com/other", "leak"),
+    Result("lookalike", "https://notkaggle.com/post", "fine"),  # suffix, not subdomain
+]
+
+
+def test_apply_blocklist_drops_domain_and_subdomains():
+    kept, dropped = search.apply_blocklist(BLOCK_RESULTS, ("kaggle.com",))
+    assert [r.title for r in kept] == ["ok", "lookalike"]
+    assert dropped == 2
+
+
+def test_apply_blocklist_empty_is_noop():
+    kept, dropped = search.apply_blocklist(BLOCK_RESULTS, ())
+    assert kept == BLOCK_RESULTS and dropped == 0
+
+
+def test_web_search_blocklist_end_to_end(monkeypatch):
+    monkeypatch.setenv("SAAGE_SEARCH_BACKEND", "ddg")
+    monkeypatch.setenv("SAAGE_SEARCH_BLOCK_DOMAINS", "kaggle.com, example.org")
+    raw = [Result("good", "https://blog.dev/post", "b"),
+           Result("bad", "https://www.kaggle.com/c/x", "b")]
+    monkeypatch.setitem(search._BACKENDS, "ddg", lambda q, n: (raw, ""))
+    out = web_search("text classification recipes")
+    assert "blog.dev" in out
+    assert "kaggle.com" not in out
+    assert "1 result(s) withheld by the domain blocklist" in out
+
+
+def test_web_search_blocklist_drops_backend_answer(monkeypatch):
+    # a synthesized answer can't be domain-filtered, so the blocklist drops it
+    monkeypatch.setenv("SAAGE_SEARCH_BACKEND", "tavily")
+    monkeypatch.setenv("SAAGE_SEARCH_BLOCK_DOMAINS", "kaggle.com")
+    monkeypatch.setitem(search._BACKENDS, "tavily",
+                        lambda q, n: ([Result("t", "https://a.dev/x", "s")],
+                                      "the answer"))
+    out = web_search("q")
+    assert "the answer" not in out
+    assert "a.dev" in out
