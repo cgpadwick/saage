@@ -21,10 +21,12 @@ actually trained — not whether the score is good.
    A LOW score is NOT a failure — keep/revert judges quality, you judge
    integrity.
 
-Measured evidence for the steps that ran (exit code, wall seconds, GPU/load
-averages where sampled, stderr tail on failure):
-{% if step_metrics is defined %}{% for sid, m in step_metrics.items() %}- {{ sid }}: {{ m }}
-{% endfor %}{% else %}(none recorded){% endif %}
+Measured evidence for the train steps (exit code, wall seconds, GPU/load
+averages where sampled, output tail on failure). The step you are verifying
+is the MOST RECENT of these; earlier entries are history, not the run under
+judgment — never quote an old entry's tail as this run's error:
+{% if step_metrics is defined %}{% for sid in ["baseline_train", "train", "final_train"] %}{% if sid in step_metrics %}- {{ sid }}: {{ step_metrics[sid] }}
+{% endif %}{% endfor %}{% else %}(none recorded){% endif %}
 
 Use it — reason from measurements, never invent a cause from an exit code:
 - exit 124 means the step TIMED OUT and its process tree was killed. FAIL,

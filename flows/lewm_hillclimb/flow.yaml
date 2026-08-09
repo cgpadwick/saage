@@ -1,0 +1,119 @@
+# Brownfield hill-climb on the LeWorldModel (le-wm) repo: tune LeWM training on
+# OGBench-Cube until planning success_rate matches the paper's 74%.
+#
+#   setup(cmd: branch + snapshot + research log)
+#     -> baseline_clean(cmd) -> baseline_train(cmd, FIXED epochs)
+#     -> baseline_eval(cmd, capture best_score) -> baseline_record(cmd)
+#     -> hillclimb counting_loop (until target or max_iterations):
+#          [propose -> proposal_critic]x3 -> [implement -> verify]x3
+#          -> reset_candidate -> clean -> train -> eval -> keep_or_revert
+#     -> report_narrative(agent) -> report_commit(cmd)
+#
+# The workspace IS the existing le-wm repo (brownfield): agents edit its config
+# YAMLs / model code in place; keep_or_revert uses git on a dedicated branch
+# (saage-hillclimb) to keep or roll back each experiment. Checkpoints live
+# outside the repo under $STABLEWM_HOME/checkpoints/ and the best one is
+# promoted to {{ best_name }} on every keep.
+#
+# The TRAINING BUDGET IS FIXED: every experiment trains exactly train_epochs
+# epochs (~2.5 h/epoch on this box -> ~20 h per experiment at 8 epochs), so
+# scores are comparable. The EVAL PROTOCOL IS FROZEN: eval.py +
+# config/eval/cube.yaml (50 episodes, seed 42) + solver.n_steps=10 (the paper's
+# CEM budget for cube, App. D); agents may not modify it.
+#
+# Run (long-lived — use tmux/nohup):
+#   OPENROUTER_API_KEY=... saage run flows/lewm_hillclimb/flow.yaml
+#   ... --set train_epochs=8 --set target_success=74.0   # tunable
+provider: { type: openrouter, model: "deepseek/deepseek-v4-flash" }
+workspace: /home/cpadwick/code/le-wm
+venv: .venv
+shared:
+  task: >-
+    Improve the training of LeWorldModel (LeWM) — a JEPA world model (ViT-tiny
+    encoder + autoregressive transformer predictor, loss = next-embedding MSE +
+    lambda * SIGReg) — on the OGBench-Cube manipulation task, so that planning
+    success_rate on the frozen eval protocol rises toward the paper's 74%.
+    Metric: success_rate in [0, 100] from eval.py (higher is better).
+  target_success: 74.0
+  best_score: -1.0
+  candidate_score: -1.0
+  consecutive_failures: 0
+  train_epochs: 8                # FIXED budget per experiment (user-set); ~2.5 h/epoch
+  stablewm_home: "$HOME/.stable-wm"   # where datasets/checkpoints live (shell-expanded)
+  exp_name: lewm_cube_exp        # checkpoint dir each experiment trains into
+  best_name: lewm_cube_best      # best checkpoint dir, promoted on every keep
+  smoke_name: lewm_smoke         # checkpoint dir the verify smoke-run uses
+
+workflow:
+  # ---- setup: experiment branch, snapshot commit, research log, staged helper ----
+  - id: setup
+    type: command
+    run: 'python3 "{{ flow_dir }}/setup_experiment.py" --train-epochs {{ train_epochs }} --target {{ target_success }}'
+
+  # ---- baseline at the SAME fixed budget, so hill-climb scores are comparable ----
+  - id: baseline_clean
+    type: command
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" python3 "{{ flow_dir }}/clean_ckpt.py" --name {{ exp_name }} --name {{ smoke_name }}'
+  - id: baseline_train
+    type: command
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" python train.py data=ogb output_model_name={{ exp_name }} subdir={{ exp_name }} trainer.max_epochs={{ train_epochs }} wandb.enabled=False'
+  - id: baseline_eval
+    type: command
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ exp_name }}/weights_epoch_{{ train_epochs }}.pt solver.n_steps=10'
+    set: { best_score: "'success_rate': (-?[0-9.]+)" }
+  - id: baseline_record
+    type: command
+    run: 'STABLEWM_HOME="{{ stablewm_home }}" python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ best_score }} --best -1 --failures 0 --exp {{ exp_name }} --best-name {{ best_name }} --baseline true'
+    set:
+      best_score: "BEST_SCORE=(-?[0-9.]+)"
+      consecutive_failures: "FAILURES=([0-9]+)"
+
+  # ---- hill-climb: one experiment per iteration, keep only what improves ----
+  - id: hillclimb
+    type: counting_loop
+    max_iterations: 10
+    exit_when: "best_score >= target_success"
+    body:
+      # cheap vetting before a ~20 h train run
+      - id: propose_loop
+        type: retry_loop
+        max_iterations: 3
+        action:
+          id: propose
+          type: agent
+          skill: propose
+          max_steps: 15
+          set: { current_proposal: "(?s)(.+)" }   # the whole reply
+        check: { id: proposal_critic, type: agent, skill: proposal_critic, max_steps: 10 }
+      - id: implement_loop
+        type: retry_loop
+        max_iterations: 3
+        action: { id: implement, type: agent, skill: implement, max_steps: 40 }
+        check:  { id: verify,    type: agent, skill: verify,    max_steps: 25 }
+      # a failed train/eval must read as -1 (revert), not as the previous score
+      - id: reset_candidate
+        type: command
+        run: 'echo "CANDIDATE=-1"'
+        set: { candidate_score: "CANDIDATE=(-?[0-9.]+)" }
+      - id: clean
+        type: command
+        run: 'STABLEWM_HOME="{{ stablewm_home }}" python3 "{{ flow_dir }}/clean_ckpt.py" --name {{ exp_name }} --name {{ smoke_name }}'
+      - id: train
+        type: command
+        run: 'STABLEWM_HOME="{{ stablewm_home }}" python train.py data=ogb output_model_name={{ exp_name }} subdir={{ exp_name }} trainer.max_epochs={{ train_epochs }} wandb.enabled=False'
+      - id: eval
+        type: command
+        run: 'STABLEWM_HOME="{{ stablewm_home }}" python eval.py --config-name=cube.yaml policy={{ exp_name }}/weights_epoch_{{ train_epochs }}.pt solver.n_steps=10'
+        set: { candidate_score: "'success_rate': (-?[0-9.]+)" }
+      - id: keep_or_revert
+        type: command
+        run: 'STABLEWM_HOME="{{ stablewm_home }}" python3 "{{ flow_dir }}/keep_or_revert.py" --candidate {{ candidate_score }} --best {{ best_score }} --failures {{ consecutive_failures }} --exp {{ exp_name }} --best-name {{ best_name }}'
+        set:
+          best_score: "BEST_SCORE=(-?[0-9.]+)"
+          consecutive_failures: "FAILURES=([0-9]+)"
+
+  # ---- final report ----
+  - { id: report_narrative, type: agent, skill: report_narrative, max_steps: 15 }
+  - id: report_commit
+    type: command
+    run: 'git -c user.email=saage@local -c user.name=saage add research_log.md report_narrative.md && git -c user.email=saage@local -c user.name=saage commit -m "saage: hillclimb report"'

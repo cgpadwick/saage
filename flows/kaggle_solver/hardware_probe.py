@@ -4,6 +4,11 @@ Deterministic, dependency-free, tolerant: every probe that fails degrades to
 "unknown"/"none" rather than failing the step. The point is that the perf
 reviewer reasons against the REAL box ("you have an idle A10", "30 cores"),
 not against whatever the implementing agent imagined.
+
+Deliberately separate from prepare_comp.py's nvidia-smi probe: that one
+answers "cuda or cpu for the --device flag" and honors device_override;
+this one documents the raw hardware for review, even when the device was
+overridden. Two different questions — keep them decoupled.
 """
 import os
 import shutil

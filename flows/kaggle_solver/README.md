@@ -83,6 +83,8 @@ Lessons from a live run that lost its endgame to hung single-threaded trains
   findings append to `research_log.md` where every later iteration sees them.
 - **Retrieval hygiene** — `comp_understanding` and `propose` may `web_search`
   for the problem *class*, never the competition (query rules in the skills;
-  every query is logged). For benchmark honesty run with
-  `SAAGE_SEARCH_BLOCK_DOMAINS=kaggle.com` in the environment — the engine
-  drops results from blocked domains before the model sees them.
+  every query is logged). For benchmark honesty also export
+  `SAAGE_SEARCH_BLOCK_DOMAINS=kaggle.com`: with the engine's search-blocklist
+  PR merged, blocked-domain results are dropped before the model sees them
+  (and the var is forwarded on `saage remote` handoffs); without that PR the
+  hygiene rules are prompt-only — don't publish benchmark numbers that way.

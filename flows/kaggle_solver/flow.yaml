@@ -19,6 +19,8 @@
 #   `measure_hw: true` (GPU/load sampled into step_metrics for the verifier)
 # - perf_review vets code against hardware.md BEFORE training budget is spent
 # - benchmark honesty: run with SAAGE_SEARCH_BLOCK_DOMAINS=kaggle.com
+#   (mechanical enforcement needs the engine's search-blocklist PR merged;
+#   until then the skills' query-hygiene rules are prompt-only)
 #
 # The validation score driving keep/revert comes from eval_results.json
 # (train.py contract) — a deterministic capture, never LLM log-reading.
@@ -90,9 +92,19 @@ workflow:
       type: command
       run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
   # hardware-fitness gate BEFORE the training budget is spent: reviews the
-  # baseline against hardware.md, applies mechanical fixes (device placement,
-  # de-pinned threads, batched inference) and re-runs the smoke tests
-  - { id: baseline_perf_review, type: agent, skill: perf_review, max_steps: 20 }
+  # baseline against hardware.md and applies mechanical fixes (device
+  # placement, de-pinned threads, batched inference). The check is a
+  # DETERMINISTIC pytest rerun — an LLM fix that leaves the tests red bounces
+  # back with feedback, never into the train step
+  - id: baseline_perf_loop
+    type: retry_loop
+    max_iterations: 2
+    action: { id: baseline_perf_review, type: agent, skill: perf_review, max_steps: 20 }
+    check:
+      id: baseline_perf_recheck
+      type: command
+      run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+
   - id: baseline_train_loop
     type: retry_loop
     max_iterations: 2
@@ -145,8 +157,16 @@ workflow:
           id: implement_smoke
           type: command
           run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
-      # hardware-fitness gate on the experiment's diff (see baseline_perf_review)
-      - { id: perf_review, type: agent, skill: perf_review, max_steps: 20 }
+      # hardware-fitness gate on the experiment's diff (see baseline_perf_loop)
+      - id: perf_loop
+        type: retry_loop
+        max_iterations: 2
+        action: { id: perf_review, type: agent, skill: perf_review, max_steps: 20 }
+        check:
+          id: perf_recheck
+          type: command
+          run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+
       # a failed train must read as nan (revert), never the previous score
       - id: reset_candidate
         type: command

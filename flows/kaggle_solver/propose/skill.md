@@ -38,13 +38,20 @@ GUIDELINES:
 - Do NOT propose changing the training budget (epochs are fixed by the
   harness for fair comparison) or the validation protocol.
 - If critic feedback on your previous proposal appears in the task, ADDRESS it.
-- You MAY `web_search` for the TECHNIQUE you are considering ("calibrating
-  gradient boosting probabilities log loss", "text augmentation small dataset
-  classification") to check you have the recipe right. Query hygiene
-  (benchmark honesty; queries are logged and a domain blocklist is enforced):
-  describe the problem class or technique generically — NEVER the competition
-  name/id, dataset names, or any phrase from its description. You are
-  retrieving transferable methods, not this competition's solutions.
+- You MAY `web_search` for the TECHNIQUE you are considering, to check you
+  have the recipe right.
+
+QUERY HYGIENE (benchmark honesty — this block is IDENTICAL in
+comp_understanding and propose; keep the twins in lockstep):
+- Describe the task family or technique GENERICALLY ("short text 3-class
+  classification log loss state of the art", "calibrating gradient boosting
+  probabilities") — the shape of the problem, never its identity.
+- NEVER include the competition name/id, dataset names, file names, author
+  names, or any phrase quoted from the competition description in a query.
+- You are retrieving transferable techniques, not this competition's
+  solutions. Every query is logged for audit; benchmark runs also set
+  SAAGE_SEARCH_BLOCK_DOMAINS=kaggle.com (engine-enforced once the
+  search-blocklist engine PR is merged — prompt rules alone otherwise).
 
 Write the proposal to `proposals/latest.md` (create the directory if needed)
 AND give the same proposal as your final reply — it is handed verbatim to the

@@ -18,9 +18,11 @@ the step that notices BEFORE the training budget is spent.
 
 WORKFLOW:
 1. `run_command: cat hardware.md` — the real box (cores, RAM, GPUs).
-2. `run_command: git diff HEAD` — the change under review. If the diff is
-   empty you are reviewing the freshly built baseline: read `model.py`,
-   `train.py`, `predict.py` instead.
+2. `run_command: git status --short; git diff HEAD` — the change under
+   review is the diff PLUS any untracked (`??`) solution files, which
+   `git diff` alone does not show; read new untracked .py files with
+   read_file. If neither shows any solution change, you are reviewing the
+   freshly built baseline: read `model.py`, `train.py`, `predict.py`.
 3. Check for the BLOCKING misfits — fix these yourself:
    - Heavy tensor work (a torch/tf/jax model forward or backward pass) that
      never reaches the GPU when hardware.md lists one and device is `cuda`
@@ -30,11 +32,21 @@ WORKFLOW:
      unless a comment justifies it.
    - Whole-dataset single-call inference (`model(entire_corpus)`): must be a
      batched loop (memory AND speed).
-4. If you find one: apply the MINIMAL mechanical fix with edit_file (add the
-   device placement and a batched loop; delete the pin). Do NOT redesign, do
-   NOT tune hyperparameters, do NOT change model semantics. Then re-run
-   `python3 -B -m pytest -q tests/` — if your fix breaks the tests, revert it
-   (`run_command: git checkout -- <file>`) and downgrade to a flag.
+4. If you find one, fix it SAFELY:
+   a. BEFORE touching a file, snapshot it:
+      `run_command: cp train.py train.py.perfbak` (likewise per file).
+      Do NOT use git to revert — the baseline is untracked at this point, and
+      during the hill-climb the working tree holds the experiment's own
+      uncommitted edits, which a `git checkout --` would destroy.
+   b. Apply the MINIMAL mechanical fix with edit_file (add the device
+      placement and a batched loop; delete the pin). Do NOT redesign, do NOT
+      tune hyperparameters, do NOT change model semantics.
+   c. Re-run `python3 -B -m pytest -q tests/`. If your fix breaks the tests,
+      restore the snapshot (`run_command: mv train.py.perfbak train.py`) and
+      downgrade to a flag; if it passes, delete the snapshot
+      (`run_command: rm -f train.py.perfbak`).
+   (A deterministic pytest re-check runs after you either way — a fix that
+   leaves the tests red bounces back to you with feedback.)
 5. ADVISORY (report, never edit): recomputing identical expensive features
    per CV fold with no cache; `num_workers=0` dataloaders on a many-core box;
    a change whose cost obviously grows superlinearly with components.
