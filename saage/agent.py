@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 def _brief(args: dict) -> str:
     """A short, human-readable summary of a tool call's arguments."""
-    for k in ("command", "path", "paths", "ref", "name", "message"):
+    for k in ("command", "path", "paths", "ref", "name", "message", "query"):
         if k in args:
             v = str(args[k]).replace("\n", " ")
             return v if len(v) <= 70 else v[:67] + "..."

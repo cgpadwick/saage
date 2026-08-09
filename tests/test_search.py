@@ -217,3 +217,11 @@ def test_all_results_withheld_says_so(monkeypatch):
     assert "withheld by the domain blocklist" in out
     assert "No web results" not in out
     assert "rephrase" in out
+
+
+def test_web_search_queries_are_auditable_in_logs():
+    # the contamination guard's audit trail: the tool-call log line must show
+    # the QUERY TEXT, not the argument name
+    from saage.agent import _brief
+    assert _brief({"query": "text classification sota", "max_results": 5}) \
+        == "text classification sota"
