@@ -42,6 +42,25 @@ breaks the run):
   — this number drives keep/revert; it MUST be the validation score of the
   best checkpoint, on the competition metric (or the closest proxy you can
   compute), never a made-up number.
+- AT EXIT also write the PREDICTIONS CONTRACT (feeds the run's generic
+  ensembler — every experiment's predictions get pooled and blended):
+  - `predictions/val_preds.csv` — best checkpoint's predictions for the
+    VALIDATION rows: first column a stable row id (e.g. the original
+    dataset id or row index), remaining columns exactly the
+    sample_submission prediction columns.
+  - `predictions/val_labels.csv` — the same ids + the true label column(s).
+  - `predictions/test_preds.csv` — predictions for the TEST rows, first
+    column the submission id, remaining columns exactly as in
+    sample_submission.
+  - The validation SPLIT must be deterministic (fixed seed) so every
+    experiment predicts the same validation rows — pooled predictions are
+    only blendable if they align.
+
+Also write `score_preds.py` at the workspace root (once, alongside train.py):
+- CLI: `python3 score_preds.py <preds.csv> <labels.csv>` — joins on the id
+  column, computes the competition metric, prints `SCORE=<float>` as the
+  last line. This is the black-box metric the deterministic ensembler
+  optimizes; keep it dependency-light and NEVER change its interface.
 
 predict.py CONTRACT:
 - argparse with `--checkpoint` (default: best in checkpoints/), `--data-path`

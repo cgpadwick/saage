@@ -15,7 +15,10 @@ actually trained — not whether the score is good.
 2. PASS if: training ran multiple epochs (or early-stopped legitimately),
    a checkpoint was saved, and eval_results.json holds a real validation
    number consistent with the log.
-3. FAIL if: the run crashed, produced no checkpoint, eval_results.json is
+3. FAIL if: the predictions contract was broken (`predictions/val_preds.csv`
+   or `predictions/test_preds.csv` missing/empty after a successful train —
+   check with `ls -la predictions/`), the run crashed, produced no
+   checkpoint, eval_results.json is
    missing/stale/inconsistent with the log, or the metric is degenerate in a
    way that screams bug (e.g. exactly 0.0 with a loss that never moved).
    A LOW score is NOT a failure — keep/revert judges quality, you judge

@@ -32,4 +32,11 @@ CRITICAL RULES (the harness depends on these):
 - Handle both cpu and cuda. Do NOT run full training. Do NOT generate
   submission.csv. Do NOT read raw data files whole.
 
+NEVER remove or break the predictions contract: train.py must keep writing
+`predictions/val_preds.csv`, `predictions/val_labels.csv`,
+`predictions/test_preds.csv` (same id scheme, same fixed validation split)
+and `score_preds.py` must keep its CLI — the run's ensembler pools every
+experiment's predictions, and an experiment that stops emitting them
+excludes itself from the final blend.
+
 End your reply with a summary of exactly what you changed.

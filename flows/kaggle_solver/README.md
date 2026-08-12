@@ -39,8 +39,9 @@ saage remote handoff flows/kaggle_solver/flow.yaml --target <node> \
 ```
 
 Key knobs (`--set`): `short_epochs` (per-experiment budget, default 15),
-`final_epochs` (default 100), `max_consecutive_failures` (default 10),
-`target_score` (optional early exit), `device` (auto-detected).
+`final_epochs` (default 100), `hillclimb_iterations` (default 30),
+`max_consecutive_failures` (default 10), `target_score` (optional early
+exit), `device` (auto-detected).
 
 ## How it works
 
@@ -58,6 +59,26 @@ prepare(cmd) → hardware_probe(cmd: hardware.md) → setup(cmd: git branch + le
 
 Artifacts per run: `experiments.jsonl`, `research_log.md`,
 `report.html`, `submission.csv`, git history of kept experiments.
+
+## Medal-push machinery
+
+- **Researcher menu** — after the baseline, a one-shot researcher writes a
+  ranked menu of 8–12 ideas + anti-ideas for the problem *class*
+  (`autoresearch_ideas.md`; format machine-checked by `check_ideas.py`,
+  substance gated by a critic whose objections persist to
+  `research_critic_feedback.md`). `propose` draws from the menu by default.
+- **Portfolio rule** — every third experiment must switch model family:
+  the run ends with an ensemble, and decorrelated members are what a blend
+  feeds on.
+- **Prediction-pool ensemble (generic)** — every scored train archives
+  submission-shaped predictions (`pool_archive.py` → `ensemble_pool/`;
+  contract: `predictions/{val_preds,val_labels,test_preds}.csv` +
+  `score_preds.py` as a black-box metric). After the solo submission is
+  validated, `blend_ensemble.py` runs Caruana greedy selection over the
+  pool and replaces `submission.csv` only when the blend beats the solo
+  champion on a confirmation slice the search never saw (solo kept as
+  `submission_solo.csv`). Domain-blind: predictions and a scoring script
+  are the only interface, so it works unchanged on any competition.
 
 ## Guards
 

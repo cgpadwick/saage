@@ -2,6 +2,11 @@
 # Port of mle-beast's benchmark pipeline (docs/kaggle_solver_plan.md §5):
 #
 #   prepare(cmd) -> hardware_probe(cmd: hardware.md) -> setup(cmd)
+#     [medal-push additions: researcher menu -> ranked ideas for propose;
+#      portfolio rule -> decorrelated experiments; every scored train archives
+#      predictions to ensemble_pool/; a deterministic Caruana blender may
+#      replace the final submission when it beats the solo champion on a
+#      held-out confirmation slice; hillclimb budget is --set-able]
 #     -> comp_understanding -> eda          (agent+critic retry_loops)
 #     -> build_baseline (agent; DETERMINISTIC pytest smoke check)
 #     -> perf_review (agent: hardware-fitness; can apply mechanical fixes)
@@ -45,6 +50,7 @@ shared:
   short_epochs: 15             # fixed exploratory budget per experiment
   final_epochs: 100            # final training (early stopping decides actual)
   max_consecutive_failures: 10
+  hillclimb_iterations: 30     # experiment budget (--set hillclimb_iterations=60)
   best_score: "nan"            # sentinels: nan never wins a comparison
   candidate_score: "nan"
   consecutive_failures: 0
@@ -111,7 +117,7 @@ workflow:
     action:
       id: baseline_train
       type: command
-      run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+      run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py" && python3 "{{ flow_dir }}/pool_archive.py" --tag baseline'
       set: { candidate_score: "VAL_SCORE=(\\S+)" }
       timeout: 21600      # 6h: a hung/pathological train fails the step (exit 124)
       measure_hw: true    # GPU/load sampled into step_metrics for the verifier
@@ -128,10 +134,29 @@ workflow:
   # every later propose/implement iteration sees them
   - { id: data_audit, type: agent, skill: data_audit, max_steps: 15 }
 
+  # the researcher: one deliberate pass over the problem CLASS after the
+  # baseline exists — writes the ranked idea menu (autoresearch_ideas.md)
+  # every propose draws on. Inner loop gates FORMAT deterministically
+  # (check_ideas.py); the outer critic judges SUBSTANCE and persists its
+  # objections to research_critic_feedback.md for the regenerating pass.
+  - id: research_loop
+    type: retry_loop
+    max_iterations: 5
+    action:
+      id: research_format_loop
+      type: retry_loop
+      max_iterations: 3
+      action: { id: research_ideas, type: agent, skill: research_ideas, max_steps: 25 }
+      check:
+        id: check_ideas
+        type: command
+        run: 'python3 "{{ flow_dir }}/check_ideas.py"'
+    check: { id: research_critic, type: agent, skill: research_critic, max_steps: 12 }
+
   # ---- hill-climb: one experiment per iteration, keep what improves ----
   - id: hillclimb
     type: counting_loop
-    max_iterations: 30
+    max_iterations: "{{ hillclimb_iterations }}"
     exit_when: "consecutive_failures >= max_consecutive_failures or target_met == 1"
     body:
       - id: propose_loop
@@ -178,7 +203,7 @@ workflow:
         action:
           id: train
           type: command
-          run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+          run: 'python3 train.py --device {{ device }} --epochs {{ short_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py" && python3 "{{ flow_dir }}/pool_archive.py" --tag hillclimb'
           set: { candidate_score: "VAL_SCORE=(\\S+)" }
           timeout: 21600
           measure_hw: true
@@ -198,7 +223,7 @@ workflow:
     action:
       id: final_train
       type: command
-      run: 'python3 train.py --device {{ device }} --epochs {{ final_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py"'
+      run: 'python3 train.py --device {{ device }} --epochs {{ final_epochs }} --data-path data/ --checkpoint-dir checkpoints/ && python3 "{{ flow_dir }}/read_val_score.py" && python3 "{{ flow_dir }}/pool_archive.py" --tag final'
       set: { final_score: "VAL_SCORE=(\\S+)" }
       timeout: 43200      # 12h: the long budget still gets a hard ceiling
       measure_hw: true
@@ -211,6 +236,18 @@ workflow:
       id: validate_submission
       type: command
       run: 'python3 "{{ flow_dir }}/validate_submission.py"'
+
+  # generic prediction-space ensemble: greedy selection over the run's own
+  # experiment pool, gated on a confirmation slice; replaces submission.csv
+  # only when it beats the solo champion (solo kept as submission_solo.csv)
+  - id: ensemble_blend
+    type: command
+    run: 'python3 "{{ flow_dir }}/blend_ensemble.py" --lower-is-better {{ lower_is_better }}'
+    set: { blend_verdict: "BLEND=(\\S+)" }
+  # re-validate whichever submission survived the blend decision
+  - id: validate_final
+    type: command
+    run: 'python3 "{{ flow_dir }}/validate_submission.py"'
 
   # ---- report + (optional, tolerant) grading ----
   # one LLM agent writes the whole self-contained report.html (outcome/winner prose,
