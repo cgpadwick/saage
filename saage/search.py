@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
+from urllib.parse import urlparse
 from dataclasses import dataclass
 
 
@@ -109,6 +110,49 @@ def select_backend() -> str:
     return "ddg"
 
 
+def _blocked_domains() -> tuple[str, ...]:
+    """Domains to drop from results (SAAGE_SEARCH_BLOCK_DOMAINS, comma-separated).
+
+    A mechanical contamination guard for benchmark flows (kaggle_solver): the
+    old competitions' solutions are public, so retrieval-grounded proposal
+    skills run with e.g. `kaggle.com` blocked — prompt-side "please don't"
+    isn't a guard. Suffix match on the URL host: `kaggle.com` blocks
+    `www.kaggle.com` too."""
+    raw = os.environ.get("SAAGE_SEARCH_BLOCK_DOMAINS", "")
+    normalized = (d.strip().lower().strip(".") for d in raw.split(","))
+    return tuple(d for d in normalized if d)   # a "." entry must not become ""
+
+
+def _host(url: str) -> str:
+    """Hostname of a result URL, normalized for suffix matching: lowercase,
+    root-dot stripped ('www.kaggle.com.' ≡ 'www.kaggle.com'), and scheme-less
+    URLs ('www.kaggle.com/c/x') re-parsed as network paths."""
+    try:
+        host = urlparse(url).hostname
+        if not host and "//" not in url:
+            host = urlparse("//" + url).hostname
+        return (host or "").lower().rstrip(".")
+    except ValueError:
+        return ""
+
+
+def apply_blocklist(results: list[Result],
+                    blocked: tuple[str, ...]) -> tuple[list[Result], int]:
+    """Drop results whose URL host is (a subdomain of) a blocked domain.
+    Returns (kept, dropped_count)."""
+    if not blocked:
+        return results, 0
+
+    def allowed(r: Result) -> bool:
+        host = _host(r.url)              # parse once per result
+        if not host:                     # unparseable → fail CLOSED: a guard
+            return False                 # that can't identify the source drops it
+        return not any(host == d or host.endswith("." + d) for d in blocked)
+
+    kept = [r for r in results if allowed(r)]
+    return kept, len(results) - len(kept)
+
+
 def _format(query: str, results: list[Result], answer: str = "") -> str:
     if not results and not answer:
         return f"No web results for {query!r}."
@@ -148,4 +192,22 @@ def web_search(query: str, max_results: int = 5) -> str:
         return f"ERROR: {e}"
     except Exception as e:                       # network / parse / rate-limit
         return f"ERROR: web_search ({name}) failed: {e}"
-    return _format(query, results, answer)
+    blocked = _blocked_domains()
+    kept, dropped = apply_blocklist(results, blocked)
+    if dropped and answer:
+        # the backend synthesized its answer from (some of) the sources we just
+        # filtered — it can't be domain-filtered itself, so drop it alongside.
+        # When nothing was filtered, the answer's sources weren't blocked and
+        # it stays: an active-but-idle blocklist must not degrade every query.
+        answer = ""
+    if dropped and not kept and not answer:
+        # everything the backend found was blocked: say THAT, not "no results" —
+        # the model should refine toward the technique/problem class, not
+        # conclude the topic has no coverage on the open web
+        return (f"All {dropped} result(s) for {query!r} were withheld by the "
+                f"domain blocklist — rephrase toward the generic technique or "
+                f"problem class instead of this specific source.")
+    out = _format(query, kept, answer)
+    if dropped:
+        out += f"\n({dropped} result(s) withheld by the domain blocklist)"
+    return out
