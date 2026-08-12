@@ -130,6 +130,10 @@ def retry_loop(name: str, action, check, max_iterations: int = 3) -> Subflow:
     action >> check
     check - "pass" >> done
     check - "fail" >> guard
+    # a checker that answers neither pass nor fail did NOT pass — seen live:
+    # a verifier emitted no ACTION and the loop silently ended as success,
+    # letting a crashed final train through. A non-answer retries.
+    check - "default" >> guard
     guard - "again" >> action
     guard - "stop" >> done           # exhausted attempts: give up, continue outer flow
     return Subflow(start=action,
@@ -147,6 +151,10 @@ def polling_loop(name: str, poll, classify, interval_seconds: float,
     classify - "complete" >> done
     classify - "failed" >> failed
     classify - "running" >> guard
+    # a classifier that answered none of the three did not say "complete" —
+    # treat a non-answer like "running" (poll again) rather than silently
+    # ending the loop as success
+    classify - "default" >> guard
     guard - "again" >> wait
     guard - "stop" >> failed         # timed out: never completed -> propagate failure
     wait >> poll

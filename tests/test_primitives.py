@@ -237,3 +237,32 @@ def test_route_leaves_decider_actions_untouched():
     assert _route(check, "fail") == "fail"
     # no 'default' edge -> unknown action passes through unchanged (not masked)
     assert _route(check, "weird") == "weird"
+
+
+# ---- a checker that answers neither pass nor fail did NOT pass ------------
+
+def test_retry_loop_nonanswer_check_retries(tmp_path):
+    """Seen live: a verifier emitted no ACTION and the loop silently ended as
+    success, letting a crashed train through. A non-answer must retry."""
+    from saage.nodes import CommandNode
+    from saage.primitives import retry_loop
+
+    action = CommandNode("act", "echo working", tmp_path)
+    check = CommandNode("chk", "echo no verdict here", tmp_path)  # no ACTION:
+    shared: dict = {}
+    retry_loop("loop", action, check, max_iterations=2).run(shared)
+    assert shared["_trace"].count("act") == 2      # retried, then gave up
+    assert shared["_iter"]["loop"] == 2
+
+
+def test_polling_loop_nonanswer_classifier_polls_again(tmp_path):
+    from saage.nodes import CommandNode
+    from saage.primitives import polling_loop
+
+    poll = CommandNode("poll", "echo polled", tmp_path)
+    classify = CommandNode("cls", "echo no verdict", tmp_path)   # no ACTION:
+    shared: dict = {}
+    polling_loop("wait", poll, classify, interval_seconds=0,
+                 max_wait_seconds=0.05).run(shared)
+    # never claimed complete: the loop kept polling until the wall clock cap
+    assert shared["_trace"].count("poll") >= 2
