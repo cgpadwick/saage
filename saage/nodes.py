@@ -12,6 +12,7 @@ from jinja2 import Environment, Undefined, make_logging_undefined
 from pocketflow import Node
 
 from .agent import run_agent
+from .hwmon import HwSampler
 from .shell import run_shell
 from .skills import Skill
 from .tools import Tool, venv_env
@@ -173,8 +174,13 @@ class AgentNode(Node):
 class CommandNode(Node):
     """Deterministic shell step (no LLM)."""
 
+    # bounded failure evidence: enough to carry a traceback into the ledger /
+    # a verifier prompt, small enough to checkpoint and template safely
+    _TAIL_CHARS = 2000
+
     def __init__(self, id: str, command: str, root, captures: dict | None = None,
-                 venv: str | None = None, timeout: float | None = None):
+                 venv: str | None = None, timeout: float | None = None,
+                 measure_hw: bool = False):
         super().__init__()
         self.id = id
         self.command = command
@@ -182,30 +188,72 @@ class CommandNode(Node):
         self.captures = captures
         self.venv = venv
         self.timeout = timeout
+        self.measure_hw = measure_hw
 
     def prep(self, shared):
         return render(self.command, shared)
 
     def exec(self, cmd):
         log.info("$ %s", cmd)
+        t0 = time.monotonic()
+        sampler = None
         try:
-            r = run_shell(cmd, cwd=self.root, env=venv_env(self.root, self.venv),
-                          timeout=self.timeout)
-        except subprocess.TimeoutExpired as e:
-            # A hung command fails the STEP, never the run: the step reports
-            # exit 124 (coreutils timeout convention). run_shell killed the
-            # process group (double-forked descendants may survive — the
-            # message must not overclaim).
-            log.info("  ✗ %s → timed out after %gs (process group killed)",
-                     self.id, self.timeout)
-            note = (f"\n[saage] step timed out after {self.timeout}s; "
-                    f"process group killed")
-            return {"exit": 124, "timed_out": True, "stdout": e.output or "",
-                    "stderr": (e.stderr or "") + note}
-        log.info("  ✓ %s → exit=%d", self.id, r.returncode)
-        return {"exit": r.returncode, "stdout": r.stdout, "stderr": r.stderr}
+            if self.measure_hw:
+                sampler = HwSampler().start()
+            try:
+                r = run_shell(cmd, cwd=self.root,
+                              env=venv_env(self.root, self.venv),
+                              timeout=self.timeout)
+            except subprocess.TimeoutExpired as e:
+                # A hung command fails the STEP, never the run: the step
+                # reports exit 124 (coreutils timeout convention). run_shell
+                # killed the process group (double-forked descendants may
+                # survive — the message must not overclaim).
+                log.info("  ✗ %s → timed out after %gs (process group killed)",
+                         self.id, self.timeout)
+                note = (f"\n[saage] step timed out after {self.timeout}s; "
+                        f"process group killed")
+                out = {"exit": 124, "timed_out": True, "stdout": e.output or "",
+                       "stderr": (e.stderr or "") + note}
+            else:
+                log.info("  ✓ %s → exit=%d", self.id, r.returncode)
+                out = {"exit": r.returncode, "stdout": r.stdout,
+                       "stderr": r.stderr}
+        finally:
+            # the sampler must die on EVERY path — an unexpected run_shell
+            # exception (ShellNotFound, OSError) must not leak a thread that
+            # forks nvidia-smi for the rest of the run
+            hw = sampler.stop() if sampler is not None else {}
+        # every command step leaves a compact, JSON-safe evidence record —
+        # wall time always; hw aggregates when measured; an output tail on
+        # failure so verifiers reason from the real error, not the exit code.
+        # (Coarser per-step evidence also lands in the on-disk run ledger via
+        # Subflow._orch; this is the in-store record prompts can template.)
+        metrics = {"exit": out["exit"],
+                   "wall_seconds": round(time.monotonic() - t0, 2)}
+        metrics.update(hw)
+        if out["exit"] != 0:
+            metrics["stderr_tail"] = self._failure_tail(out)
+        out["_step_metrics"] = metrics
+        return out
+
+    def _failure_tail(self, out: dict) -> str:
+        """Bounded failure evidence from BOTH streams: a stray warning on
+        stderr must not hide the traceback pytest printed to stdout."""
+        se = (out["stderr"] or "").strip()
+        so = (out["stdout"] or "").strip()
+        if se and so:
+            half = (self._TAIL_CHARS - 40) // 2
+            return se[-half:] + "\n--- stdout tail ---\n" + so[-half:]
+        return (se or so)[-self._TAIL_CHARS:]
 
     def post(self, shared, prep_res, out):
+        # metrics live under their own shared key (not in results) so prompts
+        # can template {{ step_metrics.train.wall_seconds }} without dragging
+        # a step's full stdout into context
+        metrics = out.pop("_step_metrics", None)
+        if metrics is not None:
+            shared.setdefault("step_metrics", {})[self.id] = metrics
         shared.setdefault("results", {})[self.id] = out
         _trace(shared, self.id)
         if out.get("timed_out"):

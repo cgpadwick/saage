@@ -71,13 +71,11 @@ def build_step(spec: dict, ctx: Context):
         # command-only keys on other step types are config errors, not no-ops:
         # an author who writes `timeout:` on an agent step believes a hang cap
         # exists — silently ignoring it costs a wasted multi-hour run
-        for key in ("timeout",):
+        for key in ("timeout", "measure_hw"):
             if key in spec:
                 raise ValueError(
                     f"step {spec.get('id', '?')!r}: {key}: is only supported "
-                    f"on command steps (type {t!r} ignores it); for agent "
-                    f"steps bound tool-call hangs via the run_command "
-                    f"timeout, and loops via max_wait_seconds")
+                    f"on command steps (type {t!r} ignores it)")
     if t == "agent":
         skill = ctx.skills[spec["skill"]]
         return AgentNode(spec["id"], skill, ctx.provider, ctx.tools,
@@ -94,9 +92,14 @@ def build_step(spec: dict, ctx: Context):
             raise ValueError(
                 f"step {spec.get('id', '?')!r}: timeout must be a positive "
                 f"number of seconds, got {timeout!r}")
+        measure_hw = spec.get("measure_hw", False)
+        if not isinstance(measure_hw, bool):
+            raise ValueError(
+                f"step {spec.get('id', '?')!r}: measure_hw must be true/false, "
+                f"got {measure_hw!r}")
         return CommandNode(spec["id"], spec["run"], ctx.root,
                            captures=spec.get("set"), venv=ctx.venv,
-                           timeout=timeout)
+                           timeout=timeout, measure_hw=measure_hw)
     if t == "retry_loop":
         return retry_loop(spec["id"],
                           build_step(spec["action"], ctx),

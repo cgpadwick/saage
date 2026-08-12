@@ -45,15 +45,46 @@ Key knobs (`--set`): `short_epochs` (per-experiment budget, default 15),
 ## How it works
 
 ```
-prepare(cmd) → setup(cmd: git branch + ledger)
+prepare(cmd) → hardware_probe(cmd: hardware.md) → setup(cmd: git branch + ledger)
   → comp_understanding ⇄ critic → eda ⇄ critic
-  → build_baseline ⇄ pytest-smoke(cmd)
-  → short-train(cmd) → verify_training → record
-  → hillclimb ×30: propose ⇄ critic → implement ⇄ pytest(cmd)
-       → short-train(cmd) → verify → keep_or_revert(cmd, git)
+  → build_baseline ⇄ pytest-smoke(cmd) → perf_review
+  → short-train(cmd, timeout+measure_hw) → verify_training → record
+  → data_audit
+  → hillclimb ×30: propose ⇄ critic → implement ⇄ pytest(cmd) → perf_review
+       → short-train(cmd, timeout+measure_hw) → verify → keep_or_revert(cmd, git)
      (exit: consecutive failures or target met)
   → final-train(cmd) → make_submission ⇄ validate(cmd) → report → grade(cmd)
 ```
 
 Artifacts per run: `experiments.jsonl`, `research_log.md`,
 `report.html`, `submission.csv`, git history of kept experiments.
+
+## Guards
+
+Lessons from a live run that lost its endgame to hung single-threaded trains
+(18–22h each) and phantom-OOM misdiagnoses:
+
+- **Train timeouts** — every train step carries `timeout:` (6h short / 12h
+  final). On expiry the engine kills the whole process tree and the step
+  fails with exit 124; the run continues. A hung train can no longer block
+  the flow or fight a retry for the GPU.
+- **Measured evidence** — train steps run with `measure_hw: true`: wall time,
+  GPU-utilization and load averages land in `step_metrics.<id>`, and failures
+  keep a bounded stderr tail. `verify_training` reasons from these
+  measurements (exit 124 = "timed out", never a guessed "OOM"), and flags
+  hardware misfit (long wall, idle GPU) without failing the run.
+- **perf_review** — after the baseline is built and after every experiment's
+  implement, a reviewer checks the code against the box specs in
+  `hardware.md` (written by `hardware_probe.py`). Blocking misfits — tensor
+  work never reaching an available GPU, `set_num_threads(1)`-style pinning,
+  whole-corpus single-call inference — it fixes mechanically and re-runs the
+  smoke tests; softer concerns are flagged for the proposer.
+- **data_audit** — one-time leakage + data-usage audit after the baseline;
+  findings append to `research_log.md` where every later iteration sees them.
+- **Retrieval hygiene** — `comp_understanding` and `propose` may `web_search`
+  for the problem *class*, never the competition (query rules in the skills;
+  every query is logged). For benchmark honesty also export
+  `SAAGE_SEARCH_BLOCK_DOMAINS=kaggle.com`: with the engine's search-blocklist
+  PR merged, blocked-domain results are dropped before the model sees them
+  (and the var is forwarded on `saage remote` handoffs); without that PR the
+  hygiene rules are prompt-only — don't publish benchmark numbers that way.
