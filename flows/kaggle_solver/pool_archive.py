@@ -24,6 +24,25 @@ from pathlib import Path
 REQUIRED = ("val_preds.csv", "test_preds.csv", "val_labels.csv")
 
 
+def _git_exclude(pool: Path) -> None:
+    """The pool must survive keep_or_revert's `git checkout -- . && git clean
+    -fd`: reverted experiments are exactly the decorrelated members the blend
+    wants, so their archived predictions must be invisible to git. Seen live:
+    every revert deleted the untracked new member."""
+    exclude = Path(".git") / "info" / "exclude"
+    if not exclude.parent.is_dir():
+        return                              # not a git workspace: nothing to do
+    line = "ensemble_pool/"
+    try:
+        text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+        if line not in text.splitlines():
+            exclude.write_text(text + ("" if text.endswith("\n") or not text
+                                       else "\n") + line + "\n",
+                               encoding="utf-8")
+    except OSError:
+        pass
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="exp", help="which train step archived this")
@@ -45,6 +64,7 @@ def main() -> int:
 
     pool = Path("ensemble_pool")
     pool.mkdir(exist_ok=True)
+    _git_exclude(pool)
     seq = len(list(pool.iterdir()))
     dest = pool / f"{seq:03d}_{args.tag}"
     dest.mkdir()

@@ -32,6 +32,13 @@ CRITICAL RULES (the harness depends on these):
 - Handle both cpu and cuda. Do NOT run full training. Do NOT generate
   submission.csv. Do NOT read raw data files whole.
 
+THE HARNESS RUNS `python3 train.py` WITH NO EXTRA FLAGS. A change gated
+behind a new CLI flag or an unwired class is a NO-OP to the harness: make
+the new behavior the DEFAULT execution path (change the default argument,
+replace the champion class in main()). After editing, sanity-check:
+`run_command: python3 -c "import train"` plus a grep that your new code is
+on the default path.
+
 Your change MUST affect the predictions that eval_results.json scores —
 an added model that the evaluated pipeline never calls is invisible to
 keep/revert (the score ties, the experiment reverts). Before finishing,
