@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import re
+import subprocess
 import time
 
 from jinja2 import Environment, Undefined, make_logging_undefined
@@ -173,26 +174,50 @@ class CommandNode(Node):
     """Deterministic shell step (no LLM)."""
 
     def __init__(self, id: str, command: str, root, captures: dict | None = None,
-                 venv: str | None = None):
+                 venv: str | None = None, timeout: float | None = None):
         super().__init__()
         self.id = id
         self.command = command
         self.root = root
         self.captures = captures
         self.venv = venv
+        self.timeout = timeout
 
     def prep(self, shared):
         return render(self.command, shared)
 
     def exec(self, cmd):
         log.info("$ %s", cmd)
-        r = run_shell(cmd, cwd=self.root, env=venv_env(self.root, self.venv))
+        try:
+            r = run_shell(cmd, cwd=self.root, env=venv_env(self.root, self.venv),
+                          timeout=self.timeout)
+        except subprocess.TimeoutExpired as e:
+            # A hung command fails the STEP, never the run: the step reports
+            # exit 124 (coreutils timeout convention). run_shell killed the
+            # process group (double-forked descendants may survive — the
+            # message must not overclaim).
+            log.info("  ✗ %s → timed out after %gs (process group killed)",
+                     self.id, self.timeout)
+            note = (f"\n[saage] step timed out after {self.timeout}s; "
+                    f"process group killed")
+            return {"exit": 124, "timed_out": True, "stdout": e.output or "",
+                    "stderr": (e.stderr or "") + note}
         log.info("  ✓ %s → exit=%d", self.id, r.returncode)
         return {"exit": r.returncode, "stdout": r.stdout, "stderr": r.stderr}
 
     def post(self, shared, prep_res, out):
         shared.setdefault("results", {})[self.id] = out
         _trace(shared, self.id)
+        if out.get("timed_out"):
+            # a killed step FAILS: its partial stdout must neither ACTION-route
+            # (a truncated decider could still say "pass") nor bind captures
+            # (a mid-write VAL_SCORE would enter shared as truth). Route to
+            # the step's fail edge when it has one, else fall through.
+            succ = getattr(self, "successors", {}) or {}
+            action = "fail" if "fail" in succ else "default"
+            log.info("  ✗ %s → %s (timed out; output not trusted)",
+                     self.id, action)
+            return action
         capture_into(shared, out["stdout"], self.captures)
         # commands can drive loop checks deterministically by printing
         # `ACTION: pass|fail|...` (same convention as agent skills); without

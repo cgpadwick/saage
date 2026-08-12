@@ -13,9 +13,15 @@ bash on Windows.
 used: running flow commands inside WSL is exactly what native Windows support
 must not silently do.
 
-Known limitation (Windows): on timeout the bash process is killed but its
-children may survive (no process groups by default) — same class of risk the
-previous cmd.exe path had.
+On timeout the whole process GROUP dies, not just the shell: a flow command is
+almost always compound (`python train.py && python read_score.py`), so the
+direct child is /bin/sh and the real workload is a grandchild. `subprocess.run`'s
+own timeout kills only the direct child, orphaning the workload — it keeps the
+GPU, keeps writing checkpoints under later steps, and on Windows keeps the
+output pipes open so the engine blocks forever in communicate(). Instead the
+timeout path launches the command as a session leader and kills the process
+group (POSIX) / runs `taskkill /F /T` (Windows). A workload that re-sessions
+itself (setsid/daemonize) can escape — see _kill_tree.
 """
 from __future__ import annotations
 
@@ -101,17 +107,95 @@ def run_shell(command: str, *, cwd, env: dict | None = None,
     """Run one flow-command string; capture text output (UTF-8, `errors=replace`
     — odd bytes from a command must degrade to ``�``, never crash the engine).
 
+    With ``timeout`` set, expiry raises `subprocess.TimeoutExpired` (partial
+    output attached, mirroring `subprocess.run`) after killing the whole
+    process group — see the module docstring for why the group and not just
+    the shell.
+
     Note (Windows): the command travels to bash as one argv element through
     CreateProcess quoting; a ``\\`` immediately before a ``"`` inside the
     command gets doubled in transit (`subprocess.list2cmdline` rules). Windows
     paths in commands are fine quoted (`"C:\\ws\\file"`) as the bundled flows
     do; avoid a quoted segment that *ends* in a backslash.
     """
-    kwargs: dict = dict(cwd=cwd, env=env, capture_output=True, text=True,
-                        encoding="utf-8", errors="replace", timeout=timeout)
     if os.name != "nt":
-        return subprocess.run(command, shell=True, **kwargs)
-    shell = find_bash()
-    if _is_cmd(shell):
-        return subprocess.run(command, shell=True, **kwargs)
-    return subprocess.run([shell, "-c", command], **kwargs)
+        argv, use_shell = command, True
+    else:
+        shell = find_bash()
+        if _is_cmd(shell):
+            argv, use_shell = command, True
+        else:
+            argv, use_shell = [shell, "-c", command], False
+    if timeout is None:                      # untimed path: unchanged behavior
+        return subprocess.run(argv, shell=use_shell, cwd=cwd, env=env,
+                              capture_output=True, **_CAPTURE)
+    return _run_tree_killable(argv, use_shell, command, timeout, cwd=cwd, env=env)
+
+
+# one output contract for both run paths: odd bytes degrade to �, never crash
+_CAPTURE: dict = dict(text=True, encoding="utf-8", errors="replace")
+
+
+def _kill_tree(p: subprocess.Popen) -> None:
+    """Best-effort kill of the process and every descendant.
+
+    POSIX kills the process group; Windows walks the tree with taskkill. A
+    workload that re-sessions itself (setsid, daemonization, nohup
+    double-fork) escapes the group and can survive — that residue is why the
+    engine reports "process group killed", not "tree" (an unconditionally
+    true claim would hide survivors from whoever debugs the run).
+    """
+    if os.name != "nt":
+        import signal
+        try:
+            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            p.kill()                         # group already gone; reap the root
+    else:
+        _kill_tree_windows(p.pid)
+        p.kill()
+
+
+def _kill_tree_windows(pid: int) -> None:
+    # taskkill /T walks the parent→child tree; /F force-kills. Killing the
+    # grandchildren is also what releases the inherited stdout/stderr pipe
+    # handles, so the communicate() that follows can return.
+    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                   capture_output=True)
+
+
+def _run_tree_killable(argv, use_shell: bool, command: str, timeout: float,
+                       *, cwd, env) -> subprocess.CompletedProcess:
+    """The timed variant of run_shell: launch so the whole group can be killed.
+
+    POSIX: `start_new_session=True` makes the shell a session (and process
+    group) leader; its children inherit the group, so one killpg reaps the
+    compound command's real workload as well as the shell. The group is
+    ALSO killed when communicate() raises anything else — Ctrl-C
+    (KeyboardInterrupt) must not orphan a training job that, being in its own
+    session, never saw the terminal's SIGINT. Residual risk, documented: a
+    SIGKILL of the engine itself (or terminal SIGHUP reaching only the
+    engine) runs no handler, and a workload that re-sessions itself escapes
+    the group kill.
+    """
+    popen: dict = dict(cwd=cwd, env=env, stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE, shell=use_shell, **_CAPTURE)
+    if os.name != "nt":
+        popen["start_new_session"] = True
+    with subprocess.Popen(argv, **popen) as p:   # ctx mgr: pipes always closed
+        try:
+            out, err = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_tree(p)
+            try:                             # reap; pipes closed by the kill
+                out, err = p.communicate(timeout=10)
+            except subprocess.TimeoutExpired as e2:  # a pipe-holder survived —
+                p.kill()                     # salvage what communicate buffered
+                out = e2.output if isinstance(e2.output, str) else ""
+                err = e2.stderr if isinstance(e2.stderr, str) else ""
+            raise subprocess.TimeoutExpired(command, timeout,
+                                            output=out, stderr=err)
+        except BaseException:                # Ctrl-C / MemoryError / anything:
+            _kill_tree(p)                    # never leave the group running
+            raise
+    return subprocess.CompletedProcess(command, p.returncode, out, err)

@@ -6,6 +6,7 @@ sub-flow; top-level steps are chained with PocketFlow's `>>`.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,14 +67,36 @@ def make_provider(spec: dict):
 def build_step(spec: dict, ctx: Context):
     t = spec["type"]
     log.debug("building step %s [%s]", spec.get("id", "?"), t)
+    if t != "command":
+        # command-only keys on other step types are config errors, not no-ops:
+        # an author who writes `timeout:` on an agent step believes a hang cap
+        # exists — silently ignoring it costs a wasted multi-hour run
+        for key in ("timeout",):
+            if key in spec:
+                raise ValueError(
+                    f"step {spec.get('id', '?')!r}: {key}: is only supported "
+                    f"on command steps (type {t!r} ignores it); for agent "
+                    f"steps bound tool-call hangs via the run_command "
+                    f"timeout, and loops via max_wait_seconds")
     if t == "agent":
         skill = ctx.skills[spec["skill"]]
         return AgentNode(spec["id"], skill, ctx.provider, ctx.tools,
                          captures=spec.get("set"),
                          max_steps=spec.get("max_steps", 20))
     if t == "command":
+        timeout = spec.get("timeout")
+        if timeout is not None and (isinstance(timeout, bool)
+                                    or not isinstance(timeout, (int, float))
+                                    or not math.isfinite(timeout)
+                                    or timeout <= 0):
+            # catch "2h"/"abc"/negative at build time — a bad timeout must fail
+            # the flow load, not silently run untimed for hours first
+            raise ValueError(
+                f"step {spec.get('id', '?')!r}: timeout must be a positive "
+                f"number of seconds, got {timeout!r}")
         return CommandNode(spec["id"], spec["run"], ctx.root,
-                           captures=spec.get("set"), venv=ctx.venv)
+                           captures=spec.get("set"), venv=ctx.venv,
+                           timeout=timeout)
     if t == "retry_loop":
         return retry_loop(spec["id"],
                           build_step(spec["action"], ctx),
