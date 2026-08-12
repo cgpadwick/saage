@@ -40,6 +40,14 @@ GUIDELINES:
 - If recent experiments plateaued (reverts, tiny gains), be BOLD: a different
   model family, feature representation, or modality — especially data
   modalities (images/text) that exist but are unused.
+- MEASUREMENT RULE — an experiment only counts if it changes what
+  eval_results.json measures. If the research log shows recent candidates
+  BIT-IDENTICAL to the best score, those experiments never touched the
+  evaluated model: adding a member model without wiring it into the
+  predictions train.py evaluates is a NO-OP that reads as a tie and gets
+  reverted. Either improve the champion pipeline itself, or wire the new
+  member into the evaluated predictor (e.g. average its probabilities into
+  the final output) so its effect is measured.
 - PORTFOLIO RULE (the run ends with a prediction-space ensemble of ALL
   scored experiments, kept and reverted alike — decorrelated members are
   what a blend feeds on): at least every third experiment must use a

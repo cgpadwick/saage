@@ -32,6 +32,11 @@ CRITICAL RULES (the harness depends on these):
 - Handle both cpu and cuda. Do NOT run full training. Do NOT generate
   submission.csv. Do NOT read raw data files whole.
 
+Your change MUST affect the predictions that eval_results.json scores —
+an added model that the evaluated pipeline never calls is invisible to
+keep/revert (the score ties, the experiment reverts). Before finishing,
+confirm the evaluated output actually changes.
+
 NEVER remove or break the predictions contract: train.py must keep writing
 `predictions/val_preds.csv`, `predictions/val_labels.csv`,
 `predictions/test_preds.csv` (same id scheme, same fixed validation split)
