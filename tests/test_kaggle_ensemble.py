@@ -157,3 +157,50 @@ def test_pool_archive_tolerates_missing_contract(tmp_path):
     (tmp_path / "eval_results.json").write_text('{"value": 0.5}')
     r = _run("pool_archive.py", tmp_path, "--tag", "x")
     assert "POOL=skipped" in r.stdout and r.returncode == 0
+
+
+# ------------------------------------------------------------ no-op probe --
+
+TRAIN_STUB = """\
+import csv, json, pathlib, sys
+pathlib.Path("predictions").mkdir(exist_ok=True)
+with open("predictions/val_preds.csv", "w", newline="") as f:
+    w = csv.writer(f); w.writerow(["id", "p"])
+    for i in range(5): w.writerow([f"v{i}", VALUE])
+json.dump({"metric_name": "m", "value": 0.5}, open("eval_results.json", "w"))
+"""
+
+
+def _probe_ws(tmp_path, champion_value, train_value):
+    ws = tmp_path
+    d = ws / "ensemble_pool" / "000_baseline"
+    _write_csv(d / "val_preds.csv", ("id", "p"),
+               [(f"v{i}", champion_value) for i in range(5)])
+    (ws / "train.py").write_text(TRAIN_STUB.replace("VALUE", repr(train_value)))
+    (ws / "data").mkdir(exist_ok=True)
+    return ws
+
+
+def test_probe_fails_on_identical_predictions(tmp_path):
+    ws = _probe_ws(tmp_path, "0.7", "0.7")
+    r = _run("no_op_probe.py", ws)
+    assert r.returncode == 1 and "BYTE-IDENTICAL" in r.stdout
+
+
+def test_probe_passes_on_changed_predictions(tmp_path):
+    ws = _probe_ws(tmp_path, "0.7", "0.9")
+    r = _run("no_op_probe.py", ws)
+    assert r.returncode == 0 and "NOOP_PROBE=pass" in r.stdout
+
+
+def test_probe_fails_open_without_pool(tmp_path):
+    (tmp_path / "train.py").write_text("raise SystemExit(0)")
+    r = _run("no_op_probe.py", tmp_path)
+    assert r.returncode == 0 and "no-reference" in r.stdout
+
+
+def test_probe_fails_open_on_crashing_train(tmp_path):
+    ws = _probe_ws(tmp_path, "0.7", "0.7")
+    (ws / "train.py").write_text("raise RuntimeError('boom')")
+    r = _run("no_op_probe.py", ws)
+    assert r.returncode == 0 and "fail-open" in r.stdout

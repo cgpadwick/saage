@@ -181,7 +181,11 @@ workflow:
         check:
           id: implement_smoke
           type: command
-          run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+          # pytest gate + deterministic no-op probe: a change that is not on
+          # the default execution path fails HERE, with feedback, instead of
+          # wasting the iteration on a bit-identical tie
+          run: 'python3 -B -m pytest -q tests/ && python3 "{{ flow_dir }}/no_op_probe.py" && echo "ACTION: pass" || echo "ACTION: fail"'
+          timeout: 900
       # hardware-fitness gate on the experiment's diff (see baseline_perf_loop)
       - id: perf_loop
         type: retry_loop
