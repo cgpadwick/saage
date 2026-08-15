@@ -14,6 +14,7 @@ try:
     from fastapi.responses import HTMLResponse, Response, StreamingResponse
     from fastapi.staticfiles import StaticFiles
     from fastapi.templating import Jinja2Templates
+    from markupsafe import escape as _escape
 except ImportError as e:      # pragma: no cover
     raise ImportError("saage.server requires: pip install saage[server]") from e
 
@@ -316,24 +317,33 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
         result = parse_launch(text, catalog, prov)
         if not result.get("ok"):
             return HTMLResponse(
-                f'<p class="parse-error">Could not parse: {result.get("error", "unknown error")}</p>'
+                f'<p class="parse-error">Could not parse: {_escape(result.get("error", "unknown error"))}</p>'
             )
         flow = result.get("flow", "")
         overrides = result.get("overrides", {})
         explanation = result.get("explanation", "")
-        overrides_json = json.dumps({"flow": flow, "overrides": overrides})
-        rows = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in overrides.items())
+        safe_flow = _escape(flow)
+        safe_explanation = _escape(explanation)
+        rows = "".join(
+            f"<tr><td>{_escape(k)}</td><td>{_escape(v)}</td></tr>"
+            for k, v in overrides.items()
+        )
+        hidden_inputs = f'<input type="hidden" name="flow" value="{safe_flow}">'
+        hidden_inputs += "".join(
+            f'<input type="hidden" name="overrides.{_escape(k)}" value="{_escape(v)}">'
+            for k, v in overrides.items()
+        )
         return HTMLResponse(
             f'<div class="parse-result">'
-            f'<strong>{flow}</strong>'
-            + (f'<p>{explanation}</p>' if explanation else "")
+            f'<strong>{safe_flow}</strong>'
+            + (f'<p>{safe_explanation}</p>' if explanation else "")
             + (f"<table><thead><tr><th>Knob</th><th>Value</th></tr></thead><tbody>{rows}</tbody></table>"
                if rows else "")
             + f'<div style="margin-top:.75rem;display:flex;gap:.5rem;">'
-            f'<button hx-post="/api/jobs"'
-            f' hx-vals=\'{overrides_json}\''
-            f' hx-on::after-request="if(event.detail.successful){{document.getElementById(\'parse-preview\').innerHTML=\'\';}}">'
-            f'Confirm</button>'
+            f'<form hx-post="/launch-form" style="display:inline">'
+            f'{hidden_inputs}'
+            f'<button type="submit">Confirm</button>'
+            f'</form>'
             f'<button class="secondary" onclick="document.getElementById(\'parse-preview\').innerHTML=\'\'">Cancel</button>'
             f'</div>'
             f'</div>'

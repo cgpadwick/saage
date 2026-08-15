@@ -288,3 +288,44 @@ def test_launch_form_unknown_knob_returns_422(tmp_path, sleeper_flow):
     r = c.post("/launch-form", data={"flow": "sleeper", "overrides.nope": "1"})
     assert r.status_code == 422 and "nope" in r.json()["detail"]
 
+
+# ---------------------------------------------------------------------------
+# /parse-form — NL confirm path and XSS escaping
+# ---------------------------------------------------------------------------
+
+def test_parse_form_confirm_uses_launch_form(tmp_path, sleeper_flow):
+    """parse-form must return a <form> posting to /launch-form with hidden inputs."""
+    c = _client(tmp_path, ['{"flow": "sleeper", "overrides": {"seconds": "3"}, "explanation": "quick nap"}'])
+    r = c.post("/parse-form", data={"text": "sleep for 3 seconds"})
+    assert r.status_code == 200
+    html = r.text
+    # Must use /launch-form, not /api/jobs
+    assert "/launch-form" in html
+    assert "/api/jobs" not in html
+    # Must have hidden inputs with correct names
+    assert 'name="flow"' in html
+    assert 'name="overrides.seconds"' in html
+    # hx-vals must not appear (no raw JSON attributes)
+    assert "hx-vals" not in html
+
+
+def test_parse_form_escapes_xss_in_flow_name(tmp_path, sleeper_flow):
+    """LLM-returned explanation containing HTML special chars must be escaped."""
+    evil_explanation = '<script>alert(1)</script>'
+    reply = f'{{"flow": "sleeper", "overrides": {{}}, "explanation": "{evil_explanation}"}}'
+    c = _client(tmp_path, [reply])
+    r = c.post("/parse-form", data={"text": "anything"})
+    html = r.text
+    assert "<script>alert(1)" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_parse_form_escapes_xss_in_override_value(tmp_path, sleeper_flow):
+    """Override values with HTML must be escaped in the fragment."""
+    evil_val = "<script>steal()</script>"
+    reply = f'{{"flow": "sleeper", "overrides": {{"seconds": "{evil_val}"}}, "explanation": ""}}'
+    c = _client(tmp_path, [reply])
+    r = c.post("/parse-form", data={"text": "anything"})
+    html = r.text
+    assert "<script>steal()" not in html
+    assert "&lt;script&gt;" in html
