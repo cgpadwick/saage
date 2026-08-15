@@ -31,10 +31,26 @@ so nothing else persists).
 | `saage/primitives.py` | `retry_loop`, `polling_loop`, `counting_loop` |
 | `saage/tools.py` | the harness tools (file CRUD, `run_command`, git) |
 | `saage/skills.py` | how `skill.md` is parsed |
+| `saage/server/` | FastAPI web UI + REST API for job management (`pip install saage[server]`) |
 
 Existing flows are the best templates: `story_writer` (counting_loop),
 `fix_failing_test` (retry_loop), `poll_job` (polling_loop), `guessing_game`
 (counting_loop + `exit_when` + shared feedback), `greenfield_ml` (everything).
+
+### `saage/server/` — job manager web UI
+
+The server is a **thin layer over the run-store**: it lists flows from `flow_paths`, launches
+detached `saage run` subprocesses, and tails their ledgers and logs. The web UI (home, job detail,
+history pages) and REST API (`/api/flows`, `/api/jobs`, `/api/parse`) poll the run-store at
+`~/.saage/runs/<job_id>/` — no database or job queue. Each running job emits ledger events
+(`ledger.jsonl`, one JSON record per line) with `phase` keys (`node_enter`, `node_exit`, `action_call`,
+etc.) that the DAG visualizer consumes to render live progress. To run server tests:
+
+```bash
+pytest tests/server/ -q
+```
+
+Docs: See the "Web UI: `saage serve`" section in the main README.
 
 ## `flow.yaml` reference
 
