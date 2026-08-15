@@ -59,6 +59,8 @@ include = ["saage*"]
 
 [tool.setuptools.package-data]
 "saage.server" = ["templates/*.html", "static/*"]
+
+[tool.pytest.ini_options]
 markers = [
     "live: hits a real LLM provider; skipped unless SAAGE_LIVE_PROVIDER is set",
     "ssh: needs a local sshd + authorized saage key; skipped unless SAAGE_SSH_TESTS is set",

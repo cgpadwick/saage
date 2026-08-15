@@ -16,3 +16,8 @@ class TestServerConfig:
         assert cfg.flow_paths[0].is_absolute()          # ~ expanded
         assert cfg.port == 9000
         assert cfg.parser_provider == {"type": "local", "model": "m"}
+
+    def test_malformed_port_degrades_gracefully(self, tmp_path):
+        (tmp_path / "server.yaml").write_text("port: notanumber\n")
+        cfg = load_server_config(tmp_path / "server.yaml")
+        assert cfg.port == 8321
