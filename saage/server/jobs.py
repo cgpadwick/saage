@@ -156,13 +156,26 @@ class JobRegistry:
         pid = entry.get("pid")
         pid_alive = False
         if pid is not None:
+            # Try non-blocking wait first so we reap zombies: a process that has
+            # exited but not been waited on is still visible to os.kill(pid, 0),
+            # causing status() to return "running" forever.
             try:
-                os.kill(pid, 0)
-                pid_alive = True
-            except ProcessLookupError:
-                pid_alive = False
-            except PermissionError:
-                pid_alive = True   # pid exists, owned by another user
+                result = os.waitpid(pid, os.WNOHANG)
+                if result == (0, 0):
+                    pid_alive = True   # still running
+                # else: reaped the zombie; pid_alive stays False
+            except ChildProcessError:
+                # Not our child (e.g. after a server restart) — fall back to
+                # signal-0 liveness check.
+                try:
+                    os.kill(pid, 0)
+                    pid_alive = True
+                except ProcessLookupError:
+                    pid_alive = False
+                except PermissionError:
+                    pid_alive = True   # pid exists, owned by another user
+                except OSError:
+                    pid_alive = False
             except OSError:
                 pid_alive = False
 
