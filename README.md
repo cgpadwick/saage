@@ -186,6 +186,18 @@ Cancel a running job:
 curl -X POST http://127.0.0.1:8321/api/jobs/<job_id>/cancel
 ```
 
+Stream ledger events (Server-Sent Events):
+```bash
+curl http://127.0.0.1:8321/api/jobs/<job_id>/ledger
+```
+
+Get live DAG visualization (SVG):
+```bash
+curl http://127.0.0.1:8321/jobs/<job_id>/dag.svg
+```
+
+**Note:** `POST /launch-form` is a UI-internal form-encoded endpoint used by the browser UI; no direct API call needed.
+
 ### Server config (`~/.saage/server.yaml`)
 
 - **`flow_paths`** (list) — directories to scan recursively for `*/flow.yaml` files.
