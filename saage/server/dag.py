@@ -30,6 +30,7 @@ class Graph:
     nodes: list[GNode] = field(default_factory=list)
     edges: list[tuple[str, str]] = field(default_factory=list)
     clusters: list[Cluster] = field(default_factory=list)
+    back_edges: list[tuple[str, str]] = field(default_factory=list)
 
 
 def build_graph(spec: dict) -> Graph:
@@ -37,6 +38,7 @@ def build_graph(spec: dict) -> Graph:
     
     Recursively processes loops (retry_loop, counting_loop, polling_loop)
     by creating clusters and walking into action/check/poll/classify/body.
+    For retry/polling loops, adds a back-edge from the last node back to the first.
     """
     graph = Graph()
     workflow = spec.get("workflow", [])
@@ -78,7 +80,11 @@ def build_graph(spec: dict) -> Graph:
             for key in keys_to_walk:
                 sub_spec = step.get(key)
                 if sub_spec:
-                    loop_nodes.append(sub_spec)
+                    # Handle both dict and list cases
+                    if isinstance(sub_spec, list):
+                        loop_nodes.extend(sub_spec)
+                    else:
+                        loop_nodes.append(sub_spec)
             
             # Process nodes in the loop
             for i, node_spec in enumerate(loop_nodes):
@@ -116,6 +122,10 @@ def build_graph(spec: dict) -> Graph:
                         graph.edges.append((loop_nodes[i-1].get("id"), node_id))
                 
                 loop_last_node_id = node_id
+            
+            # Add back-edge for retry/polling loops (from last to first)
+            if step_type in ("retry_loop", "polling_loop") and loop_first_node_id and loop_last_node_id:
+                graph.back_edges.append((loop_last_node_id, loop_first_node_id))
             
             prev_node_id = loop_last_node_id
         else:
@@ -259,7 +269,7 @@ def render_svg(graph: Graph, states: dict) -> str:
             svg_lines.append(f'<text x="{x_start + node_width//2}" y="{cluster_y - 5}" '
                            f'font-size="11" fill="#999" text-anchor="middle">{cluster.label}</text>')
     
-    # Draw edges
+    # Draw edges (both regular and back-edges)
     for src_id, dst_id in graph.edges:
         src_y = node_y_map[src_id]
         dst_y = node_y_map[dst_id]
@@ -271,6 +281,20 @@ def render_svg(graph: Graph, states: dict) -> str:
         svg_lines.append(f'<line x1="{src_x}" y1="{src_center_y + node_height//2}" '
                        f'x2="{dst_x}" y2="{dst_center_y - node_height//2}" '
                        f'stroke="#333" stroke-width="1"/>')
+    
+    # Draw back-edges with dashed style
+    for src_id, dst_id in graph.back_edges:
+        src_y = node_y_map[src_id]
+        dst_y = node_y_map[dst_id]
+        src_x = x_start + node_width // 2
+        dst_x = x_start + node_width // 2
+        src_center_y = src_y + node_height // 2
+        dst_center_y = dst_y + node_height // 2
+        
+        # Draw back-edge with curved path (goes around right side)
+        svg_lines.append(f'<path class="backedge" d="M {src_x} {src_center_y + node_height//2} '
+                       f'Q {x_start + node_width + 50} {(src_center_y + dst_center_y) // 2} '
+                       f'{dst_x} {dst_center_y - node_height//2}"/>')
     
     # Draw nodes
     for node in graph.nodes:

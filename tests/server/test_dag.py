@@ -15,6 +15,19 @@ workflow:
   - {id: z, type: command, run: 'echo done'}
 """)
 
+COUNTING_FLOW = yaml.safe_load("""
+provider: {type: local, model: m}
+workflow:
+  - {id: start, type: command, run: 'echo start'}
+  - id: loop
+    type: counting_loop
+    max_iterations: 5
+    body:
+      - {id: step1, type: command, run: 'echo step1'}
+      - {id: step2, type: command, run: 'echo step2'}
+  - {id: end, type: command, run: 'echo end'}
+""")
+
 
 def test_graph_walks_loops_into_clusters():
     g = build_graph(FLOW)
@@ -46,3 +59,33 @@ def test_svg_marks_states():
     svg = render_svg(g, {"a": {"state": "done", "attempts": 1, "last": {}}})
     assert svg.startswith("<svg") and 'id="node-a"' in svg and "state-done" in svg
     assert "state-pending" in svg          # nodes without events default pending
+
+
+def test_counting_loop_body_list():
+    """Test that counting_loop body (a list) is handled correctly."""
+    g = build_graph(COUNTING_FLOW)
+    ids = [n.id for n in g.nodes]
+    assert ids == ["start", "step1", "step2", "end"]
+    assert ("start", "step1") in g.edges
+    assert ("step1", "step2") in g.edges
+    assert ("step2", "end") in g.edges
+    cl = next(c for c in g.clusters if c.id == "loop")
+    assert cl.kind == "counting_loop" and cl.max_iterations == "5"
+    assert next(n for n in g.nodes if n.id == "step1").cluster == "loop"
+    assert next(n for n in g.nodes if n.id == "step2").cluster == "loop"
+
+
+def test_retry_loop_back_edge():
+    """Test that retry_loop draws back-edge from check to action."""
+    g = build_graph(FLOW)
+    # Should have forward edges: a->fix, fix->verify, verify->z
+    assert ("a", "fix") in g.edges
+    assert ("fix", "verify") in g.edges
+    assert ("verify", "z") in g.edges
+    # Should have back-edge: verify->fix (marking end of loop back to action)
+    assert ("verify", "fix") in g.back_edges
+    
+    # SVG should render back-edge with dashed style
+    svg = render_svg(g, {})
+    # Check for back-edge path with backedge class
+    assert 'class="backedge"' in svg
