@@ -57,11 +57,15 @@
     paramsPanel.style.display = "";
   });
 
-  // Log streaming
-  new EventSource("/api/jobs/{{ job_id }}/logs").onmessage = function(e) {
+  // Log streaming.  Close on "done": EventSource auto-reconnects after any
+  // stream end, and the server replays the whole log from offset 0 on each
+  // reconnect — without close() a finished job re-appends its log forever.
+  const logEs = new EventSource("/api/jobs/{{ job_id }}/logs");
+  logEs.onmessage = function(e) {
     log.textContent += JSON.parse(e.data).chunk;
     log.scrollTop = log.scrollHeight;
   };
+  logEs.addEventListener("done", function() { logEs.close(); });
 
   // DAG live redraw
   const redraw = () => fetch("/jobs/{{ job_id }}/dag.svg")

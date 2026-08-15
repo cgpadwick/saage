@@ -86,7 +86,8 @@ tr:last-child td { border-bottom: none; }
   font-weight: 600;
 }
 .badge-running  { background: var(--running);  color: #222; }
-.badge-done     { background: var(--done);     color: #222; }
+/* checkpoint.json reports "completed"; DAG states use "done" */
+.badge-done, .badge-completed { background: var(--done); color: #222; }
 .badge-failed   { background: var(--failed);   color: #fff; }
 .badge-cancelled{ background: var(--border);   color: var(--text); }
 .badge-unknown, .badge-crashed { background: var(--pending); color: #fff; }

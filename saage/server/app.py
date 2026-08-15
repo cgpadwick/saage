@@ -50,6 +50,9 @@ def _tail(path: Path, job_status, since: int = 0):
                     yield f"data: {json.dumps({'chunk': chunk.decode(errors='replace'), 'offset': offset})}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': s})}\n\n"
             return
+        # SSE comment (ignored by EventSource): forces a write each poll so a
+        # closed connection is detected and the generator's thread is released.
+        yield ": keepalive\n\n"
         time.sleep(0.5)
 
 
@@ -101,6 +104,9 @@ def _tail_ledger(path: Path, job_status):
                         yield f"data: {json.dumps(rec)}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': s})}\n\n"
             return
+        # SSE comment (ignored by EventSource): forces a write each poll so a
+        # closed connection is detected and the generator's thread is released.
+        yield ": keepalive\n\n"
         time.sleep(0.5)
 
 
@@ -176,6 +182,10 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
         flow_info = catalog.get(flow_name)
         if flow_info is None:
             raise HTTPException(status_code=404, detail=f"flow {flow_name!r} not found")
+        if flow_info.error is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"flow {flow_name!r} is broken: {flow_info.error}")
         overrides = body.get("overrides") or {}
         workspace = body.get("workspace")
         try:
@@ -409,6 +419,10 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
         flow_info = catalog.get(flow_name)
         if flow_info is None:
             raise HTTPException(status_code=404, detail=f"flow {flow_name!r} not found")
+        if flow_info.error is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"flow {flow_name!r} is broken: {flow_info.error}")
         overrides: dict[str, str] = {}
         for key, value in form.items():
             if key.startswith("overrides."):

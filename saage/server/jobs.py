@@ -32,6 +32,25 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _pid_is_ours(pid: int, run_id: str) -> bool | None:
+    """Guard against PID reuse: check /proc/<pid>/cmdline for the run_id.
+
+    Every process we launch carries ``--run-id <run_id>`` on its command line,
+    so a live pid whose cmdline lacks the run_id is a recycled pid, not our
+    child.  Returns True/False when the check is possible, or None when it
+    isn't (no /proc — e.g. macOS — or unreadable), in which case callers fall
+    back to signal-0 liveness alone.  Note: zombies have an empty cmdline and
+    so report False, which is correct — the process is dead.
+    """
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except FileNotFoundError:
+        return False               # no such pid
+    except OSError:
+        return None                # /proc unavailable; can't tell
+    return run_id.encode() in raw
+
+
 @dataclass
 class Job:
     job_id: str
@@ -166,14 +185,16 @@ class JobRegistry:
                 # else: reaped the zombie; pid_alive stays False
             except ChildProcessError:
                 # Not our child (e.g. after a server restart) — fall back to
-                # signal-0 liveness check.
+                # signal-0 liveness check, guarded against pid reuse.
                 try:
                     os.kill(pid, 0)
-                    pid_alive = True
+                    pid_alive = _pid_is_ours(pid, job_id) is not False
                 except ProcessLookupError:
                     pid_alive = False
                 except PermissionError:
-                    pid_alive = True   # pid exists, owned by another user
+                    # pid exists but owned by another user: can't be the child
+                    # we spawned unless the cmdline check is unavailable.
+                    pid_alive = _pid_is_ours(pid, job_id) is not False
                 except OSError:
                     pid_alive = False
             except OSError:
@@ -209,6 +230,13 @@ class JobRegistry:
 
         pid = entry.get("pid")
         if pid is None:
+            return False
+
+        # PID-reuse guard: never signal a pid that provably isn't our job's
+        # process (recycled pid after a server restart, or an already-dead
+        # child).  A dead/foreign pid just gets the cancelled flag.
+        if _pid_is_ours(pid, job_id) is False:
+            self._append({**entry, "cancelled": True})
             return False
 
         try:

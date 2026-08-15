@@ -15,7 +15,11 @@
             hx-include="[name='flow']">
       <option value="">— select a flow —</option>
       {% for f in flows %}
+      {% if f.error %}
+      <option value="{{ f.name }}" disabled>{{ f.name }} — broken: {{ f.error }}</option>
+      {% else %}
       <option value="{{ f.name }}">{{ f.name }}{% if f.description %} — {{ f.description }}{% endif %}</option>
+      {% endif %}
       {% endfor %}
     </select>
 

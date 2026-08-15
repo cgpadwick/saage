@@ -38,6 +38,39 @@ def test_launch_rejects_unknown_knob(tmp_path, sleeper_flow):
     assert r.status_code == 422 and "nope" in r.json()["detail"]
 
 
+BROKEN = "provider: {type: local, model: m}\nworkflow:\n  - {id: s1, type: nope}\n"
+
+
+@pytest.fixture
+def broken_flow(tmp_path):
+    d = tmp_path / "flows" / "busted"
+    d.mkdir(parents=True)
+    (d / "flow.yaml").write_text(BROKEN)
+    return d / "flow.yaml"
+
+
+def test_launch_rejects_broken_flow(tmp_path, sleeper_flow, broken_flow):
+    """A flow that failed hydration must not be launchable via the JSON API."""
+    c = _client(tmp_path)
+    r = c.post("/api/jobs", json={"flow": "busted"})
+    assert r.status_code == 422 and "broken" in r.json()["detail"]
+
+
+def test_launch_form_rejects_broken_flow(tmp_path, sleeper_flow, broken_flow):
+    """A flow that failed hydration must not be launchable via the form bridge."""
+    c = _client(tmp_path)
+    r = c.post("/launch-form", data={"flow": "busted"})
+    assert r.status_code == 422 and "broken" in r.json()["detail"]
+
+
+def test_home_page_marks_broken_flow_disabled(tmp_path, sleeper_flow, broken_flow):
+    """Broken flows appear in the dropdown but disabled, with their error."""
+    c = _client(tmp_path)
+    html = c.get("/").text
+    assert "busted" in html
+    assert "disabled" in html
+
+
 def test_parse_endpoint_round_trip(tmp_path, sleeper_flow):
     c = _client(tmp_path, ['{"flow": "sleeper", "overrides": {"seconds": "5"},'
                            ' "explanation": "short nap"}'])
@@ -185,6 +218,21 @@ def test_pages_render(tmp_path, sleeper_flow):
     assert svg.headers["content-type"].startswith("image/svg")
     assert 'id="node-nap"' in svg.text
     assert c.get("/history").status_code == 200
+    c.post(f"/api/jobs/{jid}/cancel")
+
+
+def test_job_page_closes_log_stream_on_done(tmp_path, sleeper_flow):
+    """The log EventSource must close on the ``done`` event: EventSource
+    auto-reconnects after any stream end, and the server replays the log from
+    offset 0 each time — without close() a finished job's log panel re-appends
+    the whole log every few seconds forever."""
+    c = _client(tmp_path)
+    jid = c.post("/api/jobs", json={"flow": "sleeper",
+                                    "overrides": {"seconds": "30"}}).json()["job_id"]
+    page = c.get(f"/jobs/{jid}").text
+    assert "logEs.close()" in page
+    # Both streams (logs + ledger) handle the terminal event.
+    assert page.count('addEventListener("done"') == 2
     c.post(f"/api/jobs/{jid}/cancel")
 
 

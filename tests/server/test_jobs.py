@@ -75,3 +75,36 @@ def test_custom_home_run_dir_resolution(flow_info, tmp_path):
     # status() must find the run correctly under the custom home.
     assert reg.status(job.job_id) == "running"
     reg.cancel(job.job_id)
+
+
+def _fake_entry(reg, pid):
+    """Append a registry entry pointing at *pid* — simulates a recycled pid
+    (the entry's run_id is not on that process's command line)."""
+    entry = {"job_id": "reused-pid-job", "flow_name": "ghost", "flow_path": "x",
+             "overrides": {}, "pid": pid, "created_at": "2026-01-01T00:00:00Z",
+             "cancelled": False}
+    reg._append(entry)
+    return entry
+
+
+def test_status_treats_recycled_pid_as_dead(tmp_path):
+    """A live pid whose cmdline lacks the run_id is a recycled pid, not our job.
+
+    Uses the test process's own pid: alive, not our child (waitpid raises
+    ChildProcessError), and its cmdline has no run_id — status must not
+    report 'running'.
+    """
+    reg = JobRegistry(home=tmp_path / "home")
+    _fake_entry(reg, os.getpid())
+    assert reg.status("reused-pid-job") != "running"
+
+
+def test_cancel_never_signals_recycled_pid(tmp_path):
+    """cancel() must not killpg a pid that provably isn't our job's process.
+
+    If this guard fails, the SIGTERM would hit the test process itself.
+    """
+    reg = JobRegistry(home=tmp_path / "home")
+    _fake_entry(reg, os.getpid())
+    assert reg.cancel("reused-pid-job") is False
+    assert reg.status("reused-pid-job") == "cancelled"
