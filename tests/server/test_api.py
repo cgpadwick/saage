@@ -168,3 +168,76 @@ def test_tail_ledger_does_not_skip_partial_lines(tmp_path):
     data_events = [e for e in events if e.startswith("data:") and "done" not in e]
     assert len(data_events) == 2, f"Expected 2 ledger records, got: {events}"
     assert "event: done" in "".join(events)
+
+
+# ---------------------------------------------------------------------------
+# Page smoke tests
+# ---------------------------------------------------------------------------
+
+def test_pages_render(tmp_path, sleeper_flow):
+    c = _client(tmp_path)
+    assert "sleeper" in c.get("/").text                  # dropdown + knob form
+    jid = c.post("/api/jobs", json={"flow": "sleeper",
+                                    "overrides": {"seconds": "1"}}).json()["job_id"]
+    page = c.get(f"/jobs/{jid}").text
+    assert "dag.svg" in page and "EventSource" in page
+    svg = c.get(f"/jobs/{jid}/dag.svg")
+    assert svg.headers["content-type"].startswith("image/svg")
+    assert 'id="node-nap"' in svg.text
+    assert c.get("/history").status_code == 200
+    c.post(f"/api/jobs/{jid}/cancel")
+
+
+def test_home_page_has_htmx(tmp_path, sleeper_flow):
+    """Home page must reference htmx and the flow selector."""
+    c = _client(tmp_path)
+    text = c.get("/").text
+    assert "htmx" in text
+    assert "flow-select" in text
+
+
+def test_flow_knobs_fragment(tmp_path, sleeper_flow):
+    """Flow-knobs endpoint returns knob inputs for a valid flow."""
+    c = _client(tmp_path)
+    r = c.get("/flow-knobs", params={"flow": "sleeper"})
+    assert r.status_code == 200
+    assert "seconds" in r.text
+
+
+def test_flow_knobs_unknown_flow_returns_empty(tmp_path, sleeper_flow):
+    c = _client(tmp_path)
+    r = c.get("/flow-knobs", params={"flow": "ghost"})
+    assert r.status_code == 200
+    assert r.text == ""
+
+
+def test_jobs_table_fragment(tmp_path, sleeper_flow):
+    """Jobs-table endpoint returns HTML with a job row after launching."""
+    c = _client(tmp_path)
+    jid = c.post("/api/jobs", json={"flow": "sleeper",
+                                    "overrides": {"seconds": "30"}}).json()["job_id"]
+    r = c.get("/jobs-table")
+    assert r.status_code == 200
+    assert jid[:12] in r.text
+    c.post(f"/api/jobs/{jid}/cancel")
+
+
+def test_history_page(tmp_path, sleeper_flow):
+    c = _client(tmp_path)
+    jid = c.post("/api/jobs", json={"flow": "sleeper",
+                                    "overrides": {"seconds": "30"}}).json()["job_id"]
+    r = c.get("/history")
+    assert r.status_code == 200
+    assert jid[:12] in r.text
+    c.post(f"/api/jobs/{jid}/cancel")
+
+
+def test_dag_svg_not_found(tmp_path, sleeper_flow):
+    c = _client(tmp_path)
+    assert c.get("/jobs/nonexistent/dag.svg").status_code == 404
+
+
+def test_job_detail_not_found(tmp_path, sleeper_flow):
+    c = _client(tmp_path)
+    assert c.get("/jobs/nonexistent").status_code == 404
+

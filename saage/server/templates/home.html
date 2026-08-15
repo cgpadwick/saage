@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}saage — home{% endblock %}
+{% block content %}
+
+<h2>Launch a flow</h2>
+<div class="card">
+  <form id="launch-form"
+        hx-post="/api/jobs"
+        hx-target="#active-jobs-body"
+        hx-swap="none"
+        hx-on::after-request="if(event.detail.successful){ htmx.trigger('#active-jobs-table', 'refresh'); }">
+    <label for="flow-select">Flow</label>
+    <select id="flow-select" name="flow"
+            hx-get="/flow-knobs"
+            hx-target="#knob-form"
+            hx-trigger="change"
+            hx-include="[name='flow']">
+      <option value="">— select a flow —</option>
+      {% for f in flows %}
+      <option value="{{ f.name }}">{{ f.name }}{% if f.description %} — {{ f.description }}{% endif %}</option>
+      {% endfor %}
+    </select>
+
+    <div id="knob-form">
+      <!-- knob inputs swapped in by htmx on flow selection -->
+    </div>
+
+    <button type="submit">Launch</button>
+  </form>
+</div>
+
+<h2>Natural language</h2>
+<div class="card">
+  <label for="nl-input">Describe what you want to run</label>
+  <textarea id="nl-input" name="text" placeholder="e.g. run the sleeper for 5 seconds"></textarea>
+  <button type="button"
+          hx-post="/parse-form"
+          hx-include="#nl-input"
+          hx-target="#parse-preview"
+          hx-swap="innerHTML">Parse</button>
+  <div id="parse-preview"></div>
+</div>
+
+<h2>Active jobs</h2>
+<div id="active-jobs-table"
+     hx-get="/jobs-table"
+     hx-trigger="load, every 5s, refresh"
+     hx-swap="innerHTML">
+  <p style="color:var(--muted)">Loading…</p>
+</div>
+
+{% endblock %}

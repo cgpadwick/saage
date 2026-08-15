@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}saage — history{% endblock %}
+{% block content %}
+
+<h2>Run history</h2>
+
+{% if jobs %}
+<div class="card" style="padding:0; overflow:hidden;">
+  <table>
+    <thead>
+      <tr>
+        <th>Job ID</th>
+        <th>Flow</th>
+        <th>Status</th>
+        <th>Started</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for j in jobs %}
+      <tr>
+        <td><a href="/jobs/{{ j.job_id }}" style="color:var(--accent)">{{ j.job_id[:12] }}</a></td>
+        <td>{{ j.flow_name }}</td>
+        <td><span class="badge badge-{{ j.status }}">{{ j.status }}</span></td>
+        <td>{{ j.created_at }}</td>
+        <td>
+          {% if j.status == "running" %}
+          <button class="danger" style="padding:.2rem .6rem; font-size:.75rem;"
+                  hx-post="/api/jobs/{{ j.job_id }}/cancel"
+                  hx-confirm="Cancel?"
+                  hx-on::after-request="location.reload()">Cancel</button>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p style="color:var(--muted)">No runs yet.</p>
+{% endif %}
+
+{% endblock %}

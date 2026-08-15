@@ -1,0 +1,130 @@
+/* saage server — dark-neutral single stylesheet */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #1a1a1a;
+  --surface: #242424;
+  --border: #3a3a3a;
+  --text: #e0e0e0;
+  --muted: #888;
+  --accent: #4f9cf9;
+  --danger: #e05252;
+  --done: #52c97a;
+  --running: #f9c74f;
+  --failed: #e05252;
+  --pending: #6e6e6e;
+}
+
+body { background: var(--bg); color: var(--text); font: 14px/1.6 system-ui, sans-serif; }
+
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: .6rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+header .brand { font-weight: 700; font-size: 1.1rem; color: var(--accent); text-decoration: none; }
+nav a { color: var(--text); text-decoration: none; padding: .3rem .6rem; border-radius: 4px; }
+nav a:hover { background: var(--border); }
+
+main { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+
+h2 { font-size: 1.1rem; margin: 1.5rem 0 .75rem; color: var(--text); }
+h3 { font-size: .95rem; margin: 1rem 0 .4rem; color: var(--muted); }
+
+/* --- forms --- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+label { display: block; margin-bottom: .25rem; font-size: .85rem; color: var(--muted); }
+select, input[type=text], textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: .4rem .6rem;
+  font: inherit;
+  margin-bottom: .75rem;
+}
+textarea { min-height: 80px; resize: vertical; }
+select:focus, input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: .4rem 1rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: .85rem;
+}
+button:hover { opacity: .85; }
+button.danger { background: var(--danger); }
+button.secondary { background: var(--border); }
+
+/* --- tables --- */
+table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+th { text-align: left; color: var(--muted); font-weight: 500; padding: .4rem .6rem; border-bottom: 1px solid var(--border); }
+td { padding: .4rem .6rem; border-bottom: 1px solid var(--border); }
+tr:last-child td { border-bottom: none; }
+
+/* --- status badges --- */
+.badge {
+  display: inline-block;
+  padding: .15rem .5rem;
+  border-radius: 10px;
+  font-size: .75rem;
+  font-weight: 600;
+}
+.badge-running  { background: var(--running);  color: #222; }
+.badge-done     { background: var(--done);     color: #222; }
+.badge-failed   { background: var(--failed);   color: #fff; }
+.badge-cancelled{ background: var(--border);   color: var(--text); }
+.badge-unknown, .badge-crashed { background: var(--pending); color: #fff; }
+
+/* --- job detail --- */
+.job-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+@media (max-width: 640px) { .job-layout { grid-template-columns: 1fr; } }
+
+#dag { min-height: 120px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .5rem; }
+#dag svg text { fill: var(--text); }
+
+#params-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: .8rem;
+  margin-top: .75rem;
+}
+#params-panel pre { white-space: pre-wrap; word-break: break-all; color: var(--muted); }
+
+#log {
+  background: #0e0e0e;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .75rem;
+  font-family: monospace;
+  font-size: .8rem;
+  min-height: 200px;
+  max-height: 500px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #c5e0c5;
+}
+
+/* --- parse preview --- */
+#parse-preview { margin-top: .75rem; }
+.parse-result { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
+.parse-result pre { margin: .5rem 0; font-size: .8rem; color: var(--muted); white-space: pre-wrap; }
+.parse-error { color: var(--danger); padding: .5rem; }

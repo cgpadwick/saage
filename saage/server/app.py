@@ -10,15 +10,20 @@ import time
 from pathlib import Path
 
 try:
-    from fastapi import FastAPI, HTTPException
-    from fastapi.responses import StreamingResponse
+    from fastapi import FastAPI, Form, HTTPException, Request
+    from fastapi.responses import HTMLResponse, Response, StreamingResponse
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.templating import Jinja2Templates
 except ImportError as e:      # pragma: no cover
     raise ImportError("saage.server requires: pip install saage[server]") from e
 
 from .catalog import FlowCatalog
 from .config import ServerConfig, load_server_config
+from .dag import build_graph, reduce_states, render_svg
 from .jobs import JobRegistry
 from .parse import parse_launch
+
+_HERE = Path(__file__).parent
 
 
 def _tail(path: Path, job_status, since: int = 0):
@@ -107,6 +112,13 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
                   config.parser_provider on first request (503 if unconfigured).
     """
     app = FastAPI(title="saage server")
+
+    # Static files and templates
+    static_dir = _HERE / "static"
+    templates_dir = _HERE / "templates"
+    if static_dir.is_dir():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    templates = Jinja2Templates(directory=str(templates_dir))
 
     catalog = FlowCatalog(config)
     catalog.refresh()
@@ -228,6 +240,157 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
         registry.cancel(job_id)
         return {"job_id": job_id, "status": registry.status(job_id)}
+
+    # ------------------------------------------------------------------
+    # Page routes
+    # ------------------------------------------------------------------
+
+    @app.get("/", response_class=HTMLResponse)
+    def home(request: Request):
+        """Home page: flow launcher and active jobs table."""
+        catalog.refresh()
+        flows = list(catalog.flows.values())
+        return templates.TemplateResponse(request, "home.html", {"flows": flows})
+
+    @app.get("/flow-knobs", response_class=HTMLResponse)
+    def flow_knobs(request: Request, flow: str = ""):
+        """Return knob form fragment for the selected flow (htmx swap target)."""
+        fi = catalog.get(flow)
+        if fi is None or not fi.knobs:
+            return HTMLResponse("")
+        lines = []
+        for name, default in fi.knobs.items():
+            lines.append(
+                f'<label for="knob-{name}">{name}</label>'
+                f'<input type="text" id="knob-{name}" name="overrides.{name}" value="{default}">'
+            )
+        return HTMLResponse("".join(lines))
+
+    @app.get("/jobs-table", response_class=HTMLResponse)
+    def jobs_table(request: Request):
+        """Active/recent jobs table fragment (htmx poll target)."""
+        jobs = registry.list()
+        if not jobs:
+            return HTMLResponse('<p style="color:var(--muted)">No jobs yet.</p>')
+        rows = []
+        for j in jobs:
+            jid = j["job_id"]
+            status = j.get("status", "unknown")
+            rows.append(
+                f'<tr>'
+                f'<td><a href="/jobs/{jid}" style="color:var(--accent)">{jid[:12]}</a></td>'
+                f'<td>{j.get("flow_name", "")}</td>'
+                f'<td><span class="badge badge-{status}">{status}</span></td>'
+                f'<td>{j.get("created_at", "")}</td>'
+                f'<td>'
+                + (
+                    f'<button class="danger" style="padding:.2rem .6rem; font-size:.75rem;"'
+                    f' hx-post="/api/jobs/{jid}/cancel"'
+                    f' hx-confirm="Cancel?"'
+                    f' hx-on::after-request="htmx.trigger(\'#active-jobs-table\', \'refresh\')">'
+                    f'Cancel</button>'
+                    if status == "running" else ""
+                )
+                + f'</td>'
+                f'</tr>'
+            )
+        html = (
+            '<div class="card" style="padding:0;overflow:hidden;">'
+            "<table><thead><tr>"
+            "<th>Job ID</th><th>Flow</th><th>Status</th><th>Started</th><th></th>"
+            "</tr></thead><tbody>"
+            + "".join(rows)
+            + "</tbody></table></div>"
+        )
+        return HTMLResponse(html)
+
+    @app.post("/parse-form", response_class=HTMLResponse)
+    def parse_form(request: Request, text: str = Form("")):
+        """Parse NL text and return an HTML fragment with Confirm / Edit / Cancel."""
+        if not text.strip():
+            return HTMLResponse('<p class="parse-error">Please enter some text.</p>')
+        try:
+            prov = _get_provider()
+        except HTTPException as exc:
+            return HTMLResponse(f'<p class="parse-error">{exc.detail}</p>')
+        result = parse_launch(text, catalog, prov)
+        if not result.get("ok"):
+            return HTMLResponse(
+                f'<p class="parse-error">Could not parse: {result.get("error", "unknown error")}</p>'
+            )
+        flow = result.get("flow", "")
+        overrides = result.get("overrides", {})
+        explanation = result.get("explanation", "")
+        overrides_json = json.dumps({"flow": flow, "overrides": overrides})
+        rows = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in overrides.items())
+        return HTMLResponse(
+            f'<div class="parse-result">'
+            f'<strong>{flow}</strong>'
+            + (f'<p>{explanation}</p>' if explanation else "")
+            + (f"<table><thead><tr><th>Knob</th><th>Value</th></tr></thead><tbody>{rows}</tbody></table>"
+               if rows else "")
+            + f'<div style="margin-top:.75rem;display:flex;gap:.5rem;">'
+            f'<button hx-post="/api/jobs"'
+            f' hx-vals=\'{overrides_json}\''
+            f' hx-on::after-request="if(event.detail.successful){{document.getElementById(\'parse-preview\').innerHTML=\'\';}}">'
+            f'Confirm</button>'
+            f'<button class="secondary" onclick="document.getElementById(\'parse-preview\').innerHTML=\'\'">Cancel</button>'
+            f'</div>'
+            f'</div>'
+        )
+
+    @app.get("/jobs/{job_id}", response_class=HTMLResponse)
+    def job_detail(request: Request, job_id: str):
+        """Job detail page with live DAG and log stream."""
+        entry = registry.get(job_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
+        flow_name = entry.get("flow_name", "")
+        fi = catalog.get(flow_name)
+        spec = fi.spec if fi else {}
+        graph = build_graph(spec)
+        graph_json = json.dumps({
+            "nodes": [{"id": n.id, "type": n.type, "params": n.params} for n in graph.nodes],
+        })
+        return templates.TemplateResponse(request, "job.html", {
+            "job_id": job_id,
+            "job": entry,
+            "graph_json": graph_json,
+        })
+
+    @app.get("/jobs/{job_id}/dag.svg")
+    def job_dag_svg(job_id: str):
+        """Return the current DAG SVG for a job."""
+        entry = registry.get(job_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
+        flow_name = entry.get("flow_name", "")
+        fi = catalog.get(flow_name)
+        spec = fi.spec if fi else {}
+        graph = build_graph(spec)
+
+        run_dir = registry._home / "runs" / job_id
+        ledger_path = run_dir / "ledger.jsonl"
+        events: list[dict] = []
+        if ledger_path.is_file():
+            for raw in ledger_path.read_text(encoding="utf-8").splitlines():
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    events.append(json.loads(raw))
+                except json.JSONDecodeError:
+                    pass
+
+        states = reduce_states(events)
+        svg = render_svg(graph, states)
+        return Response(content=svg, media_type="image/svg+xml")
+
+    @app.get("/history", response_class=HTMLResponse)
+    def history(request: Request):
+        """History page: all runs newest-first."""
+        jobs = registry.list()
+        return templates.TemplateResponse(request, "history.html", {"jobs": jobs})
 
     return app
 
