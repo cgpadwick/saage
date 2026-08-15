@@ -65,6 +65,8 @@ class Subflow(Flow):
         is_root = getattr(self, "_step_index", None) is None   # the top-level flow
         while curr:
             curr.set_params(p)
+            if self.sink is not None:
+                self._ledger_start(curr)
             last_action = curr._run(shared)
             nxt_raw = self.get_next_node(curr, last_action)
             if self.sink is not None:
@@ -105,7 +107,7 @@ class Subflow(Flow):
         rather than aborting the run."""
         try:
             nid = getattr(node, "id", None) or type(node).__name__
-            entry = {"step": step_idx, "node": nid, "action": action}
+            entry = {"step": step_idx, "node": nid, "action": action, "phase": "end"}
             results = shared.get("results")
             res = results.get(nid) if isinstance(results, dict) else None
             if isinstance(res, dict) and "exit" in res:      # CommandNode
@@ -116,6 +118,17 @@ class Subflow(Flow):
             self.sink.append_ledger(entry)
         except Exception as e:                                # noqa: BLE001
             log.debug("ledger append failed (non-fatal): %s", e)
+
+    def _ledger_start(self, node) -> None:
+        """Append a phase:start line before a node runs so live consumers
+        (saage.server's DAG) can show 'running'. Best-effort like _ledger."""
+        try:
+            if getattr(node, "id", None):
+                self.sink.append_ledger(
+                    {"step": getattr(node, "_step_index", None), "node": node.id,
+                     "phase": "start"})
+        except Exception as e:                                # noqa: BLE001
+            log.debug("ledger start append failed (non-fatal): %s", e)
 
     def post(self, shared, prep_res, last_action):
         return "default" if last_action in _SUCCESS else last_action

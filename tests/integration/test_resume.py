@@ -52,9 +52,9 @@ def test_run_leaves_ledger_and_shared_json(tmp_path):
     ledger = (c.dir / "ledger.jsonl").read_text().splitlines()
     assert ledger, "ledger.jsonl should have a line per node executed"
     rows = [json.loads(x) for x in ledger]
-    assert all("node" in r and "action" in r for r in rows)
+    assert all("node" in r and ("action" in r or r.get("phase") == "start") for r in rows)
     # the loop body's `tick` command ran 5 times -> its exit code is recorded
-    ticks = [r for r in rows if r["node"] == "tick"]
+    ticks = [r for r in rows if r["node"] == "tick" and r.get("phase") == "end"]
     assert len(ticks) == 5 and all(r["exit"] == 0 for r in ticks)
 
     shared = json.loads((c.dir / "shared.json").read_text())
