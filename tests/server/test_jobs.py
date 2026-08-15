@@ -49,3 +49,29 @@ def test_registry_survives_restart(flow_info):
     reg2 = JobRegistry()                   # fresh instance, same SAAGE_HOME
     assert reg2.get(job.job_id)["flow_name"] == "sleeper"
     reg2.cancel(job.job_id)
+
+
+def test_cancel_prompt_on_sigterm(flow_info):
+    """Cancel must return well before the grace period when the child exits on SIGTERM."""
+    reg = JobRegistry()
+    job = reg.launch(flow_info, {"seconds": "30"})
+    assert reg.status(job.job_id) == "running"
+    grace = 5.0
+    t0 = time.monotonic()
+    assert reg.cancel(job.job_id, grace=grace)
+    elapsed = time.monotonic() - t0
+    assert elapsed < grace - 1, f"cancel took {elapsed:.2f}s; expected well under {grace}s"
+
+
+def test_custom_home_run_dir_resolution(flow_info, tmp_path):
+    """JobRegistry(home=custom) must resolve run dirs under that home, not saage_home()."""
+    custom_home = tmp_path / "custom_saage"
+    reg = JobRegistry(home=custom_home)
+    job = reg.launch(flow_info, {"seconds": "30"})
+    # Registry file must be under custom_home, not the default SAAGE_HOME.
+    assert (custom_home / "server" / "jobs.jsonl").is_file()
+    # Run dir must also be under custom_home/runs/.
+    assert (custom_home / "runs" / job.job_id).is_dir()
+    # status() must find the run correctly under the custom home.
+    assert reg.status(job.job_id) == "running"
+    reg.cancel(job.job_id)

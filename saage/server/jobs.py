@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from ..checkpoint import new_run_id
-from ..paths import runs_dir, saage_home
+from ..paths import saage_home
 from .catalog import FlowInfo
 
 
@@ -92,7 +92,7 @@ class JobRegistry:
 
         # Pre-create the run directory so the log file has a home.  The child
         # (saage run) will also call Checkpoint.create, which is idempotent.
-        run_dir = runs_dir() / run_id
+        run_dir = self._home / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
         log_path = run_dir / "server_launch.log"
@@ -159,14 +159,18 @@ class JobRegistry:
             try:
                 os.kill(pid, 0)
                 pid_alive = True
-            except (ProcessLookupError, OSError):
+            except ProcessLookupError:
+                pid_alive = False
+            except PermissionError:
+                pid_alive = True   # pid exists, owned by another user
+            except OSError:
                 pid_alive = False
 
         if pid_alive:
             return "running"
 
         # pid dead — check checkpoint
-        run_dir = runs_dir() / job_id
+        run_dir = self._home / "runs" / job_id
         cp_file = run_dir / "checkpoint.json"
         if cp_file.is_file():
             try:
@@ -208,23 +212,36 @@ class JobRegistry:
             return False
 
         deadline = time.monotonic() + grace
+        reaped = False
         while time.monotonic() < deadline:
+            # Non-blocking reap when we are the parent: detects zombie immediately.
             try:
-                os.kill(pid, 0)
-            except (ProcessLookupError, OSError):
-                break
+                result = os.waitpid(pid, os.WNOHANG)
+                if result != (0, 0):
+                    reaped = True
+                    break
+            except ChildProcessError:
+                # Not our child (e.g. after server restart); use signal-0 liveness check.
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break   # process is gone
+                except PermissionError:
+                    pass    # alive but owned by another user — keep waiting
+                except OSError:
+                    break
             time.sleep(0.1)
         else:
             try:
                 os.killpg(pgid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-
-        # Reap the zombie so the PID is released and os.kill(pid, 0) raises.
-        try:
-            os.waitpid(pid, 0)
-        except ChildProcessError:
-            pass
+            # Blocking reap after SIGKILL if we haven't reaped yet.
+            if not reaped:
+                try:
+                    os.waitpid(pid, 0)
+                except ChildProcessError:
+                    pass
 
         self._append({**entry, "cancelled": True})
         return True
