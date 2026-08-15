@@ -329,3 +329,36 @@ def test_parse_form_escapes_xss_in_override_value(tmp_path, sleeper_flow):
     html = r.text
     assert "<script>steal()" not in html
     assert "&lt;script&gt;" in html
+
+
+# ---------------------------------------------------------------------------
+# graph-data script tag — JSON must be parseable (regression: Jinja2 autoescape)
+# ---------------------------------------------------------------------------
+
+def test_job_page_graph_data_is_valid_json(tmp_path, sleeper_flow):
+    """The <script id="graph-data"> element must contain raw, parseable JSON.
+
+    Jinja2 autoescape converts quotes to &#34; inside script tags, which browsers
+    do NOT decode (script is a raw-text element).  The fix is ``| safe``; this test
+    catches any regression that re-introduces escaping.
+    """
+    c = _client(tmp_path)
+    jid = c.post("/api/jobs", json={"flow": "sleeper",
+                                    "overrides": {"seconds": "30"}}).json()["job_id"]
+    html = c.get(f"/jobs/{jid}").text
+
+    # Extract the raw text between the opening and closing tags
+    marker_open = '<script type="application/json" id="graph-data">'
+    marker_close = "</script>"
+    start = html.index(marker_open) + len(marker_open)
+    end = html.index(marker_close, start)
+    raw = html[start:end]
+
+    # Must parse cleanly (&#34; would cause json.loads to raise)
+    data = json.loads(raw)
+
+    # Must contain the expected node id from the sleeper flow
+    node_ids = [n["id"] for n in data.get("nodes", [])]
+    assert "nap" in node_ids, f"Expected node 'nap' in graph data; got {node_ids}"
+
+    c.post(f"/api/jobs/{jid}/cancel")
