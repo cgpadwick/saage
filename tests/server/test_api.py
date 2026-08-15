@@ -4,11 +4,13 @@ from unittest import mock
 
 import pytest
 
-from fastapi.testclient import TestClient
+pytest.importorskip("fastapi", reason="server extra not installed")
 
-from saage.llm import LLMResponse, ScriptedProvider
-from saage.server.app import _tail, _tail_ledger, create_app
-from saage.server.config import ServerConfig
+from fastapi.testclient import TestClient  # noqa: E402
+
+from saage.llm import LLMResponse, ScriptedProvider  # noqa: E402
+from saage.server.app import _tail, _tail_ledger, create_app  # noqa: E402
+from saage.server.config import ServerConfig  # noqa: E402
 
 
 def _client(tmp_path, replies=()):
