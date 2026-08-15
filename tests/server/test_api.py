@@ -1,10 +1,13 @@
 """Tests for saage.server.app — FastAPI routes and SSE streams."""
+import json
+from unittest import mock
+
 import pytest
 
 from fastapi.testclient import TestClient
 
 from saage.llm import LLMResponse, ScriptedProvider
-from saage.server.app import create_app
+from saage.server.app import _tail, _tail_ledger, create_app
 from saage.server.config import ServerConfig
 
 
@@ -76,3 +79,92 @@ def test_flows_refresh(tmp_path, sleeper_flow):
     r = c.post("/api/flows/refresh")
     assert r.status_code == 200
     assert r.json()["count"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Ledger SSE — previously untested endpoint
+# ---------------------------------------------------------------------------
+
+def test_ledger_sse_streams_and_finishes(tmp_path, sleeper_flow):
+    """Ledger SSE must terminate with ``event: done`` even when ledger is empty."""
+    c = _client(tmp_path)
+    jid = c.post("/api/jobs", json={"flow": "sleeper",
+                                    "overrides": {"seconds": "1"}}).json()["job_id"]
+    with c.stream("GET", f"/api/jobs/{jid}/ledger") as r:
+        body = "".join(r.iter_text())
+    assert "event: done" in body
+
+
+def test_ledger_sse_replays_completed_job(tmp_path, sleeper_flow):
+    """Re-streaming a finished job's ledger replays records and closes with event: done."""
+    c = _client(tmp_path)
+    jid = c.post("/api/jobs", json={"flow": "sleeper",
+                                    "overrides": {"seconds": "1"}}).json()["job_id"]
+    # First stream: waits for the job to finish
+    with c.stream("GET", f"/api/jobs/{jid}/ledger") as r:
+        "".join(r.iter_text())
+    # Second stream: job already done — must replay instantly and close
+    with c.stream("GET", f"/api/jobs/{jid}/ledger") as r2:
+        full = "".join(r2.iter_text())
+    assert "event: done" in full
+
+
+# ---------------------------------------------------------------------------
+# _tail terminal drain — unit test (no subprocess required)
+# ---------------------------------------------------------------------------
+
+def test_tail_terminal_drain_emits_final_bytes(tmp_path):
+    """Bytes written between the last poll and terminal-status detection must appear."""
+    log_file = tmp_path / "run.log"
+    log_file.write_bytes(b"first chunk\n")
+
+    call_count = 0
+
+    def job_status():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return "running"
+        # Simulate bytes written just before the process exits
+        with open(log_file, "ab") as f:
+            f.write(b"final line\n")
+        return "done"
+
+    with mock.patch("saage.server.app.time.sleep"):
+        events = list(_tail(log_file, job_status))
+
+    body = "".join(events)
+    assert "final line" in body
+    assert "event: done" in body
+
+
+# ---------------------------------------------------------------------------
+# _tail_ledger partial-line safety — unit test
+# ---------------------------------------------------------------------------
+
+def test_tail_ledger_does_not_skip_partial_lines(tmp_path):
+    """A record split across two writes must not be skipped permanently."""
+    ledger = tmp_path / "ledger.jsonl"
+
+    # Write the first half of a JSON line (no trailing newline yet)
+    ledger.write_bytes(b'{"node":"a","phase"')
+
+    yielded = []
+    call_count = 0
+
+    def job_status():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # Complete the partial line plus a full second line
+            with open(ledger, "ab") as f:
+                f.write(b':"start"}\n{"node":"a","phase":"end"}\n')
+            return "running"
+        return "done"
+
+    with mock.patch("saage.server.app.time.sleep"):
+        events = list(_tail_ledger(ledger, job_status))
+
+    data_events = [e for e in events if e.startswith("data:") and "done" not in e]
+    assert len(data_events) == 2, f"Expected 2 ledger records, got: {events}"
+    assert "event: done" in "".join(events)

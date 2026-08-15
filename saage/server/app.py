@@ -34,13 +34,43 @@ def _tail(path: Path, job_status, since: int = 0):
                 yield f"data: {json.dumps({'chunk': chunk.decode(errors='replace'), 'offset': offset})}\n\n"
         s = job_status()
         if s not in ("running",):
+            # Terminal drain: emit any bytes written between the last read and terminal detection.
+            if path.exists():
+                with open(path, "rb") as f:
+                    f.seek(offset)
+                    chunk = f.read()
+                if chunk:
+                    offset += len(chunk)
+                    yield f"data: {json.dumps({'chunk': chunk.decode(errors='replace'), 'offset': offset})}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': s})}\n\n"
             return
         time.sleep(0.5)
 
 
+def _drain_ledger_lines(data: bytes):
+    """Parse complete newline-terminated lines from *data*; return (records, consumed_bytes)."""
+    last_newline = data.rfind(b"\n")
+    if last_newline < 0:
+        return [], 0
+    records = []
+    for raw_line in data[:last_newline + 1].split(b"\n"):
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        try:
+            records.append(json.loads(raw_line))
+        except json.JSONDecodeError:
+            continue
+    return records, last_newline + 1
+
+
 def _tail_ledger(path: Path, job_status):
-    """Generator that replays a ledger file then follows it, yielding SSE events."""
+    """Generator that replays a ledger file then follows it, yielding SSE events.
+
+    Offset advances only to the end of the last successfully parsed *complete*
+    line (identified by a trailing newline), so a record split across two writes
+    is never consumed as a fragment.
+    """
     offset = 0
     while True:
         if path.exists():
@@ -48,19 +78,21 @@ def _tail_ledger(path: Path, job_status):
                 f.seek(offset)
                 data = f.read()
             if data:
-                for raw_line in data.split(b"\n"):
-                    raw_line = raw_line.strip()
-                    if not raw_line:
-                        continue
-                    try:
-                        rec = json.loads(raw_line)
-                    except json.JSONDecodeError:
-                        continue
-                    offset += len(raw_line) + 1
+                records, consumed = _drain_ledger_lines(data)
+                for rec in records:
                     yield f"data: {json.dumps(rec)}\n\n"
-                offset = path.stat().st_size
+                offset += consumed
         s = job_status()
         if s not in ("running",):
+            # Terminal drain: process any complete lines written since the last poll.
+            if path.exists():
+                with open(path, "rb") as f:
+                    f.seek(offset)
+                    data = f.read()
+                if data:
+                    records, _ = _drain_ledger_lines(data)
+                    for rec in records:
+                        yield f"data: {json.dumps(rec)}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': s})}\n\n"
             return
         time.sleep(0.5)
