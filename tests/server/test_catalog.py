@@ -1,5 +1,6 @@
-"""Server config and catalog tests."""
-from saage.server.config import load_server_config
+"""Server config and flow catalog tests."""
+from saage.server.catalog import FlowCatalog
+from saage.server.config import ServerConfig, load_server_config
 
 
 class TestServerConfig:
@@ -21,3 +22,34 @@ class TestServerConfig:
         (tmp_path / "server.yaml").write_text("port: notanumber\n")
         cfg = load_server_config(tmp_path / "server.yaml")
         assert cfg.port == 8321
+
+
+GOOD = ("# A demo flow.\n# Second line ignored.\n"
+        "provider: {type: local, model: m}\n"
+        "shared: {knob_a: '1', knob_b: hello}\n"
+        "workflow:\n  - {id: s1, type: command, run: 'echo hi'}\n")
+BROKEN = "provider: {type: local, model: m}\nworkflow:\n  - {id: s1, type: nope}\n"
+
+
+def _mk(tmp_path, name, text):
+    d = tmp_path / "flows" / name
+    d.mkdir(parents=True)
+    (d / "flow.yaml").write_text(text)
+
+
+class TestCatalog:
+    def test_discovers_and_extracts_knobs(self, tmp_path):
+        _mk(tmp_path, "demo", GOOD)
+        cat = FlowCatalog(ServerConfig(flow_paths=[tmp_path / "flows"]))
+        cat.refresh()
+        info = cat.get("demo")
+        assert info.error is None
+        assert info.knobs == {"knob_a": "1", "knob_b": "hello"}
+        assert info.description == "A demo flow."
+
+    def test_broken_flow_listed_with_error(self, tmp_path):
+        _mk(tmp_path, "bad", BROKEN)
+        cat = FlowCatalog(ServerConfig(flow_paths=[tmp_path / "flows"]))
+        cat.refresh()
+        assert cat.get("bad").error          # listed, not hidden
+
