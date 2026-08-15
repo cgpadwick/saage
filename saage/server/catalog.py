@@ -20,7 +20,7 @@ class FlowInfo:
     name: str
     path: Path
     description: str
-    knobs: dict
+    knobs: dict[str, str]
     spec: dict
     error: str | None = None
 
