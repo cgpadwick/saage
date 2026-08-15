@@ -36,6 +36,7 @@ dev = ["pytest", "boto3"]
 r2 = ["boto3"]    # laptop-side reads of the R2 artifact mirror
 search = ["ddgs"]   # keyless DuckDuckGo backend for the web_search tool (the
                     # Tavily/Brave backends need only stdlib + their API key)
+server = ["fastapi", "uvicorn", "jinja2"]
 # deps for PREPARING/GRADING mle-bench competitions (the kaggle_solver flow
 # itself ships as data and runs without this; prepare_comp.py fails fast with
 # install instructions). kaggle>=2.2 (KGAT access tokens) needs python >= 3.11.
@@ -56,7 +57,8 @@ Issues = "https://github.com/cgpadwick/saage/issues"
 [tool.setuptools.packages.find]
 include = ["saage*"]
 
-[tool.pytest.ini_options]
+[tool.setuptools.package-data]
+"saage.server" = ["templates/*.html", "static/*"]
 markers = [
     "live: hits a real LLM provider; skipped unless SAAGE_LIVE_PROVIDER is set",
     "ssh: needs a local sshd + authorized saage key; skipped unless SAAGE_SSH_TESTS is set",

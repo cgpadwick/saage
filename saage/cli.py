@@ -66,6 +66,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("runs", help="list resumable runs")
 
+    srv = sub.add_parser("serve", help="run the local flow job-manager web UI")
+    srv.add_argument("--host", default=None, help="override server.yaml host")
+    srv.add_argument("--port", type=int, default=None, help="override server.yaml port")
+    srv.add_argument("--config", default=None, help="path to server.yaml")
+
     return parser
 
 
@@ -246,6 +251,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "resume":
         _setup_logging(args.verbose, args.quiet)
         return _cmd_resume(args)
+    if args.command == "serve":
+        _setup_logging(verbose=False, quiet=False)
+        log = logging.getLogger("saage")
+        try:
+            from .server.app import serve
+        except ImportError as e:
+            log.error("saage serve needs the server extra: pip install saage[server] (%s)", e)
+            return 1
+        return serve(config_path=args.config, host=args.host, port=args.port)
     _setup_logging(args.verbose, args.quiet)
     log = logging.getLogger("saage")
 
