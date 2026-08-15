@@ -5,10 +5,8 @@
 <h2>Launch a flow</h2>
 <div class="card">
   <form id="launch-form"
-        hx-post="/api/jobs"
-        hx-target="#active-jobs-body"
-        hx-swap="none"
-        hx-on::after-request="if(event.detail.successful){ htmx.trigger('#active-jobs-table', 'refresh'); }">
+        hx-post="/launch-form"
+        hx-boost="false">
     <label for="flow-select">Flow</label>
     <select id="flow-select" name="flow"
             hx-get="/flow-knobs"

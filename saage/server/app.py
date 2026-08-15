@@ -386,6 +386,34 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
         svg = render_svg(graph, states)
         return Response(content=svg, media_type="image/svg+xml")
 
+    @app.post("/launch-form")
+    async def launch_form(request: Request):
+        """Accept form-encoded launch data and redirect to the new job page.
+
+        Bridges the htmx knob form (which posts flat ``overrides.name=value`` fields)
+        to the JSON job API.  On success returns an ``HX-Redirect`` header so htmx
+        navigates the whole page; plain browsers receive a 303 Location redirect.
+        """
+        form = await request.form()
+        flow_name = str(form.get("flow", ""))
+        flow_info = catalog.get(flow_name)
+        if flow_info is None:
+            raise HTTPException(status_code=404, detail=f"flow {flow_name!r} not found")
+        overrides: dict[str, str] = {}
+        for key, value in form.items():
+            if key.startswith("overrides."):
+                overrides[key[len("overrides."):]] = str(value)
+        try:
+            job = registry.launch(flow_info, overrides)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        job_url = f"/jobs/{job.job_id}"
+        # htmx full-page navigation via HX-Redirect; plain browsers via 303.
+        if request.headers.get("HX-Request"):
+            return Response(content="", status_code=200, headers={"HX-Redirect": job_url})
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=job_url, status_code=303)
+
     @app.get("/history", response_class=HTMLResponse)
     def history(request: Request):
         """History page: all runs newest-first."""

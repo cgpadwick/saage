@@ -241,3 +241,50 @@ def test_job_detail_not_found(tmp_path, sleeper_flow):
     c = _client(tmp_path)
     assert c.get("/jobs/nonexistent").status_code == 404
 
+
+# ---------------------------------------------------------------------------
+# /launch-form — form-encoded knob bridge
+# ---------------------------------------------------------------------------
+
+def test_launch_form_success_redirects_to_job(tmp_path, sleeper_flow):
+    """POST /launch-form with flat form fields must launch and redirect to the job page."""
+    c = _client(tmp_path)
+    r = c.post(
+        "/launch-form",
+        data={"flow": "sleeper", "overrides.seconds": "1"},
+        follow_redirects=False,
+    )
+    # Plain (non-htmx) client: 303 + Location pointing at a job page
+    assert r.status_code == 303
+    loc = r.headers["location"]
+    assert loc.startswith("/jobs/")
+    jid = loc.split("/jobs/")[1]
+    # The job must actually exist
+    assert c.get(f"/api/jobs/{jid}").status_code == 200
+    c.post(f"/api/jobs/{jid}/cancel")
+
+
+def test_launch_form_htmx_returns_hx_redirect(tmp_path, sleeper_flow):
+    """When htmx sends HX-Request header, endpoint returns 200 + HX-Redirect."""
+    c = _client(tmp_path)
+    r = c.post(
+        "/launch-form",
+        data={"flow": "sleeper", "overrides.seconds": "1"},
+        headers={"HX-Request": "true"},
+    )
+    assert r.status_code == 200
+    assert "HX-Redirect" in r.headers
+    assert r.headers["HX-Redirect"].startswith("/jobs/")
+
+
+def test_launch_form_unknown_flow_returns_404(tmp_path, sleeper_flow):
+    c = _client(tmp_path)
+    r = c.post("/launch-form", data={"flow": "ghost"})
+    assert r.status_code == 404
+
+
+def test_launch_form_unknown_knob_returns_422(tmp_path, sleeper_flow):
+    c = _client(tmp_path)
+    r = c.post("/launch-form", data={"flow": "sleeper", "overrides.nope": "1"})
+    assert r.status_code == 422 and "nope" in r.json()["detail"]
+
