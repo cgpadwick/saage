@@ -97,7 +97,6 @@ tr:last-child td { border-bottom: none; }
 @media (max-width: 640px) { .job-layout { grid-template-columns: 1fr; } }
 
 #dag { min-height: 120px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .5rem; }
-#dag svg text { fill: var(--text); }
 
 #params-panel {
   background: var(--surface);

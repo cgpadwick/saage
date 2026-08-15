@@ -234,9 +234,9 @@ def render_svg(graph: Graph, states: dict) -> str:
     # Add CSS for styling
     svg_lines.append('<style>')
     svg_lines.append('.dagnode { font-family: Arial, sans-serif; }')
-    svg_lines.append('.dagnode rect { fill: #f0f0f0; stroke: #333; stroke-width: 1; }')
-    svg_lines.append('.dagnode text { font-size: 12px; text-anchor: middle; }')
-    svg_lines.append('.dagnode text.sub { font-size: 10px; fill: #666; }')
+    svg_lines.append('.dagnode rect { fill: #f0f0f0; stroke: #888; stroke-width: 1; }')
+    svg_lines.append('.dagnode text { font-size: 12px; text-anchor: middle; fill: #1a1a1a; }')
+    svg_lines.append('.dagnode text.sub { font-size: 10px; fill: #444; }')
     svg_lines.append('.state-done rect { fill: #90EE90; }')
     svg_lines.append('.state-running rect { fill: #FFD700; }')
     svg_lines.append('.state-failed rect { fill: #FFB6C6; }')
@@ -280,7 +280,7 @@ def render_svg(graph: Graph, states: dict) -> str:
         
         svg_lines.append(f'<line x1="{src_x}" y1="{src_center_y + node_height//2}" '
                        f'x2="{dst_x}" y2="{dst_center_y - node_height//2}" '
-                       f'stroke="#333" stroke-width="1"/>')
+                       f'stroke="#888" stroke-width="1"/>')
     
     # Draw back-edges with dashed style
     for src_id, dst_id in graph.back_edges:
