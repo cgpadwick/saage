@@ -9,6 +9,9 @@ Status resolution order:
 2. pid still alive → ``running``
 3. ``checkpoint.json`` status (``running`` + dead pid → ``crashed``)
 4. ``unknown``
+
+POSIX only: cancellation signals the child's process group via os.killpg /
+SIGTERM→SIGKILL, which does not exist on Windows.
 """
 from __future__ import annotations
 
@@ -68,6 +71,11 @@ class JobRegistry:
         self._home = Path(home) if home else saage_home()
         self._registry_dir = self._home / "server"
         self._jobs_file = self._registry_dir / "jobs.jsonl"
+
+    @property
+    def home(self) -> Path:
+        """The saage home directory this registry lives under."""
+        return self._home
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -232,25 +240,26 @@ class JobRegistry:
         if pid is None:
             return False
 
+        # A job that already reached a terminal state (completed/failed/
+        # cancelled/crashed) must keep it: a late cancel request sends no
+        # signal and must not rewrite history to "cancelled".
+        if self.status(job_id) != "running":
+            return False
+
         # PID-reuse guard: never signal a pid that provably isn't our job's
-        # process (recycled pid after a server restart, or an already-dead
-        # child).  A dead/foreign pid just gets the cancelled flag.
+        # process (recycled pid after a server restart).
         if _pid_is_ours(pid, job_id) is False:
-            self._append({**entry, "cancelled": True})
             return False
 
         try:
             pgid = os.getpgid(pid)
         except ProcessLookupError:
-            # already dead — mark cancelled anyway
-            self._append({**entry, "cancelled": True})
-            return False
+            return False    # died between the status check and now
 
         try:
             os.killpg(pgid, signal.SIGTERM)
         except ProcessLookupError:
-            self._append({**entry, "cancelled": True})
-            return False
+            return False    # group gone before we could signal it
 
         deadline = time.monotonic() + grace
         reaped = False

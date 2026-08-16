@@ -51,3 +51,13 @@ def test_unknown_knob_rejected(catalog):
 def test_non_json_rejected(catalog):
     out = parse_launch("hi", catalog, ScriptedProvider([LLMResponse("sure! I will run demo")]))
     assert not out["ok"] and "JSON" in out["error"]
+
+
+@pytest.mark.parametrize("reply", ["[]", "null", '"just a string"', "42"])
+def test_non_object_json_reply_is_an_error_not_a_crash(catalog, reply):
+    """Valid JSON isn't necessarily an object — [], null, and scalars must
+    yield ok=False, never raise (the documented contract)."""
+    prov = ScriptedProvider([LLMResponse(text=reply)])
+    result = parse_launch("run something", catalog, prov)
+    assert result["ok"] is False
+    assert "object" in result["error"]

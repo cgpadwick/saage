@@ -51,4 +51,24 @@
   <p style="color:var(--muted)">Loading…</p>
 </div>
 
+<script>
+  // Edit action from the NL parse preview: copy the parsed flow + overrides
+  // into the manual launch form for tweaking, then dismiss the preview.
+  function saageEditParsed(btn) {
+    const flow = btn.dataset.flow;
+    const overrides = JSON.parse(btn.dataset.overrides || "{}");
+    const sel = document.getElementById("flow-select");
+    sel.value = flow;
+    htmx.ajax("GET", "/flow-knobs?flow=" + encodeURIComponent(flow), "#knob-form")
+      .then(function() {
+        Object.entries(overrides).forEach(function(pair) {
+          const input = document.getElementById("knob-" + pair[0]);
+          if (input) input.value = pair[1];
+        });
+      });
+    document.getElementById("parse-preview").innerHTML = "";
+    sel.scrollIntoView({ behavior: "smooth" });
+  }
+</script>
+
 {% endblock %}

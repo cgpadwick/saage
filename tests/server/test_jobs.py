@@ -103,8 +103,21 @@ def test_cancel_never_signals_recycled_pid(tmp_path):
     """cancel() must not killpg a pid that provably isn't our job's process.
 
     If this guard fails, the SIGTERM would hit the test process itself.
+    No signal is sent, so the job must NOT be rewritten to 'cancelled'.
     """
     reg = JobRegistry(home=tmp_path / "home")
     _fake_entry(reg, os.getpid())
     assert reg.cancel("reused-pid-job") is False
-    assert reg.status("reused-pid-job") == "cancelled"
+    assert reg.status("reused-pid-job") != "cancelled"
+
+
+def test_late_cancel_keeps_terminal_status(tmp_path):
+    """Cancelling an already-finished job must not flip it to 'cancelled'."""
+    reg = JobRegistry(home=tmp_path / "home")
+    _fake_entry(reg, 999999999)  # dead pid
+    run_dir = reg._home / "runs" / "reused-pid-job"
+    run_dir.mkdir(parents=True)
+    (run_dir / "checkpoint.json").write_text(json.dumps({"status": "completed"}))
+    assert reg.status("reused-pid-job") == "completed"
+    assert reg.cancel("reused-pid-job") is False
+    assert reg.status("reused-pid-job") == "completed"

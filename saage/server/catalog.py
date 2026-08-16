@@ -54,11 +54,18 @@ class FlowCatalog:
         return self.flows.get(name)
 
     def _load(self, name: str, fy: Path) -> FlowInfo:
-        text = fy.read_text()
-        spec = yaml.safe_load(text) or {}
-        knobs = {k: str(v) for k, v in (spec.get("shared") or {}).items()}
-        info = FlowInfo(name, fy, _description(text), knobs, spec)
+        # Everything here runs on untrusted flow files: a malformed YAML (or
+        # one that parses to a non-mapping) must yield a broken FlowInfo, not
+        # abort the whole catalog refresh.
+        info = FlowInfo(name, fy, "", {}, {})
         try:
+            text = fy.read_text()
+            spec = yaml.safe_load(text) or {}
+            if not isinstance(spec, dict):
+                raise ValueError(f"flow.yaml must be a mapping, got {type(spec).__name__}")
+            info.description = _description(text)
+            info.knobs = {k: str(v) for k, v in (spec.get("shared") or {}).items()}
+            info.spec = spec
             # hydrate against a throwaway workspace: free schema validation
             build_flow(fy, provider=object(), workspace=fy.parent)
         except Exception as e:                                # noqa: BLE001

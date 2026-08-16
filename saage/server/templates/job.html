@@ -26,8 +26,8 @@
       <strong id="params-title"></strong>
       <pre id="params-body"></pre>
     </div>
-    <!-- graph JSON for node click handler -->
-    <script type="application/json" id="graph-data">{{ graph_json | safe }}</script>
+    <!-- graph JSON for node click handler; tojson escapes </script> safely -->
+    <script type="application/json" id="graph-data">{{ graph_data | tojson }}</script>
   </div>
 
   <div>
@@ -46,15 +46,25 @@
   const nodeMap     = {};
   (graphData.nodes || []).forEach(n => { nodeMap[n.id] = n; });
 
-  // Node click → params panel
-  dag.addEventListener("click", function(e) {
-    const g = e.target.closest("[data-node]");
-    if (!g) { paramsPanel.style.display = "none"; return; }
+  // Node click / keyboard → params panel
+  function showParams(g) {
     const node = nodeMap[g.dataset.node];
     if (!node) return;
     paramsTitle.textContent = node.id + " (" + node.type + ")";
     paramsBody.textContent  = JSON.stringify(node.params, null, 2);
     paramsPanel.style.display = "";
+  }
+  dag.addEventListener("click", function(e) {
+    const g = e.target.closest("[data-node]");
+    if (!g) { paramsPanel.style.display = "none"; return; }
+    showParams(g);
+  });
+  dag.addEventListener("keydown", function(e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const g = e.target.closest("[data-node]");
+    if (!g) return;
+    e.preventDefault();
+    showParams(g);
   });
 
   // Log streaming.  Close on "done": EventSource auto-reconnects after any

@@ -116,7 +116,9 @@ handlers — your app controls logging via the standard `logging` module.)
 
 ## Web UI: `saage serve`
 
-Run the flow job manager and web UI locally, with a natural-language launcher and live job monitoring:
+Run the flow job manager and web UI locally, with a natural-language launcher and live job
+monitoring. The server requires a POSIX OS (Linux/macOS): job control uses process groups and
+POSIX signals, which are unavailable on Windows.
 
 ```bash
 pip install -e ".[server]"           # install fastapi + uvicorn extras
@@ -200,8 +202,8 @@ curl http://127.0.0.1:8321/jobs/<job_id>/dag.svg
 
 ### Server config (`~/.saage/server.yaml`)
 
-- **`flow_paths`** (list) — directories to scan recursively for `*/flow.yaml` files.
-  Paths are relative to cwd or absolute.
+- **`flow_paths`** (list) — directories whose *immediate* subdirectories are scanned for
+  `<flow_name>/flow.yaml` (one level deep, not recursive). Paths are relative to cwd or absolute.
 - **`parser_provider`** (dict, optional) — LLM provider spec (same shape as `provider:` in
   flow.yaml). If not set, the natural-language parser is disabled (503 Service Unavailable).
   Examples: `{ type: anthropic, model: claude-opus-4-8 }`,

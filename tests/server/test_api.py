@@ -386,11 +386,12 @@ def test_parse_form_escapes_xss_in_override_value(tmp_path, sleeper_flow):
 # ---------------------------------------------------------------------------
 
 def test_job_page_graph_data_is_valid_json(tmp_path, sleeper_flow):
-    """The <script id="graph-data"> element must contain raw, parseable JSON.
+    """The <script id="graph-data"> element must contain parseable JSON.
 
-    Jinja2 autoescape converts quotes to &#34; inside script tags, which browsers
-    do NOT decode (script is a raw-text element).  The fix is ``| safe``; this test
-    catches any regression that re-introduces escaping.
+    Jinja2 HTML-autoescape converts quotes to &#34; inside script tags, which
+    browsers do NOT decode (script is a raw-text element).  We use ``| tojson``,
+    which emits parseable JSON with script-safe \\u003c escaping; this test
+    catches any regression that re-introduces HTML entity escaping.
     """
     c = _client(tmp_path)
     jid = c.post("/api/jobs", json={"flow": "sleeper",
@@ -412,3 +413,79 @@ def test_job_page_graph_data_is_valid_json(tmp_path, sleeper_flow):
     assert "nap" in node_ids, f"Expected node 'nap' in graph data; got {node_ids}"
 
     c.post(f"/api/jobs/{jid}/cancel")
+
+
+def test_cross_origin_post_rejected(tmp_path, sleeper_flow):
+    """A browser on any website can form-POST to localhost — the Origin
+    check must reject state-changing requests from foreign origins."""
+    c = _client(tmp_path)
+    r = c.post("/api/jobs", json={"flow": "sleeper"},
+               headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403
+    # Same-origin browser posts and header-less clients (curl) still work
+    r = c.post("/api/jobs", json={"flow": "sleeper", "overrides": {"seconds": "30"}},
+               headers={"Origin": "http://127.0.0.1:8321"})
+    assert r.status_code == 201
+    c.post(f"/api/jobs/{r.json()['job_id']}/cancel")
+
+
+def test_flow_knobs_escape_names_and_defaults(tmp_path):
+    """Knob names/defaults come from flow YAML — must not land raw in HTML."""
+    d = tmp_path / "flows" / "evil"
+    d.mkdir(parents=True)
+    d.joinpath("flow.yaml").write_text(
+        "provider: {type: local, model: m}\n"
+        'shared: {mal: "<img src=x onerror=alert(1)>"}\n'
+        "workflow:\n  - {id: a, type: command, run: 'echo {{ mal }}'}\n")
+    c = _client(tmp_path)
+    html = c.get("/flow-knobs", params={"flow": "evil"}).text
+    assert "<img" not in html and "&lt;img" in html
+
+
+def test_parse_form_has_edit_button(tmp_path, sleeper_flow):
+    """The parse preview offers Confirm / Edit / Cancel (design contract)."""
+    c = _client(tmp_path, replies=[
+        '{"flow": "sleeper", "overrides": {"seconds": "5"}, "explanation": "ok"}'])
+    html = c.post("/parse-form", data={"text": "nap for five seconds"}).text
+    assert ">Confirm<" in html and ">Cancel<" in html
+    assert 'saageEditParsed' in html and 'data-flow="sleeper"' in html
+    assert "&#34;seconds&#34;" in html or "&quot;seconds&quot;" in html  # escaped JSON attr
+
+
+def _external_run(tmp_path, job_id="20260101-000000-deadbeef", status="completed"):
+    """Plant a run-store entry the server didn't launch (saage run / resume)."""
+    import os
+    from pathlib import Path
+    run_dir = Path(os.environ["SAAGE_HOME"]) / "runs" / job_id
+    run_dir.mkdir(parents=True)
+    (run_dir / "checkpoint.json").write_text(json.dumps({
+        "run_id": job_id, "status": status, "started_at": "2026-01-01T00:00:00Z",
+        "flow_path": "/somewhere/flows/external_flow/flow.yaml"}))
+    (run_dir / "run.log").write_text("external log line\n")
+    (run_dir / "ledger.jsonl").write_text(
+        '{"step": 0, "node": "a", "phase": "start"}\n')
+    return job_id
+
+
+def test_history_includes_run_store_entries(tmp_path, sleeper_flow):
+    """Runs from `saage run`/`resume` (no registry entry) appear in history."""
+    c = _client(tmp_path)
+    jid = _external_run(tmp_path)
+    html = c.get("/history").text
+    assert jid[:12] in html or jid in html
+    assert "external_flow" in html
+
+
+def test_external_run_detail_and_streams_accessible(tmp_path, sleeper_flow):
+    """Detail page, JSON API, dag.svg, and SSE streams work for run-store-only
+    entries; cancel is a no-op that preserves the checkpoint status."""
+    c = _client(tmp_path)
+    jid = _external_run(tmp_path)
+    assert c.get(f"/jobs/{jid}").status_code == 200
+    body = c.get(f"/api/jobs/{jid}").json()
+    assert body["status"] == "completed" and body["flow_name"] == "external_flow"
+    assert c.get(f"/jobs/{jid}/dag.svg").status_code == 200
+    with c.stream("GET", f"/api/jobs/{jid}/logs") as r:
+        text = "".join(chunk for chunk, _ in zip(r.iter_text(), range(10)))
+    assert "external log line" in text and "completed" in text
+    assert c.post(f"/api/jobs/{jid}/cancel").json()["status"] == "completed"

@@ -47,6 +47,11 @@ def parse_launch(text: str, catalog: FlowCatalog, provider: LLMProvider) -> dict
         parsed = json.loads(reply_text)
     except json.JSONDecodeError as e:
         return {"ok": False, "error": f"model reply was not valid JSON: {e}"}
+
+    # Valid JSON isn't necessarily an object: reject [], null, scalars, etc.
+    if not isinstance(parsed, dict):
+        return {"ok": False, "error": f"model reply was not a JSON object "
+                                      f"(got {type(parsed).__name__})"}
     
     # If the model replied with an error, return it
     if "error" in parsed:

@@ -89,3 +89,92 @@ def test_retry_loop_back_edge():
     svg = render_svg(g, {})
     # Check for back-edge path with backedge class
     assert 'class="backedge"' in svg
+
+
+POLLING_FLOW = yaml.safe_load("""
+provider: {type: local, model: m}
+workflow:
+  - {id: submit, type: command, run: 'echo go'}
+  - id: wait
+    type: polling_loop
+    interval_seconds: 0
+    max_wait_seconds: 60
+    poll:   {id: poll,     type: command, run: 'echo poll'}
+    status: {id: classify, type: agent,   skill: classify_job}
+""")
+
+NESTED_FLOW = yaml.safe_load("""
+provider: {type: local, model: m}
+workflow:
+  - id: outer
+    type: counting_loop
+    max_iterations: 3
+    body:
+      - {id: prep, type: command, run: 'echo prep'}
+      - id: inner
+        type: retry_loop
+        max_iterations: 2
+        action: {id: fix, type: agent, skill: s1}
+        check:  {id: verify, type: command, run: 'pytest -q'}
+      - {id: wrap, type: command, run: 'echo wrap'}
+""")
+
+
+def test_polling_loop_uses_status_key():
+    """The engine's polling_loop spec key is 'status' (see hydrate.build_step),
+    so the classifier node must appear in the graph with a classify→poll back-edge."""
+    g = build_graph(POLLING_FLOW)
+    ids = [n.id for n in g.nodes]
+    assert ids == ["submit", "poll", "classify"]
+    assert ("poll", "classify") in g.edges
+    assert ("classify", "poll") in g.back_edges
+    assert ("poll", "poll") not in g.back_edges
+
+
+def test_nested_loops_are_recursed():
+    """A loop inside a loop's body must contribute its leaf nodes (not appear
+    as an opaque leaf), with edges chained through the nesting."""
+    g = build_graph(NESTED_FLOW)
+    ids = [n.id for n in g.nodes]
+    assert ids == ["prep", "fix", "verify", "wrap"]
+    assert ("prep", "fix") in g.edges and ("verify", "wrap") in g.edges
+    inner = next(c for c in g.clusters if c.id == "inner")
+    outer = next(c for c in g.clusters if c.id == "outer")
+    assert inner.parent == "outer" and inner.depth == 1
+    assert outer.parent is None and outer.depth == 0
+    assert ("verify", "fix") in g.back_edges
+    # inner-loop leaves belong to the inner cluster
+    assert next(n for n in g.nodes if n.id == "fix").cluster == "inner"
+    # SVG renders without KeyError and wraps both clusters
+    svg = render_svg(g, {})
+    assert svg.count('class="cluster"') == 2
+
+
+def test_reducer_treats_failed_action_as_failed():
+    """Polling classifiers and terminal nodes emit action 'failed' (not 'fail')."""
+    ev = [{"node": "classify", "phase": "start"},
+          {"node": "classify", "phase": "end", "action": "failed"}]
+    s = reduce_states(ev)
+    assert s["classify"]["state"] == "failed"
+
+
+def test_svg_escapes_flow_authored_markup():
+    """Node ids/labels come from flow YAML and land in innerHTML — a crafted
+    id must not survive as live markup."""
+    evil = yaml.safe_load("""
+provider: {type: local, model: m}
+workflow:
+  - {id: 'x"><img src=x onerror=alert(1)>', type: command, run: 'echo hi'}
+""")
+    svg = render_svg(build_graph(evil), {})
+    assert "<img" not in svg           # never a live tag
+    assert "&lt;img" in svg            # present only as escaped text
+    # And the document must still be well-formed XML with no injected elements
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(svg)
+    assert not [el for el in root.iter() if el.tag.endswith("img")]
+
+
+def test_svg_nodes_are_keyboard_focusable():
+    svg = render_svg(build_graph(FLOW), {})
+    assert 'tabindex="0"' in svg and 'role="button"' in svg

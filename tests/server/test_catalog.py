@@ -53,3 +53,26 @@ class TestCatalog:
         cat.refresh()
         assert cat.get("bad").error          # listed, not hidden
 
+
+
+def test_malformed_yaml_becomes_broken_flow_not_crash(tmp_path):
+    """One unparseable flow.yaml must not abort the whole catalog refresh."""
+    base = tmp_path / "flows"
+    good = base / "good"
+    good.mkdir(parents=True)
+    good.joinpath("flow.yaml").write_text(
+        "provider: {type: local, model: m}\n"
+        "workflow:\n  - {id: a, type: command, run: 'echo hi'}\n")
+    bad = base / "bad"
+    bad.mkdir()
+    bad.joinpath("flow.yaml").write_text("{unclosed: [")   # YAML parse error
+    listy = base / "listy"
+    listy.mkdir()
+    listy.joinpath("flow.yaml").write_text("- not\n- a\n- mapping\n")
+
+    cat = FlowCatalog(ServerConfig(flow_paths=[base]))
+    cat.refresh()                                          # must not raise
+
+    assert cat.get("good").error is None
+    assert cat.get("bad").error is not None
+    assert cat.get("listy").error is not None and "mapping" in cat.get("listy").error

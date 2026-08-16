@@ -43,8 +43,8 @@ The server is a **thin layer over the run-store**: it lists flows from `flow_pat
 detached `saage run` subprocesses, and tails their ledgers and logs. The web UI (home, job detail,
 history pages) and REST API (`/api/flows`, `/api/jobs`, `/api/parse`) poll the run-store at
 `~/.saage/runs/<job_id>/` — no database or job queue. Each running job emits ledger events
-(`ledger.jsonl`, one JSON record per line) with `phase` keys (`node_enter`, `node_exit`, `action_call`,
-etc.) that the DAG visualizer consumes to render live progress. To run server tests:
+(`ledger.jsonl`, one JSON record per line) with `phase: "start"` / `phase: "end"` markers per node
+that the DAG visualizer consumes to render live progress. To run server tests:
 
 ```bash
 pytest tests/server/ -q

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 try:
     from fastapi import FastAPI, Form, HTTPException, Request
@@ -131,6 +132,59 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
     catalog.refresh()
     registry = JobRegistry()
 
+    _LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
+
+    @app.middleware("http")
+    async def _reject_cross_origin_posts(request: Request, call_next):
+        # CSRF guard: a page on any website can form-POST to localhost. State
+        # -changing requests from a browser carry an Origin header — reject
+        # ones that aren't ours. Requests without Origin (curl, htmx same-
+        # origin GETs) pass through.
+        if request.method == "POST":
+            origin = request.headers.get("origin")
+            if origin and urlparse(origin).hostname not in _LOCAL_HOSTS:
+                return Response("cross-origin request rejected", status_code=403)
+        return await call_next(request)
+
+    def _run_store_entry(job_id: str) -> dict | None:
+        """Synthesize a job entry from the engine run store (~/.saage/runs).
+
+        Covers runs the server didn't launch: `saage run`/`resume` and
+        entries predating the server. No pid is known, so status comes
+        straight from checkpoint.json.
+        """
+        cp_file = registry.home / "runs" / job_id / "checkpoint.json"
+        if not cp_file.is_file():
+            return None
+        try:
+            cp = json.loads(cp_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None
+        flow_path = str(cp.get("flow_path", "") or "")
+        flow_name = Path(flow_path).parent.name if flow_path else ""
+        return {
+            "job_id": job_id, "flow_name": flow_name, "flow_path": flow_path,
+            "overrides": {}, "pid": None,
+            "created_at": cp.get("started_at", ""), "cancelled": False,
+            "external": True, "status": cp.get("status", "unknown"),
+        }
+
+    def _lookup_job(job_id: str) -> dict | None:
+        """Registry entry if the server launched it, else run-store fallback."""
+        entry = registry.get(job_id)
+        if entry is not None:
+            return entry
+        return _run_store_entry(job_id)
+
+    def _status_fn(job_id: str, entry: dict):
+        """Callable the SSE tails poll for terminal-state detection."""
+        if entry.get("external"):
+            def fn():
+                e = _run_store_entry(job_id)
+                return e["status"] if e else "unknown"
+            return fn
+        return lambda: registry.status(job_id)
+
     # Lazy provider state
     _provider_box = {"provider": provider}
 
@@ -202,11 +256,11 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str):
         """Get job details including shared snapshot from checkpoint.json."""
-        entry = registry.get(job_id)
+        entry = _lookup_job(job_id)
         if entry is None:
             raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
         # Attach shared snapshot from checkpoint.json if present
-        run_dir = registry._home / "runs" / job_id
+        run_dir = registry.home / "runs" / job_id
         cp_file = run_dir / "checkpoint.json"
         shared = None
         if cp_file.is_file():
@@ -220,35 +274,38 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
     @app.get("/api/jobs/{job_id}/logs")
     def stream_logs(job_id: str, since: int = 0):
         """Stream job logs via SSE."""
-        entry = registry.get(job_id)
+        entry = _lookup_job(job_id)
         if entry is None:
             raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
-        run_dir = registry._home / "runs" / job_id
+        run_dir = registry.home / "runs" / job_id
         log_path = run_dir / "run.log"
         return StreamingResponse(
-            _tail(log_path, lambda: registry.status(job_id), since=since),
+            _tail(log_path, _status_fn(job_id, entry), since=since),
             media_type="text/event-stream",
         )
 
     @app.get("/api/jobs/{job_id}/ledger")
     def stream_ledger(job_id: str):
         """Stream job ledger events via SSE."""
-        entry = registry.get(job_id)
+        entry = _lookup_job(job_id)
         if entry is None:
             raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
-        run_dir = registry._home / "runs" / job_id
+        run_dir = registry.home / "runs" / job_id
         ledger_path = run_dir / "ledger.jsonl"
         return StreamingResponse(
-            _tail_ledger(ledger_path, lambda: registry.status(job_id)),
+            _tail_ledger(ledger_path, _status_fn(job_id, entry)),
             media_type="text/event-stream",
         )
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel_job(job_id: str):
-        """Cancel a running job."""
-        entry = registry.get(job_id)
+        """Cancel a running job. External (run-store-only) runs can't be
+        cancelled — the server holds no pid for them."""
+        entry = _lookup_job(job_id)
         if entry is None:
             raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
+        if entry.get("external"):
+            return {"job_id": job_id, "status": entry["status"]}
         registry.cancel(job_id)
         return {"job_id": job_id, "status": registry.status(job_id)}
 
@@ -271,9 +328,12 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
             return HTMLResponse("")
         lines = []
         for name, default in fi.knobs.items():
+            # Knob names/defaults come from flow YAML — escape for HTML contexts
+            safe_name = _escape(name)
             lines.append(
-                f'<label for="knob-{name}">{name}</label>'
-                f'<input type="text" id="knob-{name}" name="overrides.{name}" value="{default}">'
+                f'<label for="knob-{safe_name}">{safe_name}</label>'
+                f'<input type="text" id="knob-{safe_name}" name="overrides.{safe_name}"'
+                f' value="{_escape(default)}">'
             )
         return HTMLResponse("".join(lines))
 
@@ -290,7 +350,7 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
             rows.append(
                 f'<tr>'
                 f'<td><a href="/jobs/{jid}" style="color:var(--accent)">{jid[:12]}</a></td>'
-                f'<td>{j.get("flow_name", "")}</td>'
+                f'<td>{_escape(j.get("flow_name", ""))}</td>'
                 f'<td><span class="badge badge-{status}">{status}</span></td>'
                 f'<td>{j.get("created_at", "")}</td>'
                 f'<td>'
@@ -354,6 +414,9 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
             f'{hidden_inputs}'
             f'<button type="submit">Confirm</button>'
             f'</form>'
+            f'<button class="secondary" data-flow="{safe_flow}"'
+            f' data-overrides="{_escape(json.dumps(overrides))}"'
+            f' onclick="saageEditParsed(this)">Edit</button>'
             f'<button class="secondary" onclick="document.getElementById(\'parse-preview\').innerHTML=\'\'">Cancel</button>'
             f'</div>'
             f'</div>'
@@ -362,26 +425,26 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job_detail(request: Request, job_id: str):
         """Job detail page with live DAG and log stream."""
-        entry = registry.get(job_id)
+        entry = _lookup_job(job_id)
         if entry is None:
             raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
         flow_name = entry.get("flow_name", "")
         fi = catalog.get(flow_name)
         spec = fi.spec if fi else {}
         graph = build_graph(spec)
-        graph_json = json.dumps({
+        graph_data = {
             "nodes": [{"id": n.id, "type": n.type, "params": n.params} for n in graph.nodes],
-        })
+        }
         return templates.TemplateResponse(request, "job.html", {
             "job_id": job_id,
             "job": entry,
-            "graph_json": graph_json,
+            "graph_data": graph_data,
         })
 
     @app.get("/jobs/{job_id}/dag.svg")
     def job_dag_svg(job_id: str):
         """Return the current DAG SVG for a job."""
-        entry = registry.get(job_id)
+        entry = _lookup_job(job_id)
         if entry is None:
             raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
         flow_name = entry.get("flow_name", "")
@@ -389,7 +452,7 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
         spec = fi.spec if fi else {}
         graph = build_graph(spec)
 
-        run_dir = registry._home / "runs" / job_id
+        run_dir = registry.home / "runs" / job_id
         ledger_path = run_dir / "ledger.jsonl"
         events: list[dict] = []
         if ledger_path.is_file():
@@ -440,9 +503,19 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
 
     @app.get("/history", response_class=HTMLResponse)
     def history(request: Request):
-        """History page: all runs newest-first."""
-        jobs = registry.list()
-        return templates.TemplateResponse(request, "history.html", {"jobs": jobs})
+        """History page: all runs newest-first — server-launched jobs merged
+        with engine run-store entries (`saage run`/`resume`, pre-server runs)."""
+        jobs = {j["job_id"]: j for j in registry.list()}
+        runs_base = registry.home / "runs"
+        if runs_base.is_dir():
+            for p in runs_base.iterdir():
+                if p.name not in jobs:
+                    e = _run_store_entry(p.name)
+                    if e is not None:
+                        jobs[p.name] = e
+        # run ids are timestamp-prefixed, so lexical order is chronological
+        merged = sorted(jobs.values(), key=lambda j: j["job_id"], reverse=True)
+        return templates.TemplateResponse(request, "history.html", {"jobs": merged})
 
     return app
 
