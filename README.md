@@ -170,6 +170,14 @@ per flow with an optional `retry:` sub-block:
 provider: { type: anthropic, model: claude-opus-4-8, retry: { max_attempts: 8, base_delay: 1.0 } }
 ```
 
+For `anthropic`, an optional `max_tokens:` key caps response length (default
+16384 — large enough for an agent to write a multi-page file in one tool call;
+4096 and below risk truncating long tool calls mid-arguments):
+
+```yaml
+provider: { type: anthropic, model: claude-sonnet-4-6, max_tokens: 32000 }
+```
+
 ### Selecting provider/model from the CLI
 
 You can override the flow's `provider` block without editing the YAML using

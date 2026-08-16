@@ -38,11 +38,16 @@ def make_provider(spec: dict):
 
     An optional `retry:` sub-block tunes the transient-failure backoff, e.g.
     `provider: { type: anthropic, model: ..., retry: { max_attempts: 8 } }`.
+    For anthropic, an optional `max_tokens:` key caps response length
+    (default 16384).
     """
     t = spec["type"]
     model = spec["model"]
     rp = RetryPolicy(**spec["retry"]) if spec.get("retry") else None
     if t == "anthropic":
+        if spec.get("max_tokens"):
+            return AnthropicProvider(model, max_tokens=int(spec["max_tokens"]),
+                                     retry_policy=rp)
         return AnthropicProvider(model, retry_policy=rp)
     if t == "openai":
         return OpenAIProvider(model, retry_policy=rp)

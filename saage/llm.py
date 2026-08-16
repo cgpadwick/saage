@@ -134,7 +134,7 @@ class LLMProvider(Protocol):
 # Anthropic
 # --------------------------------------------------------------------------- #
 class AnthropicProvider:
-    def __init__(self, model: str, max_tokens: int = 4096,
+    def __init__(self, model: str, max_tokens: int = 16384,
                  retry_policy: RetryPolicy | None = None):
         import anthropic  # lazy: only needed when actually used
         self.client = anthropic.Anthropic()

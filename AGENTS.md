@@ -53,7 +53,9 @@ workflow:                      # required: an ordered list of steps
 ```
 
 - `provider.type` ∈ `anthropic | openai | openrouter | nvidia | local`; optional
-  `retry: { max_attempts, base_delay }` sub-block. Override at run time with
+  `retry: { max_attempts, base_delay }` sub-block. For `anthropic`, optional
+  `max_tokens:` caps response length (default 16384 — big enough that an agent
+  can emit a multi-page file in a single tool call). Override at run time with
   `--provider/--model/--base-url`.
 - `workspace`, `venv`, `flow_dir`, and `python` are auto-seeded into the shared
   store, so `{{ workspace }}` / `{{ flow_dir }}` / `{{ venv }}` / `{{ python }}`
