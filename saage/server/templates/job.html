@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}saage — job {{ job_id }}{% endblock %}
+{% block content %}
+
+<h2>Job <code>{{ job_id }}</code>
+  <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+</h2>
+
+<div style="margin-bottom:.75rem">
+  <strong>Flow:</strong> {{ job.flow_name }}<br>
+  <strong>Started:</strong> {{ job.created_at }}
+  {% if job.status in ("running",) %}
+  &nbsp;
+  <button class="danger"
+          hx-post="/api/jobs/{{ job_id }}/cancel"
+          hx-confirm="Cancel this job?"
+          hx-on::after-request="location.reload()">Cancel</button>
+  {% endif %}
+</div>
+
+<div class="job-layout">
+  <div>
+    <h3>DAG</h3>
+    <div id="dag"></div>
+    <div id="params-panel" style="display:none">
+      <strong id="params-title"></strong>
+      <pre id="params-body"></pre>
+    </div>
+    <!-- graph JSON for node click handler; tojson escapes </script> safely -->
+    <script type="application/json" id="graph-data">{{ graph_data | tojson }}</script>
+  </div>
+
+  <div>
+    <h3>Log</h3>
+    <pre id="log"></pre>
+  </div>
+</div>
+
+<script>
+  const log = document.getElementById("log");
+  const dag = document.getElementById("dag");
+  const paramsPanel = document.getElementById("params-panel");
+  const paramsTitle = document.getElementById("params-title");
+  const paramsBody  = document.getElementById("params-body");
+  const graphData   = JSON.parse(document.getElementById("graph-data").textContent || "{}");
+  const nodeMap     = {};
+  (graphData.nodes || []).forEach(n => { nodeMap[n.id] = n; });
+
+  // Node click / keyboard → params panel
+  function showParams(g) {
+    const node = nodeMap[g.dataset.node];
+    if (!node) return;
+    paramsTitle.textContent = node.id + " (" + node.type + ")";
+    paramsBody.textContent  = JSON.stringify(node.params, null, 2);
+    paramsPanel.style.display = "";
+  }
+  dag.addEventListener("click", function(e) {
+    const g = e.target.closest("[data-node]");
+    if (!g) { paramsPanel.style.display = "none"; return; }
+    showParams(g);
+  });
+  dag.addEventListener("keydown", function(e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const g = e.target.closest("[data-node]");
+    if (!g) return;
+    e.preventDefault();
+    showParams(g);
+  });
+
+  // Log streaming.  Close on "done": EventSource auto-reconnects after any
+  // stream end, and the server replays the whole log from offset 0 on each
+  // reconnect — without close() a finished job re-appends its log forever.
+  const logEs = new EventSource("/api/jobs/{{ job_id }}/logs");
+  logEs.onmessage = function(e) {
+    log.textContent += JSON.parse(e.data).chunk;
+    log.scrollTop = log.scrollHeight;
+  };
+  logEs.addEventListener("done", function() { logEs.close(); });
+
+  // DAG live redraw
+  const redraw = () => fetch("/jobs/{{ job_id }}/dag.svg")
+    .then(r => r.text())
+    .then(t => { dag.innerHTML = t; });
+
+  const es = new EventSource("/api/jobs/{{ job_id }}/ledger");
+  es.onmessage = redraw;
+  es.addEventListener("done", function() { es.close(); redraw(); });
+  redraw();
+</script>
+
+{% endblock %}

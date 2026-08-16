@@ -114,6 +114,110 @@ Use `-v` for tool-output detail and the full per-node results, `-q` to quiet it:
 (Logging is configured by the CLI. As a library, `saage` never installs log
 handlers — your app controls logging via the standard `logging` module.)
 
+## Web UI: `saage serve`
+
+Run the flow job manager and web UI locally, with a natural-language launcher and live job
+monitoring. The server requires a POSIX OS (Linux/macOS): job control uses process groups and
+POSIX signals, which are unavailable on Windows.
+
+```bash
+pip install -e ".[server]"           # install fastapi + uvicorn extras
+cat > ~/.saage/server.yaml << 'EOF'
+flow_paths:
+  - ./flows                          # search these dirs for */flow.yaml
+parser_provider:
+  type: openrouter
+  model: "anthropic/claude-3.5-sonnet"  # or any provider type (anthropic, openai, etc.)
+host: 127.0.0.1
+port: 8321
+EOF
+
+export OPENROUTER_API_KEY="sk-or-..."  # or set ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
+saage serve
+# Open http://127.0.0.1:8321
+```
+
+**Home page:** Lists all flows in `flow_paths` and provides two ways to launch:
+1. **Knob form** — drop-down to select a flow, form fields for numeric/text parameters.
+2. **Natural language** — "Run the story writer with 5 iterations" → the LLM parses it into
+   flow name + knob values; you confirm before launching.
+
+**Job detail page:** Live DAG visualization (updated as the run progresses) + streaming logs + a
+cancel button.
+
+**History page:** All past runs, newest first.
+
+### API equivalents (curl examples)
+
+List all flows:
+```bash
+curl http://127.0.0.1:8321/api/flows
+```
+
+Parse natural language to a launch spec:
+```bash
+curl -X POST http://127.0.0.1:8321/api/parse \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Run story writer with 5 iterations"}'
+```
+
+Launch a job (with knob overrides):
+```bash
+curl -X POST http://127.0.0.1:8321/api/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"flow": "story_writer", "overrides": {"iterations": "5"}}'
+```
+
+List all jobs:
+```bash
+curl http://127.0.0.1:8321/api/jobs
+```
+
+Get job status and shared-store snapshot:
+```bash
+curl http://127.0.0.1:8321/api/jobs/<job_id>
+```
+
+Stream job logs (Server-Sent Events):
+```bash
+curl http://127.0.0.1:8321/api/jobs/<job_id>/logs
+```
+
+Cancel a running job:
+```bash
+curl -X POST http://127.0.0.1:8321/api/jobs/<job_id>/cancel
+```
+
+Stream ledger events (Server-Sent Events):
+```bash
+curl http://127.0.0.1:8321/api/jobs/<job_id>/ledger
+```
+
+Get live DAG visualization (SVG):
+```bash
+curl http://127.0.0.1:8321/jobs/<job_id>/dag.svg
+```
+
+**Note:** `POST /launch-form` is a UI-internal form-encoded endpoint used by the browser UI; no direct API call needed.
+
+### Server config (`~/.saage/server.yaml`)
+
+- **`flow_paths`** (list) — directories whose *immediate* subdirectories are scanned for
+  `<flow_name>/flow.yaml` (one level deep, not recursive). Paths are relative to cwd or absolute.
+- **`parser_provider`** (dict, optional) — LLM provider spec (same shape as `provider:` in
+  flow.yaml). If not set, the natural-language parser is disabled (503 Service Unavailable).
+  Examples: `{ type: anthropic, model: claude-opus-4-8 }`,
+  `{ type: openrouter, model: "anthropic/claude-3.5-sonnet" }`.
+- **`host`** (str, default `127.0.0.1`) — bind address.
+- **`port`** (int, default `8321`) — bind port.
+
+### Internals
+
+Jobs are run as detached subprocesses of `saage run`, so they do not block the server.
+Each job has its own checkpoint and ledger at `~/.saage/runs/<job_id>/`, mirroring the
+CLI's local run directories. The UI polls ledger events to render live DAG state and
+streams logs via Server-Sent Events (SSE). Job cancellation sends SIGTERM to the subprocess.
+
 ## Resumable runs
 
 Every `saage run` records a checkpoint under `~/.saage/runs/<run_id>/` after each

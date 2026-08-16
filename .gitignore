@@ -37,3 +37,7 @@ cache/
 *.db
 *.sqlite
 *.sqlite3
+
+# superpowers scratch workspaces (SDD ledgers, briefs, review packages)
+.superpowers/
+.worktrees/

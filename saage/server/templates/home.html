@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}saage — home{% endblock %}
+{% block content %}
+
+<h2>Launch a flow</h2>
+<div class="card">
+  <form id="launch-form"
+        hx-post="/launch-form"
+        hx-boost="false">
+    <label for="flow-select">Flow</label>
+    <select id="flow-select" name="flow"
+            hx-get="/flow-knobs"
+            hx-target="#knob-form"
+            hx-trigger="change"
+            hx-include="[name='flow']">
+      <option value="">— select a flow —</option>
+      {% for f in flows %}
+      {% if f.error %}
+      <option value="{{ f.name }}" disabled>{{ f.name }} — broken: {{ f.error }}</option>
+      {% else %}
+      <option value="{{ f.name }}">{{ f.name }}{% if f.description %} — {{ f.description }}{% endif %}</option>
+      {% endif %}
+      {% endfor %}
+    </select>
+
+    <div id="knob-form">
+      <!-- knob inputs swapped in by htmx on flow selection -->
+    </div>
+
+    <button type="submit">Launch</button>
+  </form>
+</div>
+
+<h2>Natural language</h2>
+<div class="card">
+  <label for="nl-input">Describe what you want to run</label>
+  <textarea id="nl-input" name="text" placeholder="e.g. run the sleeper for 5 seconds"></textarea>
+  <button type="button"
+          hx-post="/parse-form"
+          hx-include="#nl-input"
+          hx-target="#parse-preview"
+          hx-swap="innerHTML">Parse</button>
+  <div id="parse-preview"></div>
+</div>
+
+<h2>Active jobs</h2>
+<div id="active-jobs-table"
+     hx-get="/jobs-table"
+     hx-trigger="load, every 5s, refresh"
+     hx-swap="innerHTML">
+  <p style="color:var(--muted)">Loading…</p>
+</div>
+
+<script>
+  // Edit action from the NL parse preview: copy the parsed flow + overrides
+  // into the manual launch form for tweaking, then dismiss the preview.
+  function saageEditParsed(btn) {
+    const flow = btn.dataset.flow;
+    const overrides = JSON.parse(btn.dataset.overrides || "{}");
+    const sel = document.getElementById("flow-select");
+    sel.value = flow;
+    htmx.ajax("GET", "/flow-knobs?flow=" + encodeURIComponent(flow), "#knob-form")
+      .then(function() {
+        Object.entries(overrides).forEach(function(pair) {
+          const input = document.getElementById("knob-" + pair[0]);
+          if (input) input.value = pair[1];
+        });
+      });
+    document.getElementById("parse-preview").innerHTML = "";
+    sel.scrollIntoView({ behavior: "smooth" });
+  }
+</script>
+
+{% endblock %}
