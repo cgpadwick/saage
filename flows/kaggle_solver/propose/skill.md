@@ -14,6 +14,12 @@ specific experiment to improve the validation score. This is PROPOSAL ONLY —
 do NOT write solution code or train anything.
 
 WORKFLOW:
+0. Read `autoresearch_ideas.md` — the researcher's RANKED menu of ideas and
+   anti-ideas for this problem class. Default: propose the highest-ranked
+   idea NOT yet tried (per the research log). You may adapt an idea's
+   specifics to what the log has since revealed, or go off-menu when you
+   can say why the menu is wrong — but never propose one of its anti-ideas
+   without addressing its stated reason.
 1. Read `research_log.md` — the full experiment history. Do NOT repeat an
    experiment the log shows failed, unless you can say why this time differs.
 2. Read the current `model.py`, `train.py`, `predict.py` (and
@@ -34,6 +40,21 @@ GUIDELINES:
 - If recent experiments plateaued (reverts, tiny gains), be BOLD: a different
   model family, feature representation, or modality — especially data
   modalities (images/text) that exist but are unused.
+- MEASUREMENT RULE — an experiment only counts if it changes what
+  eval_results.json measures. If the research log shows recent candidates
+  BIT-IDENTICAL to the best score, those experiments never touched the
+  evaluated model: adding a member model without wiring it into the
+  predictions train.py evaluates is a NO-OP that reads as a tie and gets
+  reverted. Either improve the champion pipeline itself, or wire the new
+  member into the evaluated predictor (e.g. average its probabilities into
+  the final output) so its effect is measured.
+- PORTFOLIO RULE (the run ends with a prediction-space ensemble of ALL
+  scored experiments, kept and reverted alike — decorrelated members are
+  what a blend feeds on): at least every third experiment must use a
+  DIFFERENT MODEL FAMILY or feature representation from the current best,
+  not a tuning of it. A candidate that scores slightly worse but thinks
+  differently is often worth more to the final blend than another clone of
+  the champion. Say which family you chose and why.
 - Address the actual bottleneck: overfitting? underfitting? wrong features?
 - Do NOT propose changing the training budget (epochs are fixed by the
   harness for fair comparison) or the validation protocol.

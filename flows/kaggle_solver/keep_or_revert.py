@@ -147,6 +147,16 @@ def _append_research_log(step: int, candidate: float, best: float, kept: bool,
     files = ", ".join(files_changed) or "none"
     sha = (commit_sha or "")[:8]
     body = summary or "(no summary written)"
+    if not kept and candidate == best and candidate == candidate:  # bit-identical, not nan
+        # a candidate EXACTLY equal to best means the champion pipeline ran
+        # unchanged — the experiment's code was never in the DEFAULT execution
+        # path (the harness runs `python3 train.py` with no extra flags).
+        # Name it so the next proposer stops repeating the no-op pattern.
+        body += ("\n\n⚠ MEASUREMENT WARNING: candidate is BIT-IDENTICAL to "
+                 "best — this change never executed. The harness runs "
+                 "`python3 train.py` with NO flags: changes must be live in "
+                 "the default path (change the default, don't add an opt-in "
+                 "flag or an unwired class).")
     with open("research_log.md", "a") as f:
         f.write(
             f"\n## Experiment {step} — {result} "

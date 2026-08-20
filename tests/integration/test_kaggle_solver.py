@@ -85,6 +85,12 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
                                      "OPPORTUNITY: none\n")]),
             resp("audit appended"),
         ],
+        "research_ideas": [
+            resp(calls=[call("write_file", path="autoresearch_ideas.json",
+                             content='{"constraints": ["fixed epoch budget", "validation protocol frozen"], "ideas": [{"rank": 1, "title": "idea 1", "category": "feature representation", "change": "change 1 with param=1", "why": "grounded reason 1", "cost": "fits budget"}, {"rank": 2, "title": "idea 2", "category": "model family", "change": "change 2 with param=2", "why": "grounded reason 2", "cost": "fits budget"}, {"rank": 3, "title": "idea 3", "category": "regularization", "change": "change 3 with param=3", "why": "grounded reason 3", "cost": "fits budget"}, {"rank": 4, "title": "idea 4", "category": "ensembling", "change": "change 4 with param=4", "why": "grounded reason 4", "cost": "fits budget"}, {"rank": 5, "title": "idea 5", "category": "data handling", "change": "change 5 with param=5", "why": "grounded reason 5", "cost": "fits budget"}, {"rank": 6, "title": "idea 6", "category": "optimization & schedule", "change": "change 6 with param=6", "why": "grounded reason 6", "cost": "fits budget"}], "anti_ideas": [{"technique": "giant transformer", "reason": "cannot show effect in the epoch budget"}]}')]),
+            resp("menu written: 6 ideas across 6 categories"),
+        ],
+        "research_critic": [resp("concrete, grounded, ranked. ACTION: pass")],
         # consumed in order: baseline_verify, verify_train (exp 1), final_verify
         "verify_training": [resp("ACTION: pass")] * 3,
         "propose": [resp("HYPOTHESIS: better feature helps.\n"
@@ -149,6 +155,14 @@ def test_kaggle_solver_pipeline(flow_copy, tmp_path):
     # the data audit's findings are in the log the proposer re-reads
     assert "Data audit (after baseline)" in (ws / "research_log.md").read_text()
 
+    # researcher menu was validated and rendered for the proposer
+    assert (ws / "autoresearch_ideas.md").exists()
+
+    # ensemble machinery ran and degraded gracefully (fake train.py writes no
+    # predictions -> empty pool -> blend skipped, run unaffected)
+    assert shared["blend_verdict"] == "skipped"
+    assert "ACTION: pass" in shared["results"]["validate_final"]["stdout"]
+
     # real artifacts in the workspace
     assert (ws / "submission.csv").read_text() == SUBMISSION
     ledger = [json.loads(line) for line in
@@ -191,6 +205,12 @@ def test_failed_experiment_reverts_and_counts(flow_copy, tmp_path):
         ],
         "perf_review": [resp("PERF: ok")] * 2,           # baseline, exp1
         "data_audit": [resp("no findings. audit done")],
+        "research_ideas": [
+            resp(calls=[call("write_file", path="autoresearch_ideas.json",
+                             content='{"constraints": ["fixed epoch budget", "validation protocol frozen"], "ideas": [{"rank": 1, "title": "idea 1", "category": "feature representation", "change": "change 1 with param=1", "why": "grounded reason 1", "cost": "fits budget"}, {"rank": 2, "title": "idea 2", "category": "model family", "change": "change 2 with param=2", "why": "grounded reason 2", "cost": "fits budget"}, {"rank": 3, "title": "idea 3", "category": "regularization", "change": "change 3 with param=3", "why": "grounded reason 3", "cost": "fits budget"}, {"rank": 4, "title": "idea 4", "category": "ensembling", "change": "change 4 with param=4", "why": "grounded reason 4", "cost": "fits budget"}, {"rank": 5, "title": "idea 5", "category": "data handling", "change": "change 5 with param=5", "why": "grounded reason 5", "cost": "fits budget"}, {"rank": 6, "title": "idea 6", "category": "optimization & schedule", "change": "change 6 with param=6", "why": "grounded reason 6", "cost": "fits budget"}], "anti_ideas": [{"technique": "giant transformer", "reason": "cannot show effect in the epoch budget"}]}')]),
+            resp("menu written: 6 ideas across 6 categories"),
+        ],
+        "research_critic": [resp("concrete, grounded, ranked. ACTION: pass")],
         "verify_training": [resp("ACTION: pass")] * 3,   # baseline, exp1, final
         "propose": [resp("HYPOTHESIS: x CHANGE: y RATIONALE: z")],
         "proposal_critic": [resp("ACTION: pass")],
