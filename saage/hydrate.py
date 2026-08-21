@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 from .config import EngineConfig, load_engine_config
-from .llm import AnthropicProvider, OpenAIProvider
+from .llm import PROVIDER_ENV, AnthropicProvider, OpenAIProvider, ProviderKeyError
 from .nodes import AgentNode, CommandNode
 from .retry import RetryPolicy
 from .primitives import Subflow, counting_loop, polling_loop, retry_loop
@@ -33,14 +33,36 @@ class Context:
     venv: str | None = None   # venv to auto-activate for commands (relative to root)
 
 
-def make_provider(spec: dict):
+def _needs_llm(step_specs) -> bool:
+    """True if any step (at any nesting depth) is an agent step."""
+    for s in step_specs:
+        if s.get("type") == "agent":
+            return True
+        nested = [s[k] for k in ("action", "check", "poll", "status") if k in s]
+        if _needs_llm(nested) or _needs_llm(s.get("body", [])):
+            return True
+    return False
+
+
+def make_provider(spec: dict, require_key: bool = True):
     """Out of the box: anthropic | openai | openrouter | nvidia | local.
 
     An optional `retry:` sub-block tunes the transient-failure backoff, e.g.
     `provider: { type: anthropic, model: ..., retry: { max_attempts: 8 } }`.
+
+    With `require_key` (the default), a provider whose API-key env var is
+    unset fails here with a message naming the var, instead of a 401 deep in
+    the first model call. Pass require_key=False when the provider will never
+    be invoked (e.g. a flow with no agent steps).
     """
     t = spec["type"]
     model = spec["model"]
+    if require_key and t != "local":
+        key_env = spec.get("api_key_env") or PROVIDER_ENV.get(t)
+        if key_env and not os.environ.get(key_env):
+            raise ProviderKeyError(
+                f"provider {t!r} needs an API key: set {key_env}, or pick a "
+                f"different provider with --provider/--model")
     rp = RetryPolicy(**spec["retry"]) if spec.get("retry") else None
     if t == "anthropic":
         return AnthropicProvider(model, retry_policy=rp)
@@ -189,7 +211,7 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
         for k, v in (provider_overrides or {}).items():
             if v is not None:
                 pspec[k] = v
-        provider = make_provider(pspec)
+        provider = make_provider(pspec, require_key=_needs_llm(spec["workflow"]))
         log.info("provider: %s / %s", pspec.get("type"), pspec.get("model"))
     skills = load_skills(flow_dir)
     log.info("loaded %d skill(s): %s", len(skills), ", ".join(skills) or "(none)")

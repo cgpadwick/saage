@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from .hydrate import build_flow
+from .llm import ProviderKeyError
 from . import checkpoint as ckpt
 
 # third-party libs whose INFO chatter (e.g. "HTTP Request: POST ...") is noise
@@ -232,10 +233,17 @@ def _cmd_resume(args) -> int:
     log.info("resuming %s (run dir: %s)", run.run_id, run.dir)
     # run_flow marks the run failed if it raises; the engine stamps the terminal
     # completed/failed status into the final checkpoint write on a clean finish.
-    run_flow(flow_path,
-             provider_overrides=rec.get("provider_overrides") or None,
-             workspace=workspace, venv=rec.get("venv"),
-             config=rec.get("config_path"), resume=run)
+    try:
+        run_flow(flow_path,
+                 provider_overrides=rec.get("provider_overrides") or None,
+                 workspace=workspace, venv=rec.get("venv"),
+                 config=rec.get("config_path"), resume=run)
+    except ProviderKeyError as e:
+        # checkpoint deliberately untouched: the aborted attempt never ran a
+        # step, so the run stays exactly as resumable as before — export the
+        # key and `saage resume` again
+        log.error("%s", e)
+        return 1
     return 0
 
 
@@ -283,9 +291,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     _attach_run_log(run.dir)                      # local run dir gets run.log too
     logging.getLogger("saage").info("run dir: %s", run.dir)
-    flow, seed = build_flow(args.flow, provider_overrides=overrides,
-                            workspace=args.workspace, venv=args.venv,
-                            config=args.config, checkpoint=run)
+    try:
+        flow, seed = build_flow(args.flow, provider_overrides=overrides,
+                                workspace=args.workspace, venv=args.venv,
+                                config=args.config, checkpoint=run)
+    except ProviderKeyError as e:
+        run.mark("failed")
+        log.error("%s", e)
+        return 1
     seed.update(_parse_set(args.overrides))
     root = Path(seed["workspace"])               # the resolved workspace
     run.write(seed, resume_step=None, status="running")   # record workspace/venv
