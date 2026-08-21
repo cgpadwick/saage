@@ -57,10 +57,17 @@ def test_serve_autodiscovers_cwd_flows(tmp_path, monkeypatch):
 
 
 def test_serve_flow_path_flag_overrides(tmp_path, monkeypatch):
-    _write_flow(tmp_path, "flagged")
+    """--flow-path must WIN over server.yaml flow_paths, not just add flows."""
+    _write_flow(tmp_path, "flagged")                      # under tmp/flows
+    other = tmp_path / "other"
+    (other / "from_config").mkdir(parents=True)
+    (other / "from_config" / "flow.yaml").write_text(GOOD)
+    cfg = tmp_path / "server.yaml"
+    cfg.write_text(f"flow_paths: ['{other}']\n")
     captured = {}
     import uvicorn
     monkeypatch.setattr(uvicorn, "run", lambda app, **kw: captured.update(app=app))
-    serve(config_path=str(tmp_path / "nope.yaml"),
-          flow_paths=[str(tmp_path / "flows")])
-    assert "flagged" in captured["app"].state.catalog.flows
+    serve(config_path=str(cfg), flow_paths=[str(tmp_path / "flows")])
+    flows = captured["app"].state.catalog.flows
+    assert "flagged" in flows
+    assert "from_config" not in flows                     # config paths replaced
