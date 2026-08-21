@@ -20,6 +20,7 @@ from .retry import RetryPolicy
 from .primitives import Subflow, counting_loop, polling_loop, retry_loop
 from .skills import Skill, load_skills
 from .tools import default_tools
+from .validate import FlowSpecError, validate_spec
 
 log = logging.getLogger(__name__)
 
@@ -99,6 +100,11 @@ def build_step(spec: dict, ctx: Context):
                     f"step {spec.get('id', '?')!r}: {key}: is only supported "
                     f"on command steps (type {t!r} ignores it)")
     if t == "agent":
+        if spec["skill"] not in ctx.skills:
+            raise FlowSpecError(
+                f"step {spec['id']!r}: unknown skill {spec['skill']!r} — "
+                f"expected a skill directory next to flow.yaml, one of: "
+                f"{', '.join(sorted(ctx.skills)) or '(none found)'}")
         skill = ctx.skills[spec["skill"]]
         return AgentNode(spec["id"], skill, ctx.provider, ctx.tools,
                          captures=spec.get("set"),
@@ -197,6 +203,10 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
     flow_yaml = Path(flow_yaml)
     log.info("loading flow: %s", flow_yaml)
     spec = yaml.safe_load(flow_yaml.read_text(encoding="utf-8"))
+    try:
+        validate_spec(spec, require_provider=provider is None)
+    except FlowSpecError as e:
+        raise FlowSpecError(f"{flow_yaml}: {e}") from None
     flow_dir = flow_yaml.parent
     cfg = config if isinstance(config, EngineConfig) else load_engine_config(config)
     # resolve so {{ workspace }} is always an absolute, canonical path (matching
