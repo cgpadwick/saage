@@ -3,6 +3,30 @@
 {% block content %}
 
 <h2>Launch a flow</h2>
+{% if not flows %}
+<div class="card">
+  <p><strong>No flows found.</strong>
+  {% if flow_paths %}
+  Searched {{ flow_paths|join(", ") }} — each <em>immediate</em> subdirectory is
+  checked for a <code>flow.yaml</code>.
+  {% else %}
+  No flow directories are configured.
+  {% endif %}
+  </p>
+  <p>To get flows listed here, either:</p>
+  <ul>
+    <li>restart with <code>saage serve --flow-path /path/to/flows</code>, or</li>
+    <li>add the directories to <code>~/.saage/server.yaml</code>:
+<pre>flow_paths:
+  - /absolute/path/to/flows</pre>
+    (relative paths resolve against the directory <code>saage serve</code> was
+    started from), or</li>
+    <li>start <code>saage serve</code> from a directory that contains
+    <code>flows/</code> — it is picked up automatically when no
+    <code>flow_paths</code> are configured.</li>
+  </ul>
+</div>
+{% endif %}
 <div class="card">
   <form id="launch-form"
         hx-post="/launch-form"
@@ -33,8 +57,14 @@
 
 <h2>Natural language</h2>
 <div class="card">
+  {% if not nl_enabled %}
+  <p class="parse-error">Disabled — set <code>parser_provider</code> in
+  <code>~/.saage/server.yaml</code> (same shape as a flow's
+  <code>provider:</code> block) and export its API key to use the
+  natural-language launcher.</p>
+  {% endif %}
   <label for="nl-input">Describe what you want to run</label>
-  <textarea id="nl-input" name="text" placeholder="e.g. run the sleeper for 5 seconds"></textarea>
+  <textarea id="nl-input" name="text" placeholder="e.g. run the story writer with 3 iterations"></textarea>
   <button type="button"
           hx-post="/parse-form"
           hx-include="#nl-input"

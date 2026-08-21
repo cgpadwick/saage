@@ -6,6 +6,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -28,8 +29,14 @@ from .parse import parse_launch
 _HERE = Path(__file__).parent
 
 
-def _tail(path: Path, job_status, since: int = 0):
-    """Generator that tails a file and yields SSE events until job reaches terminal state."""
+def _tail(path: Path, job_status, since: int = 0, fallback: Path | None = None):
+    """Generator that tails a file and yields SSE events until job reaches terminal state.
+
+    `fallback` is the job's server_launch.log (the child's raw stdout+stderr).
+    Python tracebacks are printed raw to stderr, never through logging, so a
+    startup crash (e.g. missing API key) leaves run.log empty and the actual
+    error only in the launch log — on a crashed/failed job its tail is appended
+    so the UI shows the real failure instead of a blank pane."""
     offset = since
     while True:
         if path.exists():
@@ -49,6 +56,23 @@ def _tail(path: Path, job_status, since: int = 0):
                 if chunk:
                     offset += len(chunk)
                     yield f"data: {json.dumps({'chunk': chunk.decode(errors='replace'), 'offset': offset})}\n\n"
+            if s in ("crashed", "failed") and fallback is not None and fallback.exists():
+                # Bounded read: a long run's launch log can be huge — only the
+                # last 64KB can hold the final traceback anyway.
+                with open(fallback, "rb") as f:
+                    size = f.seek(0, 2)
+                    f.seek(max(0, size - 65536))
+                    data = f.read()
+                lines = data.decode("utf-8", errors="replace").splitlines()[-50:]
+                if lines:
+                    block = (f"\n—— launch output ({fallback.name}, last "
+                             f"{len(lines)} line(s)) ——\n" + "\n".join(lines) + "\n")
+                    # offset deliberately NOT advanced: it is the client's
+                    # resume position in run.log, and this block is not part of
+                    # that file. A client that reconnects mid-drain re-receives
+                    # the block, which is harmless (the next attempt also ends
+                    # in `done`, closing the EventSource).
+                    yield f"data: {json.dumps({'chunk': block, 'offset': offset})}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': s})}\n\n"
             return
         # SSE comment (ignored by EventSource): forces a write each poll so a
@@ -130,6 +154,7 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
 
     catalog = FlowCatalog(config)
     catalog.refresh()
+    app.state.catalog = catalog          # exposed for serve()'s startup summary
     registry = JobRegistry()
 
     _LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
@@ -196,7 +221,11 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
                 status_code=503,
                 detail="parser_provider not configured in server.yaml")
         from saage.hydrate import make_provider
-        _provider_box["provider"] = make_provider(config.parser_provider)
+        from saage.llm import ProviderKeyError
+        try:
+            _provider_box["provider"] = make_provider(config.parser_provider)
+        except ProviderKeyError as e:
+            raise HTTPException(status_code=503, detail=str(e))
         return _provider_box["provider"]
 
     # ------------------------------------------------------------------
@@ -280,7 +309,8 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
         run_dir = registry.home / "runs" / job_id
         log_path = run_dir / "run.log"
         return StreamingResponse(
-            _tail(log_path, _status_fn(job_id, entry), since=since),
+            _tail(log_path, _status_fn(job_id, entry), since=since,
+                  fallback=run_dir / "server_launch.log"),
             media_type="text/event-stream",
         )
 
@@ -318,7 +348,11 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
         """Home page: flow launcher and active jobs table."""
         catalog.refresh()
         flows = list(catalog.flows.values())
-        return templates.TemplateResponse(request, "home.html", {"flows": flows})
+        return templates.TemplateResponse(request, "home.html", {
+            "flows": flows,
+            "flow_paths": [str(p) for p in config.flow_paths],
+            "nl_enabled": config.parser_provider is not None,
+        })
 
     @app.get("/flow-knobs", response_class=HTMLResponse)
     def flow_knobs(request: Request, flow: str = ""):
@@ -520,14 +554,44 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
     return app
 
 
-def serve(config_path=None, host=None, port=None) -> int:
+def serve(config_path=None, host=None, port=None, flow_paths=None) -> int:
     """Load config, create app, and run uvicorn. Called by `saage serve`."""
     import uvicorn
 
+    from ..paths import saage_home
+
+    log = logging.getLogger("saage.server")
     cfg = load_server_config(config_path)
+    if cfg.source is not None:
+        log.info("server config: %s", cfg.source)
+    else:
+        log.info("server config: %s (not found — using defaults)",
+                 config_path or saage_home() / "server.yaml")
+    if flow_paths:                      # --flow-path DIR beats server.yaml
+        cfg.flow_paths = [Path(p).expanduser().resolve() for p in flow_paths]
+    elif not cfg.flow_paths:
+        # zero-config: if the launch directory has a flows/ dir, just use it
+        discovered = Path.cwd() / "flows"
+        if any(discovered.glob("*/flow.yaml")):
+            cfg.flow_paths = [discovered.resolve()]
+            log.info("auto-discovered flows in %s", cfg.flow_paths[0])
+    for p in cfg.flow_paths:
+        if not Path(p).is_dir():
+            log.warning("flow path does not exist: %s", p)
     if host is not None:
         cfg.host = host
     if port is not None:
         cfg.port = port
-    uvicorn.run(create_app(cfg), host=cfg.host, port=cfg.port)
+    app = create_app(cfg)
+    n = len(app.state.catalog.flows)
+    log.info("%d flow(s) found in %s", n,
+             ", ".join(str(p) for p in cfg.flow_paths) or "(no flow_paths)")
+    if n == 0:
+        log.warning("no flows will show in the UI — pass --flow-path DIR, add "
+                    "flow_paths to %s, or start saage serve from a directory "
+                    "containing flows/", cfg.source or "~/.saage/server.yaml")
+    if cfg.parser_provider is None:
+        log.info("natural-language launcher disabled "
+                 "(no parser_provider in server.yaml)")
+    uvicorn.run(app, host=cfg.host, port=cfg.port)
     return 0

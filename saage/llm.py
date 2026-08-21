@@ -18,6 +18,20 @@ from typing import Protocol
 from .retry import RetryPolicy, call_with_retry
 from .tools import Tool
 
+# provider.type -> env var expected to hold its API key. `local` servers need
+# no key so they are absent here (saage.remote.creds keeps its own map with
+# different semantics: which keys to push to a remote node).
+PROVIDER_ENV = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "nvidia": "NVIDIA_API_KEY",
+}
+
+
+class ProviderKeyError(RuntimeError):
+    """The flow's provider needs an API key that is not in the environment."""
+
 
 @dataclass
 class ToolCall:

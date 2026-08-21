@@ -489,3 +489,26 @@ def test_external_run_detail_and_streams_accessible(tmp_path, sleeper_flow):
         text = "".join(chunk for chunk, _ in zip(r.iter_text(), range(10)))
     assert "external log line" in text and "completed" in text
     assert c.post(f"/api/jobs/{jid}/cancel").json()["status"] == "completed"
+
+
+def test_tail_appends_launch_log_on_crash(tmp_path):
+    """A startup crash leaves run.log empty and the traceback only in
+    server_launch.log — the log stream must surface it, not a blank pane."""
+    run_log = tmp_path / "run.log"                       # never created
+    launch = tmp_path / "server_launch.log"
+    launch.write_text("Traceback (most recent call last):\nKeyError: 'boom'\n")
+    events = list(_tail(run_log, lambda: "crashed", fallback=launch))
+    joined = "".join(events)
+    assert "KeyError: 'boom'" in joined
+    assert "launch output" in joined
+    assert '"status": "crashed"' in joined
+
+
+def test_tail_skips_launch_log_on_success(tmp_path):
+    run_log = tmp_path / "run.log"
+    run_log.write_text("all good\n")
+    launch = tmp_path / "server_launch.log"
+    launch.write_text("engine chatter\n")
+    joined = "".join(_tail(run_log, lambda: "completed", fallback=launch))
+    assert "engine chatter" not in joined
+    assert "all good" in joined

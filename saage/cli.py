@@ -19,6 +19,7 @@ from pathlib import Path
 import yaml
 
 from .hydrate import build_flow
+from .llm import ProviderKeyError
 from . import checkpoint as ckpt
 
 # third-party libs whose INFO chatter (e.g. "HTTP Request: POST ...") is noise
@@ -83,6 +84,9 @@ def _build_parser() -> argparse.ArgumentParser:
     srv.add_argument("--host", default=None, help="override server.yaml host")
     srv.add_argument("--port", type=int, default=None, help="override server.yaml port")
     srv.add_argument("--config", default=None, help="path to server.yaml")
+    srv.add_argument("--flow-path", action="append", dest="flow_paths", metavar="DIR",
+                     help="directory to scan for */flow.yaml (repeatable; "
+                          "overrides server.yaml flow_paths)")
 
     return parser
 
@@ -245,10 +249,17 @@ def _cmd_resume(args) -> int:
     log.info("resuming %s (run dir: %s)", run.run_id, run.dir)
     # run_flow marks the run failed if it raises; the engine stamps the terminal
     # completed/failed status into the final checkpoint write on a clean finish.
-    run_flow(flow_path,
-             provider_overrides=rec.get("provider_overrides") or None,
-             workspace=workspace, venv=rec.get("venv"),
-             config=rec.get("config_path"), resume=run)
+    try:
+        run_flow(flow_path,
+                 provider_overrides=rec.get("provider_overrides") or None,
+                 workspace=workspace, venv=rec.get("venv"),
+                 config=rec.get("config_path"), resume=run)
+    except ProviderKeyError as e:
+        # checkpoint deliberately untouched: the aborted attempt never ran a
+        # step, so the run stays exactly as resumable as before — export the
+        # key and `saage resume` again
+        log.error("%s", e)
+        return 1
     return 0
 
 
@@ -283,9 +294,9 @@ def main(argv: list[str] | None = None) -> int:
     except yaml.YAMLError as e:
         print(f"saage: error: invalid YAML: {e}", file=sys.stderr)
         return 1
-    except FileNotFoundError as e:
-        print(f"saage: error: {e}", file=sys.stderr)
-        return 1
+    # deliberately NOT catching FileNotFoundError here: every entry point
+    # checks its own paths up front, and a stray FNF mid-run is an engine bug
+    # whose traceback we want to see
 
 
 def _main(argv: list[str] | None = None) -> int:
@@ -329,7 +340,8 @@ def _main(argv: list[str] | None = None) -> int:
         except ImportError as e:
             log.error("saage serve needs the server extra: pip install saage[server] (%s)", e)
             return 1
-        return serve(config_path=args.config, host=args.host, port=args.port)
+        return serve(config_path=args.config, host=args.host, port=args.port,
+                     flow_paths=args.flow_paths)
     _setup_logging(args.verbose, args.quiet)
     log = logging.getLogger("saage")
 
@@ -357,9 +369,14 @@ def _main(argv: list[str] | None = None) -> int:
     )
     _attach_run_log(run.dir)                      # local run dir gets run.log too
     logging.getLogger("saage").info("run dir: %s", run.dir)
-    flow, seed = build_flow(args.flow, provider_overrides=overrides,
-                            workspace=args.workspace, venv=args.venv,
-                            config=args.config, checkpoint=run)
+    try:
+        flow, seed = build_flow(args.flow, provider_overrides=overrides,
+                                workspace=args.workspace, venv=args.venv,
+                                config=args.config, checkpoint=run)
+    except ProviderKeyError as e:
+        run.mark("failed")
+        log.error("%s", e)
+        return 1
     seed.update(_parse_set(args.overrides))
     root = Path(seed["workspace"])               # the resolved workspace
     run.write(seed, resume_step=None, status="running")   # record workspace/venv
