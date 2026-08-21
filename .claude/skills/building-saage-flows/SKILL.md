@@ -38,14 +38,14 @@ Do not skip 2–4: a flow that only "looks right" routinely fails on ACTION rout
 
 ## Traps — facts AGENTS.md omits or gets wrong
 
-- **`SKILL_ID` is mandatory in practice.** First body line of every skill.md: `SKILL_ID: <label>`, unique per flow. AGENTS.md calls it optional, but `RoutedProvider` routes scripted turns by regexing it from the system prompt — without it no offline test can exist.
+- **`SKILL_ID` is mandatory in practice.** First body line of every skill.md: `SKILL_ID: <label>`, unique per flow. The engine runs without it, but `RoutedProvider` routes scripted turns by regexing it from the system prompt — without it no offline test can exist.
 - **Result shapes differ:** `results['<id>']` for an *agent* step is a plain string (final text); for a *command* step it's `{exit, stdout, stderr}`. `{{ results['x']['stdout'] }}` on an agent step is wrong.
 - **Only `counting_loop.max_iterations` is templatable** (int, numeric string, or `"{{ var | default(12) }}"` — enables `--set` override). `retry_loop`/`polling_loop` bounds are raw ints only.
 - **Check/status steps must end with a literal `ACTION: <word>` line.** No `ACTION:` ≠ success — it routes `default`, i.e. retry / keep polling. Say this explicitly in the skill body.
 - **`set: {var: regex}` leaves the var unchanged on no-match.** Pre-seed sentinel values in `shared:` (e.g. `accuracy: nan`) so `exit_when` never hits an undefined name. Capture uses group 1 if present else whole match, last match wins, coerces int/float.
 - **Flow description in the web UI = the first `#` comment line of flow.yaml; knobs = the `shared:` block.** Always start flow.yaml with a `#` comment describing the flow, and expose every tunable as a `shared:` key.
 - **Skills are referenced by directory name**, not frontmatter `name:`. `tools:` frontmatter is an allow-list (`tools: []` = no tools; omit = all); all-unknown tool names raise at build.
-- Engine-owned shared keys to assert on in tests: `_trace` (step ids in order), `_iter[<loop_id>]`, `_exit_reason[<loop_id>]` (`"exit_when"` or `"max_iterations"`), `_feedback`, `results`.
+- Engine-owned shared keys to assert on in tests: `_trace` (step ids in order), `_iter[<loop_id>]`, `_exit_reason[<loop_id>]` (`"exit_when"` or `"max_iterations"`), `_feedback`, `results`, `step_metrics` (per-command `exit`/`wall_seconds`, plus HW samples with `measure_hw: true`).
 - Undefined `{{ var }}` renders `""` with a warning — pre-seed everything you template.
 
 ## Offline test recipe
