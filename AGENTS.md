@@ -4,6 +4,12 @@ This file is for **coding agents**. Read it (not the whole codebase) to author n
 flows and skills for this engine. It is complete enough to build a working flow
 from scratch; drop into the source only when you need an internal detail.
 
+> Building a flow from a user request? Follow the step-by-step recipe in
+> [`.claude/skills/building-saage-flows/SKILL.md`](.claude/skills/building-saage-flows/SKILL.md).
+> Despite the directory name it is harness-agnostic — plain markdown any agent
+> (Codex, Gemini, Copilot, …) can follow; the frontmatter is just discovery
+> metadata for harnesses with skill support.
+
 ## Mental model (read this first)
 
 `saage` is a **deterministic** workflow engine. *Control flow* — loops, retries,
