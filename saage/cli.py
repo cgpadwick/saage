@@ -73,6 +73,13 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="check a flow.yaml without running it (no API key needed)")
     val.add_argument("flow", metavar="flow.yaml", help="path to the flow YAML")
 
+    new = sub.add_parser("new", help="scaffold a new flow directory from a template")
+    new.add_argument("name", help="flow name (becomes the directory name)")
+    new.add_argument("--dir", dest="parent", metavar="DIR", default=None,
+                     help="parent directory (default: ./flows if it exists, else .)")
+
+    sub.add_parser("doctor", help="check the local setup: python, keys, flows")
+
     srv = sub.add_parser("serve", help="run the local flow job-manager web UI")
     srv.add_argument("--host", default=None, help="override server.yaml host")
     srv.add_argument("--port", type=int, default=None, help="override server.yaml port")
@@ -297,6 +304,24 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "validate":
         _setup_logging(verbose=False, quiet=True)
         return _cmd_validate(args)
+    if args.command == "new":
+        from .scaffold import new_flow
+        try:
+            dest = new_flow(args.name, Path(args.parent) if args.parent else None)
+        except FileExistsError as e:
+            print(f"saage: error: {e}", file=sys.stderr)
+            return 1
+        print(f"created {dest}/\n"
+              f"  flow.yaml           the workflow (provider, knobs, steps)\n"
+              f"  do_work/skill.md    the agent's instructions\n"
+              f"next steps:\n"
+              f"  1. edit {dest}/do_work/skill.md\n"
+              f"  2. saage validate {dest}/flow.yaml     # free, no API key\n"
+              f"  3. saage run {dest}/flow.yaml          # needs the provider's key")
+        return 0
+    if args.command == "doctor":
+        from .doctor import run_doctor
+        return 1 if run_doctor() else 0
     if args.command == "remote":
         _setup_logging(verbose=False, quiet=False)
         from .remote.cli import dispatch
