@@ -151,6 +151,12 @@ again, until `complete`/`failed` or the `max_wait_seconds` wall-clock cap.
     - { id: keep,      type: command, run: "python keep_or_revert.py" }
 ```
 
+`counting_loop.max_iterations` may be an int, a numeric string, or a template
+resolved against the shared store at run time — `max_iterations: "{{ max_iters
+| default(12) }}"` makes the bound overridable with `--set max_iters=30`. This
+is a `counting_loop`-only feature: `retry_loop`/`polling_loop` bounds are plain
+numbers.
+
 Loops nest: an `action`/`check`/`body` entry can itself be a loop. A nested loop's
 counter is reset each time the outer loop re-enters it. (Resume caveat: `saage
 resume` re-enters only at the *outermost* loop, so a crash redoes the whole
@@ -165,7 +171,7 @@ name: write_query                       # optional; defaults to the directory na
 description: One line. Becomes the agent's TASK (user message). Templated.
 tools: [read_file, write_file, run_command]   # optional allow-list; omit = all tools
 ---
-SKILL_ID: write_query                   # optional marker used by the test harness
+SKILL_ID: write_query                   # required in practice — see below
 
 You are a careful analyst. The question is:
 
@@ -181,7 +187,14 @@ Key facts:
   and the **body** (→ the system prompt). **Both are Jinja-templated** from the
   shared store — put `{{ question }}` wherever it reads best. (Undefined name →
   `""` + a logged warning; wrap a literal brace in `{% raw %}…{% endraw %}`.)
-- **`tools:`** restricts which harness tools this skill may call. Omit for all.
+- **`tools:`** restricts which harness tools this skill may call. Omit for all;
+  `tools: []` for none. A list of entirely unknown names raises at build time
+  (partly-unknown only warns).
+- **`SKILL_ID:` is effectively required.** The frontmatter runs without it, but
+  the offline test harness (`RoutedProvider`) routes scripted turns by regexing
+  `SKILL_ID: <label>` out of the system prompt — no marker, no offline test.
+  Make it the first body line, unique per flow. Skills are referenced from
+  flow.yaml by **directory name**, not by the frontmatter `name:`.
 - **`ACTION:` convention** — a skill used as a loop `check`/`status` must end its
   reply with one action keyword; the engine reads the *last* `ACTION: <word>`:
   - `retry_loop` check → `ACTION: pass` (done) or `ACTION: fail` (retry; this
@@ -189,17 +202,36 @@ Key facts:
   - `polling_loop` status → `ACTION: running | complete | failed`.
   - `pass`/`complete`/`exit`/`stop` normalize to success; `failed` propagates out
     of the subflow so an outer flow can branch on it.
+  - **A reply with no `ACTION:` line is NOT success** — it routes `default`,
+    which means *retry* (retry_loop) or *keep polling* (polling_loop). Tell
+    check/status skills explicitly to always end with an `ACTION:` line.
 
 ## The shared store: templates, captures, exit_when
 
 - **Read** values: `{{ var }}` in a `command` `run`, a skill `description`, or a
   skill body. Nested access works: `{{ results['poll']['stdout'] }}`.
+- **`results[<id>]` shape differs by step type**: an *agent* step's result is a
+  plain string (its final text); a *command* step's is a dict
+  `{exit, stdout, stderr}` — so `results['x']['stdout']` is only valid when
+  `x` is a command step.
 - **Write** values: `set: { key: "regex" }` on any step. The regex is searched
   against the step's output; the **last** match wins; capture group 1 if present
   else the whole match; numeric strings are coerced to int/float for predicates.
+  **On no-match the variable is left unchanged** — so pre-seed a sentinel in
+  `shared:` (e.g. `accuracy: nan`) and every read after a failed capture still
+  sees a defined value instead of `""`.
 - **`exit_when`** (counting_loop): a Python boolean expression evaluated over the
   shared store with **no builtins** (e.g. `best_score >= target_accuracy`,
   `feedback == 'correct'`). An undefined name logs a warning and counts as false.
+- **Engine-owned keys** useful in templates and tests: `results` (per-step
+  outputs, above), `step_metrics`, `_trace` (step ids in run order),
+  `_iter[<loop_id>]` (iterations completed), `_exit_reason[<loop_id>]`
+  (`"exit_when"` or `"max_iterations"`), and `_feedback` (the latest retry_loop
+  check reply).
+- **The `saage serve` UI reads flow metadata from the YAML**: the description
+  shown next to the flow name is the *first `#` comment line* of flow.yaml, and
+  the launch form's fields are the `shared:` block. Start every flow.yaml with
+  a `#` description comment and expose every tunable as a `shared:` key.
 
 ## Harness tools
 
@@ -299,13 +331,39 @@ outcomes, files written) at the end. `-v` for tool/output detail, `-q` to quiet.
 
 ## Test your flow before a live run
 
-**Hydrate-check** (no API calls — validates YAML + skill wiring; `python3` on
-POSIX, `python` on Windows):
+**Hydrate-check** (no API calls, no key — parses the YAML, loads every
+skill.md, validates step types, wires the loop graph):
 ```bash
-python -c "from saage.hydrate import build_flow; build_flow('flows/<name>/flow.yaml', provider=object(), workspace='_chk_ws'); print('ok')"
+saage validate flows/<name>/flow.yaml
+```
+(or, equivalently, from Python: `build_flow('flows/<name>/flow.yaml',
+provider=object(), workspace='_chk_ws')`). New flows under `flows/*/flow.yaml`
+are also auto-covered by `tests/test_flows_hydrate.py` the moment the
+directory exists.
+
+**Offline integration test** — the real recipe, not optional for a flow you
+intend to keep: `tests/integration/test_<name>.py` runs the real engine, real
+file tools, and real commands with only the LLM turns scripted, so it is free,
+offline, and deterministic. The pattern (see `tests/integration/
+test_guessing_game.py` for a complete example):
+
+```python
+from saage_testkit import RoutedProvider, resp, tool_turn  # tests/ is on sys.path
+from saage.hydrate import run_flow
+
+def test_my_flow(flow_copy):                     # hermetic copy of flows/<name>
+    provider = RoutedProvider({
+        # keys = each skill's SKILL_ID; values = its queue of scripted turns.
+        # resp("...") is a text turn; tool_turn(name, **args) returns a
+        # two-turn list (tool call + "done") — concatenate with +, never nest.
+        "propose": [resp("0.5"), resp("0.62")],
+        "judge":   [resp("higher"), resp("correct")],
+    })
+    shared = run_flow(flow_copy("my_flow"), provider=provider)
+    assert shared["_trace"] == ["propose", "judge"] * 2
+    assert shared["_exit_reason"]["search"] == "exit_when"
 ```
 
-Then a **live** run against a real provider with a throwaway `--workspace`. The
-repo's pytest suite (`pytest -q`) stays offline by scripting the LLM turns via the
-`ScriptedProvider`/`RoutedProvider` test doubles — mirror an existing
-`tests/integration` flow if you want an offline regression test for your flow.
+Assert on the engine-owned keys (`_trace`, `_iter`, `_exit_reason`), captured
+variables, and real files on disk. Then, only after the offline test is green,
+a **live** run against a real provider with a throwaway `--workspace`.
