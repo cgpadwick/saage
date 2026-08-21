@@ -56,11 +56,21 @@ def _tail(path: Path, job_status, since: int = 0, fallback: Path | None = None):
                     offset += len(chunk)
                     yield f"data: {json.dumps({'chunk': chunk.decode(errors='replace'), 'offset': offset})}\n\n"
             if s in ("crashed", "failed") and fallback is not None and fallback.exists():
-                lines = fallback.read_text(encoding="utf-8",
-                                           errors="replace").splitlines()[-50:]
+                # Bounded read: a long run's launch log can be huge — only the
+                # last 64KB can hold the final traceback anyway.
+                with open(fallback, "rb") as f:
+                    size = f.seek(0, 2)
+                    f.seek(max(0, size - 65536))
+                    data = f.read()
+                lines = data.decode("utf-8", errors="replace").splitlines()[-50:]
                 if lines:
                     block = (f"\n—— launch output ({fallback.name}, last "
                              f"{len(lines)} line(s)) ——\n" + "\n".join(lines) + "\n")
+                    # offset deliberately NOT advanced: it is the client's
+                    # resume position in run.log, and this block is not part of
+                    # that file. A client that reconnects mid-drain re-receives
+                    # the block, which is harmless (the next attempt also ends
+                    # in `done`, closing the EventSource).
                     yield f"data: {json.dumps({'chunk': block, 'offset': offset})}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': s})}\n\n"
             return
