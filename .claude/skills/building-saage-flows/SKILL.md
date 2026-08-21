@@ -5,6 +5,11 @@ description: Use when asked to create, build, author, or modify a saage flow or 
 
 # Building saage flows
 
+**Any coding agent can use this file** — it is plain markdown with no
+Claude-specific steps. It lives under `.claude/skills/` so harnesses with skill
+support auto-discover it; everyone else gets here via the pointer at the top of
+`AGENTS.md`.
+
 A flow is a directory: `flows/<name>/flow.yaml` plus one subdirectory per agent skill (`<skill_dir>/skill.md`). `AGENTS.md` at the repo root is the full schema reference — read its schema section when you need field-level detail. This skill is the build loop plus the facts AGENTS.md gets wrong or omits.
 
 ## The loop
