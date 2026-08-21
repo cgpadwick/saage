@@ -276,9 +276,9 @@ def main(argv: list[str] | None = None) -> int:
     except yaml.YAMLError as e:
         print(f"saage: error: invalid YAML: {e}", file=sys.stderr)
         return 1
-    except FileNotFoundError as e:
-        print(f"saage: error: {e}", file=sys.stderr)
-        return 1
+    # deliberately NOT catching FileNotFoundError here: every entry point
+    # checks its own paths up front, and a stray FNF mid-run is an engine bug
+    # whose traceback we want to see
 
 
 def _main(argv: list[str] | None = None) -> int:
