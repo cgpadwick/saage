@@ -71,6 +71,9 @@ def _build_parser() -> argparse.ArgumentParser:
     srv.add_argument("--host", default=None, help="override server.yaml host")
     srv.add_argument("--port", type=int, default=None, help="override server.yaml port")
     srv.add_argument("--config", default=None, help="path to server.yaml")
+    srv.add_argument("--flow-path", action="append", dest="flow_paths", metavar="DIR",
+                     help="directory to scan for */flow.yaml (repeatable; "
+                          "overrides server.yaml flow_paths)")
 
     return parser
 
@@ -267,7 +270,8 @@ def main(argv: list[str] | None = None) -> int:
         except ImportError as e:
             log.error("saage serve needs the server extra: pip install saage[server] (%s)", e)
             return 1
-        return serve(config_path=args.config, host=args.host, port=args.port)
+        return serve(config_path=args.config, host=args.host, port=args.port,
+                     flow_paths=args.flow_paths)
     _setup_logging(args.verbose, args.quiet)
     log = logging.getLogger("saage")
 

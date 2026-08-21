@@ -76,3 +76,13 @@ def test_malformed_yaml_becomes_broken_flow_not_crash(tmp_path):
     assert cat.get("good").error is None
     assert cat.get("bad").error is not None
     assert cat.get("listy").error is not None and "mapping" in cat.get("listy").error
+
+
+class TestConfigSource:
+    def test_source_none_when_missing(self, tmp_path):
+        assert load_server_config(tmp_path / "nope.yaml").source is None
+
+    def test_source_set_when_read(self, tmp_path):
+        p = tmp_path / "server.yaml"
+        p.write_text("port: 9000\n")
+        assert load_server_config(p).source == p.resolve()

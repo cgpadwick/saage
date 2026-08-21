@@ -129,6 +129,16 @@ POSIX signals, which are unavailable on Windows.
 
 ```bash
 pip install -e ".[server]"           # install fastapi + uvicorn extras
+saage serve                          # from the repo root: ./flows is picked up automatically
+# Open http://127.0.0.1:8321
+```
+
+With no config file, `saage serve` auto-discovers a `flows/` directory under the
+current directory, and `--flow-path DIR` (repeatable) adds any directory without
+a config. For a persistent setup — and to enable the natural-language launcher —
+write `~/.saage/server.yaml`:
+
+```bash
 cat > ~/.saage/server.yaml << 'EOF'
 flow_paths:
   - ./flows                          # search these dirs for */flow.yaml
