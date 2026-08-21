@@ -28,8 +28,14 @@ from .parse import parse_launch
 _HERE = Path(__file__).parent
 
 
-def _tail(path: Path, job_status, since: int = 0):
-    """Generator that tails a file and yields SSE events until job reaches terminal state."""
+def _tail(path: Path, job_status, since: int = 0, fallback: Path | None = None):
+    """Generator that tails a file and yields SSE events until job reaches terminal state.
+
+    `fallback` is the job's server_launch.log (the child's raw stdout+stderr).
+    Python tracebacks are printed raw to stderr, never through logging, so a
+    startup crash (e.g. missing API key) leaves run.log empty and the actual
+    error only in the launch log — on a crashed/failed job its tail is appended
+    so the UI shows the real failure instead of a blank pane."""
     offset = since
     while True:
         if path.exists():
@@ -49,6 +55,23 @@ def _tail(path: Path, job_status, since: int = 0):
                 if chunk:
                     offset += len(chunk)
                     yield f"data: {json.dumps({'chunk': chunk.decode(errors='replace'), 'offset': offset})}\n\n"
+            if s in ("crashed", "failed") and fallback is not None and fallback.exists():
+                # Bounded read: a long run's launch log can be huge — only the
+                # last 64KB can hold the final traceback anyway.
+                with open(fallback, "rb") as f:
+                    size = f.seek(0, 2)
+                    f.seek(max(0, size - 65536))
+                    data = f.read()
+                lines = data.decode("utf-8", errors="replace").splitlines()[-50:]
+                if lines:
+                    block = (f"\n—— launch output ({fallback.name}, last "
+                             f"{len(lines)} line(s)) ——\n" + "\n".join(lines) + "\n")
+                    # offset deliberately NOT advanced: it is the client's
+                    # resume position in run.log, and this block is not part of
+                    # that file. A client that reconnects mid-drain re-receives
+                    # the block, which is harmless (the next attempt also ends
+                    # in `done`, closing the EventSource).
+                    yield f"data: {json.dumps({'chunk': block, 'offset': offset})}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': s})}\n\n"
             return
         # SSE comment (ignored by EventSource): forces a write each poll so a
@@ -284,7 +307,8 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
         run_dir = registry.home / "runs" / job_id
         log_path = run_dir / "run.log"
         return StreamingResponse(
-            _tail(log_path, _status_fn(job_id, entry), since=since),
+            _tail(log_path, _status_fn(job_id, entry), since=since,
+                  fallback=run_dir / "server_launch.log"),
             media_type="text/event-stream",
         )
 
