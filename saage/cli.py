@@ -16,6 +16,8 @@ import os
 import sys
 from pathlib import Path
 
+import yaml
+
 from .hydrate import build_flow
 from . import checkpoint as ckpt
 
@@ -65,6 +67,10 @@ def _build_parser() -> argparse.ArgumentParser:
     rv.add_argument("-q", "--quiet", action="store_true")
 
     sub.add_parser("runs", help="list resumable runs")
+
+    val = sub.add_parser("validate",
+                         help="check a flow.yaml without running it (no API key needed)")
+    val.add_argument("flow", metavar="flow.yaml", help="path to the flow YAML")
 
     srv = sub.add_parser("serve", help="run the local flow job-manager web UI")
     srv.add_argument("--host", default=None, help="override server.yaml host")
@@ -239,8 +245,47 @@ def _cmd_resume(args) -> int:
     return 0
 
 
+def _cmd_validate(args) -> int:
+    """Hydrate the flow with a dummy provider: parses the YAML, validates the
+    spec, loads every skill.md, and wires the loop graph — no key, no tokens."""
+    import tempfile
+
+    from .hydrate import build_flow
+    from .skills import load_skills
+    path = Path(args.flow)
+    if not path.is_file():
+        print(f"saage: error: flow file not found: {path}", file=sys.stderr)
+        return 1
+    build_flow(path, provider=object(),
+               workspace=tempfile.mkdtemp(prefix="saage-validate-"))
+    spec = yaml.safe_load(path.read_text(encoding="utf-8"))
+    print(f"ok: {path} — {len(spec['workflow'])} top-level step(s), "
+          f"{len(load_skills(path.parent))} skill(s)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Entry point: run _main and turn authoring errors into clean one-line
+    CLI errors instead of tracebacks."""
+    from .validate import FlowSpecError
+    try:
+        return _main(argv)
+    except FlowSpecError as e:
+        print(f"saage: error: {e}", file=sys.stderr)
+        return 1
+    except yaml.YAMLError as e:
+        print(f"saage: error: invalid YAML: {e}", file=sys.stderr)
+        return 1
+    except FileNotFoundError as e:
+        print(f"saage: error: {e}", file=sys.stderr)
+        return 1
+
+
+def _main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if args.command == "validate":
+        _setup_logging(verbose=False, quiet=True)
+        return _cmd_validate(args)
     if args.command == "remote":
         _setup_logging(verbose=False, quiet=False)
         from .remote.cli import dispatch
@@ -272,6 +317,10 @@ def main(argv: list[str] | None = None) -> int:
                   "continue it, or a different --run-id", run_id, existing.dir, run_id)
         return 1
 
+    if not Path(args.flow).is_file():
+        # fail before Checkpoint.create — a typo'd path must not leave a run dir
+        log.error("flow file not found: %s", args.flow)
+        return 1
     flow_path = str(Path(args.flow).resolve())
     run = ckpt.Checkpoint.create(
         run_id,
