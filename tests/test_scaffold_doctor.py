@@ -62,3 +62,29 @@ class TestDoctor:
         monkeypatch.chdir(tmp_path)
         assert main(["doctor"]) == 0
         assert "good: hydrates" in capsys.readouterr().out
+
+
+class TestNewNameValidation:
+    def test_rejects_traversal_and_separators(self, tmp_path):
+        for bad in ("../evil", "a/b", "/abs", ".."):
+            with pytest.raises(ValueError, match="invalid flow name"):
+                new_flow(bad, tmp_path)
+        with pytest.raises(ValueError, match="invalid flow name"):
+            new_flow(".hidden", tmp_path)
+
+    def test_cleans_up_on_write_failure(self, tmp_path, monkeypatch):
+        import saage.scaffold as sc
+        monkeypatch.setattr(sc.Path, "write_text",
+                            lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+        with pytest.raises(OSError):
+            new_flow("doomed", tmp_path)
+        assert not (tmp_path / "doomed").exists()   # no half-written scaffold
+
+
+def test_doctor_ignores_hidden_and_junk_dirs(tmp_path, monkeypatch, capsys):
+    d = tmp_path / "flows" / ".venv"
+    d.mkdir(parents=True)
+    (d / "flow.yaml").write_text("garbage: [")
+    monkeypatch.chdir(tmp_path)
+    assert main(["doctor"]) == 0        # the broken hidden flow is not diagnosed
+    assert ".venv" not in capsys.readouterr().out

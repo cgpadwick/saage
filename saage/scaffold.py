@@ -1,6 +1,7 @@
 """`saage new <name>` — scaffold a runnable flow directory from a template."""
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 _FLOW_YAML = '''\
@@ -44,12 +45,20 @@ def new_flow(name: str, parent: Path | None = None) -> Path:
     Default parent: ./flows when it exists (the repo convention), else the
     current directory. Refuses to touch an existing directory.
     """
+    if name != Path(name).name or name.startswith("."):
+        # one plain directory name — no separators, no '..', no hidden dirs
+        raise ValueError(f"invalid flow name {name!r}: use a plain directory "
+                         f"name (letters, digits, _ or -)")
     if parent is None:
         parent = Path("flows") if Path("flows").is_dir() else Path(".")
     dest = parent / name
     if dest.exists():
         raise FileExistsError(f"{dest} already exists — pick another name or delete it")
     (dest / "do_work").mkdir(parents=True)
-    (dest / "flow.yaml").write_text(_FLOW_YAML.format(name=name), encoding="utf-8")
-    (dest / "do_work" / "skill.md").write_text(_SKILL_MD, encoding="utf-8")
+    try:
+        (dest / "flow.yaml").write_text(_FLOW_YAML.format(name=name), encoding="utf-8")
+        (dest / "do_work" / "skill.md").write_text(_SKILL_MD, encoding="utf-8")
+    except BaseException:
+        shutil.rmtree(dest, ignore_errors=True)   # no half-written scaffold
+        raise
     return dest

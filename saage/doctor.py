@@ -36,6 +36,14 @@ def _bad(msg: str) -> None:
 def run_doctor() -> int:
     problems = 0
 
+    # the ✓/✗/- glyphs must never crash a legacy-codepage (cp1252) console;
+    # doctor runs before cli._setup_logging's equivalent guard
+    if os.name == "nt":
+        try:
+            sys.stdout.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
     print("environment")
     v = sys.version_info
     if v >= (3, 10):
@@ -77,8 +85,16 @@ def run_doctor() -> int:
               f"auto-discovers ./flows")
 
     print("flows")
-    flow_files = sorted(Path("flows").glob("*/flow.yaml")) or \
-        sorted(Path(".").glob("*/flow.yaml"))
+
+    def _flow_files(base: Path) -> list[Path]:
+        # pathlib's `*` matches dotdirs too — skip hidden/tooling dirs so a
+        # stray .venv/flow.yaml or node_modules copy is never "diagnosed"
+        junk = {"node_modules", "__pycache__"}
+        return sorted(p for p in base.glob("*/flow.yaml")
+                      if not p.parent.name.startswith(".")
+                      and p.parent.name not in junk)
+
+    flow_files = _flow_files(Path("flows")) or _flow_files(Path("."))
     if not flow_files:
         _warn("no */flow.yaml found under ./flows or . — "
               "scaffold one with: saage new my_flow")
