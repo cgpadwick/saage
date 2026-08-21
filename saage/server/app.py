@@ -6,6 +6,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -130,6 +131,7 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
 
     catalog = FlowCatalog(config)
     catalog.refresh()
+    app.state.catalog = catalog          # exposed for serve()'s startup summary
     registry = JobRegistry()
 
     _LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
@@ -318,7 +320,11 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
         """Home page: flow launcher and active jobs table."""
         catalog.refresh()
         flows = list(catalog.flows.values())
-        return templates.TemplateResponse(request, "home.html", {"flows": flows})
+        return templates.TemplateResponse(request, "home.html", {
+            "flows": flows,
+            "flow_paths": [str(p) for p in config.flow_paths],
+            "nl_enabled": config.parser_provider is not None,
+        })
 
     @app.get("/flow-knobs", response_class=HTMLResponse)
     def flow_knobs(request: Request, flow: str = ""):
@@ -520,14 +526,44 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
     return app
 
 
-def serve(config_path=None, host=None, port=None) -> int:
+def serve(config_path=None, host=None, port=None, flow_paths=None) -> int:
     """Load config, create app, and run uvicorn. Called by `saage serve`."""
     import uvicorn
 
+    from ..paths import saage_home
+
+    log = logging.getLogger("saage.server")
     cfg = load_server_config(config_path)
+    if cfg.source is not None:
+        log.info("server config: %s", cfg.source)
+    else:
+        log.info("server config: %s (not found — using defaults)",
+                 config_path or saage_home() / "server.yaml")
+    if flow_paths:                      # --flow-path DIR beats server.yaml
+        cfg.flow_paths = [Path(p).expanduser().resolve() for p in flow_paths]
+    elif not cfg.flow_paths:
+        # zero-config: if the launch directory has a flows/ dir, just use it
+        discovered = Path.cwd() / "flows"
+        if any(discovered.glob("*/flow.yaml")):
+            cfg.flow_paths = [discovered.resolve()]
+            log.info("auto-discovered flows in %s", cfg.flow_paths[0])
+    for p in cfg.flow_paths:
+        if not Path(p).is_dir():
+            log.warning("flow path does not exist: %s", p)
     if host is not None:
         cfg.host = host
     if port is not None:
         cfg.port = port
-    uvicorn.run(create_app(cfg), host=cfg.host, port=cfg.port)
+    app = create_app(cfg)
+    n = len(app.state.catalog.flows)
+    log.info("%d flow(s) found in %s", n,
+             ", ".join(str(p) for p in cfg.flow_paths) or "(no flow_paths)")
+    if n == 0:
+        log.warning("no flows will show in the UI — pass --flow-path DIR, add "
+                    "flow_paths to %s, or start saage serve from a directory "
+                    "containing flows/", cfg.source or "~/.saage/server.yaml")
+    if cfg.parser_provider is None:
+        log.info("natural-language launcher disabled "
+                 "(no parser_provider in server.yaml)")
+    uvicorn.run(app, host=cfg.host, port=cfg.port)
     return 0
