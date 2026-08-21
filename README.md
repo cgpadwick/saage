@@ -3,9 +3,9 @@
 [![CI](https://github.com/cgpadwick/saage/actions/workflows/ci.yml/badge.svg)](https://github.com/cgpadwick/saage/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-**SAAGE** (`saage`) is a **deterministic** composable agentic workflow engine. Control flow
-(loops, retries, polling, exit conditions) is owned by code — not by an LLM's judgment —
-while individual steps still use LLMs to do the work. It's a *graph* engine: workflows are
+SAAGE is a deterministic, composable agentic workflow engine. Control flow
+(loops, retries, polling, exit conditions) is owned by code, not by an LLM's judgment,
+while individual steps still use LLMs to do the work. It's a graph engine: workflows are
 hydrated into a graph of nodes over a shared store.
 
 Built on [PocketFlow](https://github.com/The-Pocket/PocketFlow) (graph + shared-store),
@@ -78,9 +78,16 @@ uv run saage run flows/story_writer/flow.yaml
 ## Quickstart
 
 ```bash
-pytest -q                         # 22 tests, fully offline, no API key needed
-saage run flows/story_writer/flow.yaml          # a live run (needs a provider key, below)
-saage run flows/optimize_until_threshold/flow.yaml --set target_accuracy=0.8
+pytest -q                         # full suite, offline, no API key needed
+saage run flows/story_writer/flow.yaml          # a live run (needs OPENROUTER_API_KEY; see Providers below)
+saage run flows/guessing_game/flow.yaml --set target=0.3   # override a flow knob from the CLI
+```
+
+The example flows are pinned to OpenRouter. To run one with a different provider,
+override both the provider and the model (the model id must match the provider):
+
+```bash
+saage run flows/story_writer/flow.yaml --provider anthropic --model claude-opus-4-8
 ```
 
 While a flow runs, the engine logs each step to stderr as it happens — flow
@@ -95,8 +102,8 @@ Use `-v` for tool-output detail and the full per-node results, `-q` to quiet it:
 12:00:01  loaded 3 skill(s): add_twist, review, write_scene
 12:00:01  workflow ready: 2 top-level step(s)
 12:00:01  ▶ scene  [agent: write_scene]
-              ⠹ cogitating…            ← braille spinner animates during each
-12:00:03      ⚙ write_file story.md       model call, then clears itself
+              ⠹ cogitating…               (spinner shown during each model call)
+12:00:03      ⚙ write_file story.md
 12:00:03    ✓ scene → default
 ...
 12:00:09  ↻ draft: iteration 1/3 done — continuing
@@ -305,7 +312,7 @@ The model id is whatever the backend expects — e.g. `gpt-4o` for `openai`,
 
 A **flow** is a directory containing `flow.yaml` plus one sub-directory per **skill**
 (`skill.md` = Claude-style frontmatter + instructions, with optional `.py` files the agent
-runs via `run_command`). The YAML composes steps with three loop **primitives**:
+runs via `run_command`). The YAML composes steps with three loop primitives:
 
 - **`retry_loop`** — `action → check`; on `fail` loop back (with the checker's feedback fed
   in) until `pass` or `max_iterations`. *(e.g. implement → run tests)*
@@ -394,7 +401,7 @@ starts, and disconnects. Any flow works remotely with zero flow edits.
 saage remote init                                   # one-time: ssh key + credentials file
 saage remote add-target spark --host spark.local --user saage   # any SSH-able box
 saage remote handoff flows/greenfield_ml/flow.yaml --target spark \
-    --set train_epochs=8                            # the button
+    --set train_epochs=8                            # package, push, start, disconnect
 
 saage remote status            # phase, heartbeat, ledger, log tail (latest run)
 saage remote logs --live       # follow the engine log
@@ -467,14 +474,16 @@ are scripted, so the suite is free, offline, and bit-reproducible. For a real en
 smoke test, run a flow live against a provider:
 
 ```bash
-ANTHROPIC_API_KEY=... saage run flows/story_writer/flow.yaml
+OPENROUTER_API_KEY=... saage run flows/story_writer/flow.yaml
 ```
+
+(or point it at another provider with `--provider`/`--model`, above).
 
 (A `live` pytest marker is reserved in `pyproject.toml` for future provider-hitting tests.)
 
 ## Status
 
-Working. ~800 lines across 9 modules. See [`docs/plan.md`](docs/plan.md) for the full design.
+Working and in active use. See [`docs/plan.md`](docs/plan.md) for the original design.
 
 ## License
 
