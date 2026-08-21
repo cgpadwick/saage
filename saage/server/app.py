@@ -196,7 +196,11 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
                 status_code=503,
                 detail="parser_provider not configured in server.yaml")
         from saage.hydrate import make_provider
-        _provider_box["provider"] = make_provider(config.parser_provider)
+        from saage.llm import ProviderKeyError
+        try:
+            _provider_box["provider"] = make_provider(config.parser_provider)
+        except ProviderKeyError as e:
+            raise HTTPException(status_code=503, detail=str(e))
         return _provider_box["provider"]
 
     # ------------------------------------------------------------------
