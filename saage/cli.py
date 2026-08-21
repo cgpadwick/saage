@@ -239,6 +239,9 @@ def _cmd_resume(args) -> int:
                  workspace=workspace, venv=rec.get("venv"),
                  config=rec.get("config_path"), resume=run)
     except ProviderKeyError as e:
+        # checkpoint deliberately untouched: the aborted attempt never ran a
+        # step, so the run stays exactly as resumable as before — export the
+        # key and `saage resume` again
         log.error("%s", e)
         return 1
     return 0
