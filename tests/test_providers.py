@@ -81,3 +81,26 @@ def test_agent_flow_preflights_key_even_when_nested(tmp_path, monkeypatch):
         "      - { id: a, type: agent, skill: s }\n")
     with pytest.raises(ProviderKeyError, match="OPENAI_API_KEY"):
         build_flow(flow, workspace=str(tmp_path / "ws"))
+
+
+# ------------------------------------------------------------------------- #
+# request_timeout: per-call cap plumbed to the SDK client; bad values fail at
+# build time (like step `timeout:`), not as an httpx surprise mid-run
+# ------------------------------------------------------------------------- #
+
+def test_request_timeout_is_plumbed(monkeypatch):
+    p = make_provider({"type": "local", "model": "m", "request_timeout": 3600})
+    assert p.request_timeout == 3600
+    assert p.client.timeout == 3600           # reached the openai client
+    assert p.client.max_retries == 0          # saage's retry layer owns retries
+
+
+def test_request_timeout_defaults_to_sdk(monkeypatch):
+    p = make_provider({"type": "local", "model": "m"})
+    assert p.request_timeout is None          # SDK default stays in charge
+
+
+@pytest.mark.parametrize("bad", ["1h", -5, 0, True, float("inf")])
+def test_bad_request_timeout_fails_at_build(monkeypatch, bad):
+    with pytest.raises(ValueError, match="request_timeout"):
+        make_provider({"type": "local", "model": "m", "request_timeout": bad})

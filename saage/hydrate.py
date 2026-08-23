@@ -50,6 +50,9 @@ def make_provider(spec: dict, require_key: bool = True):
 
     An optional `retry:` sub-block tunes the transient-failure backoff, e.g.
     `provider: { type: anthropic, model: ..., retry: { max_attempts: 8 } }`.
+    An optional `request_timeout:` (seconds) caps a single model call —
+    raise it for slow local servers whose long thinking turns outlive the
+    SDK default (600s), e.g. `{ type: local, ..., request_timeout: 3600 }`.
 
     With `require_key` (the default), a provider whose API-key env var is
     unset fails here with a message naming the var, instead of a 401 deep in
@@ -65,25 +68,34 @@ def make_provider(spec: dict, require_key: bool = True):
                 f"provider {t!r} needs an API key: set {key_env}, or pick a "
                 f"different provider with --provider/--model")
     rp = RetryPolicy(**spec["retry"]) if spec.get("retry") else None
+    rt = spec.get("request_timeout")
+    if rt is not None and (isinstance(rt, bool) or not isinstance(rt, (int, float))
+                           or not math.isfinite(rt) or rt <= 0):
+        # catch "1h"/"abc"/negative at build time, like step `timeout:` above
+        raise ValueError(f"provider request_timeout must be a positive number "
+                         f"of seconds, got {rt!r}")
     if t == "anthropic":
-        return AnthropicProvider(model, retry_policy=rp)
+        return AnthropicProvider(model, retry_policy=rp, request_timeout=rt)
     if t == "openai":
-        return OpenAIProvider(model, retry_policy=rp)
+        return OpenAIProvider(model, retry_policy=rp, request_timeout=rt)
     if t == "openrouter":
         return OpenAIProvider(model, base_url="https://openrouter.ai/api/v1",
-                              api_key_env="OPENROUTER_API_KEY", retry_policy=rp)
+                              api_key_env="OPENROUTER_API_KEY", retry_policy=rp,
+                              request_timeout=rt)
     if t == "nvidia":
         # NVIDIA's hosted models (build.nvidia.com) speak the OpenAI wire format
         # over integrate.api.nvidia.com; base_url/api_key_env stay overridable.
         return OpenAIProvider(
             model,
             base_url=spec.get("base_url", "https://integrate.api.nvidia.com/v1"),
-            api_key_env=spec.get("api_key_env", "NVIDIA_API_KEY"), retry_policy=rp)
+            api_key_env=spec.get("api_key_env", "NVIDIA_API_KEY"), retry_policy=rp,
+            request_timeout=rt)
     if t == "local":
         return OpenAIProvider(
             model,
             base_url=spec.get("base_url", "http://localhost:11434/v1"),
-            api_key_env=spec.get("api_key_env", "LOCAL_API_KEY"), retry_policy=rp)
+            api_key_env=spec.get("api_key_env", "LOCAL_API_KEY"), retry_policy=rp,
+            request_timeout=rt)
     raise ValueError(f"unknown provider type: {t!r}")
 
 

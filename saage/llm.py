@@ -149,11 +149,18 @@ class LLMProvider(Protocol):
 # --------------------------------------------------------------------------- #
 class AnthropicProvider:
     def __init__(self, model: str, max_tokens: int = 4096,
-                 retry_policy: RetryPolicy | None = None):
+                 retry_policy: RetryPolicy | None = None,
+                 request_timeout: float | None = None):
         import anthropic  # lazy: only needed when actually used
-        self.client = anthropic.Anthropic()
+        # max_retries=0: saage's call_with_retry owns retries. The SDK default
+        # (2 silent internal retries) multiplies with ours — a slow/hung server
+        # stalled a run 3 x timeout before our layer even saw one failure.
+        self.client = anthropic.Anthropic(
+            max_retries=0,
+            **({"timeout": request_timeout} if request_timeout else {}))
         self.model = model
         self.max_tokens = max_tokens
+        self.request_timeout = request_timeout
         self.retry_policy = retry_policy or RetryPolicy()
 
     def _tools(self, tools: list[Tool]) -> list[dict]:
@@ -199,16 +206,23 @@ class AnthropicProvider:
 class OpenAIProvider:
     def __init__(self, model: str, base_url: str | None = None,
                  api_key_env: str = "OPENAI_API_KEY",
-                 retry_policy: RetryPolicy | None = None):
+                 retry_policy: RetryPolicy | None = None,
+                 request_timeout: float | None = None):
         import openai  # lazy
+        # max_retries=0: saage's call_with_retry owns retries (see
+        # AnthropicProvider). request_timeout matters for `local` servers: a
+        # 27B on consumer hardware can legitimately think for >10 min (the SDK
+        # default), which read as a hang and looped timeout -> full regenerate.
         self.client = openai.OpenAI(
-            base_url=base_url,
+            base_url=base_url, max_retries=0,
+            **({"timeout": request_timeout} if request_timeout else {}),
             api_key=os.environ.get(api_key_env, "not-needed"))  # local needs no real key
         self.model = model
         # Resolved wiring kept as our own attrs so callers/tests assert on saage's
         # contract, not the (unpinned) openai client's internals.
         self.base_url = base_url
         self.api_key_env = api_key_env
+        self.request_timeout = request_timeout
         self.retry_policy = retry_policy or RetryPolicy()
 
     def _tools(self, tools: list[Tool]) -> list[dict]:
