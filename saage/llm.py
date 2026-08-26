@@ -260,6 +260,13 @@ class OpenAIProvider:
             if not getattr(r, "choices", None):
                 raise EmptyResponseError(
                     f"no choices in response: {getattr(r, 'error', None) or r!r}")
+            # A present-but-empty message (no content AND no tool calls) is the
+            # same proxy failure in a different coat — stealth/ox-alpha served
+            # these for ~75% of tool-bearing requests once. run_agent would
+            # take "" as the agent's final answer, so retry it here instead.
+            msg = r.choices[0].message
+            if not (msg.content or msg.tool_calls):
+                raise EmptyResponseError("empty message: no content or tool calls")
             return r
         r = call_with_retry(_do, policy=self.retry_policy,
                             what="openai.chat.completions.create")

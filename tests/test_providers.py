@@ -104,3 +104,20 @@ def test_request_timeout_defaults_to_sdk(monkeypatch):
 def test_bad_request_timeout_fails_at_build(monkeypatch, bad):
     with pytest.raises(ValueError, match="request_timeout"):
         make_provider({"type": "local", "model": "m", "request_timeout": bad})
+
+
+def test_empty_message_is_retried_not_swallowed(monkeypatch):
+    # a 200 whose message has neither content nor tool_calls (stealth-provider
+    # failure mode) must raise EmptyResponseError inside the retried call, so
+    # call_with_retry backs off instead of run_agent taking "" as final answer
+    from types import SimpleNamespace as NS
+    from saage.llm import EmptyResponseError
+    p = make_provider({"type": "local", "model": "m"})
+    empty = NS(choices=[NS(message=NS(content=None, tool_calls=None))], usage=None)
+    good = NS(choices=[NS(message=NS(content="done", tool_calls=None))], usage=None)
+    responses = iter([empty, empty, good])
+    monkeypatch.setattr(p.client.chat.completions, "create",
+                        lambda **kw: next(responses))
+    monkeypatch.setattr("time.sleep", lambda s: None)   # no real backoff waits
+    out = p.complete("sys", [{"role": "user", "text": "hi"}], [])
+    assert out.text == "done" and out.tool_calls == []  # survived 2 empties
