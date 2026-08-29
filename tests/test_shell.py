@@ -118,3 +118,42 @@ def test_saage_shell_cmd_forces_legacy_cmd(tmp_path, monkeypatch):
         assert str(tmp_path) in r.stdout
     finally:
         find_bash.cache_clear()
+
+
+# --- stdin: flow commands must never wait on the engine's console ------------
+# An agent that emits `cat > x` (a mangled heredoc) or `python` with no script
+# would otherwise inherit the terminal and block for the full timeout. Both run
+# paths (untimed + tree-killable) must hand the child /dev/null instead.
+
+@pytest.fixture
+def blocked_stdin():
+    """Temporarily make fd 0 a pipe whose writer is held open: any child that
+    reads stdin blocks forever unless the engine gave it EOF."""
+    r, w = os.pipe()
+    saved = os.dup(0)
+    os.dup2(r, 0)
+    try:
+        yield
+    finally:
+        os.dup2(saved, 0)
+        for fd in (r, w, saved):
+            os.close(fd)
+
+
+@pytest.mark.usefixtures("blocked_stdin")
+def test_timed_command_gets_eof_on_stdin(tmp_path):
+    r = run_shell("cat", cwd=tmp_path, timeout=5)   # would raise TimeoutExpired
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+@pytest.mark.usefixtures("blocked_stdin")
+def test_untimed_command_gets_eof_on_stdin(tmp_path):
+    import threading
+    box = {}
+    t = threading.Thread(target=lambda: box.update(r=run_shell("cat", cwd=tmp_path)),
+                         daemon=True)
+    t.start()
+    t.join(5)
+    assert not t.is_alive(), "untimed run_shell blocked on inherited stdin"
+    assert box["r"].returncode == 0

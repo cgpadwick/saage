@@ -128,12 +128,17 @@ def run_shell(command: str, *, cwd, env: dict | None = None,
             argv, use_shell = [shell, "-c", command], False
     if timeout is None:                      # untimed path: unchanged behavior
         return subprocess.run(argv, shell=use_shell, cwd=cwd, env=env,
-                              capture_output=True, **_CAPTURE)
+                              stdin=subprocess.DEVNULL, capture_output=True,
+                              **_CAPTURE)
     return _run_tree_killable(argv, use_shell, command, timeout, cwd=cwd, env=env)
 
 
 # one output contract for both run paths: odd bytes degrade to �, never crash
 _CAPTURE: dict = dict(text=True, encoding="utf-8", errors="replace")
+# stdin is ALWAYS /dev/null (both paths): a flow command must never inherit the
+# engine's console. An agent that emits `cat > x` (a mangled heredoc) or a
+# bare `python` would otherwise sit on the terminal for the whole timeout.
+# User interaction is the engine's job (tools.ask_user reads in-process).
 
 
 def _kill_tree(p: subprocess.Popen) -> None:
@@ -178,8 +183,9 @@ def _run_tree_killable(argv, use_shell: bool, command: str, timeout: float,
     engine) runs no handler, and a workload that re-sessions itself escapes
     the group kill.
     """
-    popen: dict = dict(cwd=cwd, env=env, stdout=subprocess.PIPE,
-                       stderr=subprocess.PIPE, shell=use_shell, **_CAPTURE)
+    popen: dict = dict(cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                       shell=use_shell, **_CAPTURE)
     if os.name != "nt":
         popen["start_new_session"] = True
     with subprocess.Popen(argv, **popen) as p:   # ctx mgr: pipes always closed
