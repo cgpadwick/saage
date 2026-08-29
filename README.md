@@ -79,16 +79,25 @@ uv run saage run flows/story_writer/flow.yaml
 
 ```bash
 pytest -q                         # full suite, offline, no API key needed
-saage run flows/story_writer/flow.yaml          # a live run (needs OPENROUTER_API_KEY; see Providers below)
+saage setup                       # one-time: pick a default provider + model, paste an API key
+saage run flows/story_writer/flow.yaml          # a live run with your defaults
 saage run flows/guessing_game/flow.yaml --set target=0.3   # override a flow knob from the CLI
 ```
 
-The example flows are pinned to OpenRouter. To run one with a different provider,
-override both the provider and the model (the model id must match the provider):
+`saage setup` is interactive (aws-configure style): it validates the key with a
+cheap live call, saves the defaults to `~/.saage/config.yaml`, and the key to
+`~/.saage/credentials.toml` (chmod 600). The example flows don't pin a provider,
+so they all run with whatever you chose. Prefer env vars? `export
+OPENROUTER_API_KEY=...` (etc.) always wins over the saved key, and
+`--provider/--model` beats everything for a single run:
 
 ```bash
 saage run flows/story_writer/flow.yaml --provider anthropic --model claude-opus-4-8
 ```
+
+A flow *can* pin its own `provider: { type: ..., model: ... }` block (e.g. one
+that needs a specific strong model) — a pin beats your defaults, and the model
+id must then match that provider.
 
 While a flow runs, the engine logs each step to stderr as it happens — flow
 loading, skills loaded, every node entering/finishing, model calls, tool calls,
@@ -128,15 +137,18 @@ monitoring. The server requires a POSIX OS (Linux/macOS): job control uses proce
 POSIX signals, which are unavailable on Windows.
 
 ```bash
-pip install -e ".[server]"           # install fastapi + uvicorn extras
+uv pip install -e ".[server]"        # fastapi + uvicorn extras (plain pip works
+                                     # in a venv that has pip; `uv venv` doesn't)
 saage serve                          # from the repo root: ./flows is picked up automatically
 # Open http://127.0.0.1:8321
 ```
 
 With no config file, `saage serve` auto-discovers a `flows/` directory under the
 current directory, and `--flow-path DIR` (repeatable) adds any directory without
-a config. For a persistent setup — and to enable the natural-language launcher —
-write `~/.saage/server.yaml`:
+a config. If you've run `saage setup`, that's all you need — jobs and the
+natural-language launcher use your saved defaults and key. A
+`~/.saage/server.yaml` customizes any of it (an explicit `parser_provider`
+beats the setup defaults):
 
 ```bash
 cat > ~/.saage/server.yaml << 'EOF'
@@ -149,7 +161,6 @@ host: 127.0.0.1
 port: 8321
 EOF
 
-export OPENROUTER_API_KEY="sk-or-..."  # or set ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
 saage serve
 # Open http://127.0.0.1:8321
 ```
@@ -222,7 +233,8 @@ curl http://127.0.0.1:8321/jobs/<job_id>/dag.svg
 - **`flow_paths`** (list) — directories whose *immediate* subdirectories are scanned for
   `<flow_name>/flow.yaml` (one level deep, not recursive). Paths are relative to cwd or absolute.
 - **`parser_provider`** (dict, optional) — LLM provider spec (same shape as `provider:` in
-  flow.yaml). If not set, the natural-language parser is disabled (503 Service Unavailable).
+  flow.yaml). If not set, falls back to your `saage setup` defaults; with neither, the
+  natural-language parser is disabled (503 Service Unavailable).
   Examples: `{ type: anthropic, model: claude-opus-4-8 }`,
   `{ type: openrouter, model: "anthropic/claude-3.5-sonnet" }`.
 - **`host`** (str, default `127.0.0.1`) — bind address.
@@ -261,8 +273,14 @@ level) if resumability matters.
 
 ## Providers
 
-The native agent loop is provider-agnostic. Set the YAML `provider.type` and the matching
-env var:
+The native agent loop is provider-agnostic. The provider for a run is resolved as:
+
+1. `--provider/--model/--base-url` CLI flags (single-run override), else
+2. the flow's own `provider:` block (a pin — for flows that need a specific model), else
+3. your `saage setup` defaults (`~/.saage/config.yaml`).
+
+The API key comes from the provider's env var when set, else from
+`~/.saage/credentials.toml` `[keys]` (written by `saage setup`, chmod 600):
 
 | `provider.type` | backend | env var |
 |---|---|---|
@@ -484,7 +502,8 @@ are scripted, so the suite is free, offline, and bit-reproducible. For a real en
 smoke test, run a flow live against a provider:
 
 ```bash
-OPENROUTER_API_KEY=... saage run flows/story_writer/flow.yaml
+saage setup                                    # once: default provider/model + key
+saage run flows/story_writer/flow.yaml
 ```
 
 (or point it at another provider with `--provider`/`--model`, above).

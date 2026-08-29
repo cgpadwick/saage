@@ -57,7 +57,11 @@ control flow is deterministic (code) and only step *content* comes from an LLM.
    (Git Bash on Windows; `find_bash()` discovery, `SAAGE_SHELL` override).
 8. `config.py` — `EngineConfig` + the `run_command` denylist policy (`DEFAULT_DENY`),
    tunable via `--config engine.yaml`. `retry.py` — provider-call backoff. `skills.py`
-   — parse `skill.md`. `spinner.py` — TTY progress.
+   — parse `skill.md`. `spinner.py` — TTY progress. `settings.py` — user defaults
+   (`~/.saage/config.yaml` provider block) + API-key store (credentials.toml `[keys]`);
+   `setup.py` — the interactive `saage setup` wizard that writes them. Provider
+   resolution: CLI flags → flow `provider:` pin → setup defaults; key: env var →
+   stored key (exported into the env by `make_provider`).
 
 **Key invariants when editing:**
 - *Determinism is the product.* Control flow (looping, polling, exit conditions, ordering)

@@ -73,13 +73,13 @@ def validate_spec(spec, require_provider: bool = True) -> None:
         raise FlowSpecError(f"flow.yaml must be a YAML mapping, got {got}")
     errors: list[str] = []
     if require_provider:
+        # `provider:` is optional — an absent block falls back to the user's
+        # `saage setup` defaults at build time. When present it pins the flow
+        # to a provider, so it must be complete (models are provider-specific).
         prov = spec.get("provider")
-        if prov is None:
-            errors.append("missing top-level 'provider:' block, e.g. "
-                          "provider: { type: openrouter, model: \"openai/gpt-4o-mini\" }")
-        elif not isinstance(prov, dict):
+        if prov is not None and not isinstance(prov, dict):
             errors.append("'provider:' must be a mapping with 'type' and 'model'")
-        else:
+        elif prov is not None:
             if not prov.get("type"):
                 errors.append("provider: missing 'type' (anthropic | openai | "
                               "openrouter | nvidia | local)")

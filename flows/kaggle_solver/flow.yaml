@@ -35,7 +35,6 @@
 # Run (after `mlebench prepare -c <comp> --data-dir ~/.mlebench/data`):
 #   OPENROUTER_API_KEY=... saage run flows/kaggle_solver/flow.yaml \
 #     --workspace /tmp/kaggle_run --set competition_id=spooky-author-identification
-provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 workspace: /tmp/saage_kaggle
 # what the remote sidecar collects from the workspace (local runs ignore this)
 artifacts: [experiments.jsonl, research_log.md, report.html]

@@ -20,9 +20,17 @@ class TestValidateSpec:
     def test_not_a_mapping(self):
         assert "must be a YAML mapping" in _err(["steps"])
 
-    def test_missing_provider_and_workflow(self):
+    def test_missing_workflow(self):
+        # provider: is optional (saage setup defaults fill it at build time),
+        # so an empty spec complains about the workflow only
         msg = _err({})
-        assert "'provider:'" in msg and "'workflow:'" in msg
+        assert "'workflow:'" in msg and "'provider:'" not in msg
+
+    def test_partial_provider_block_still_flagged(self):
+        # a present block pins the flow, so it must be complete
+        msg = _err({"provider": {"type": "openai"},
+                    "workflow": [{"id": "a", "type": "command", "run": "x"}]})
+        assert "missing 'model'" in msg
 
     def test_provider_skipped_when_injected(self):
         validate_spec({"workflow": [{"id": "s", "type": "command", "run": "x"}]},

@@ -24,7 +24,6 @@
 # Run (long-lived — use tmux/nohup):
 #   OPENROUTER_API_KEY=... saage run flows/lewm_hillclimb/flow.yaml
 #   ... --set train_epochs=8 --set target_success=74.0   # tunable
-provider: { type: openrouter, model: "deepseek/deepseek-v4-flash" }
 workspace: /home/cpadwick/code/le-wm
 venv: .venv
 shared:

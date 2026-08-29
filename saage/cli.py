@@ -78,6 +78,9 @@ def _build_parser() -> argparse.ArgumentParser:
     new.add_argument("--dir", dest="parent", metavar="DIR", default=None,
                      help="parent directory (default: ./flows if it exists, else .)")
 
+    sub.add_parser("setup", help="interactive setup: default provider, model, "
+                                 "and API key (aws-configure style)")
+
     sub.add_parser("doctor", help="check the local setup: python, keys, flows")
 
     srv = sub.add_parser("serve", help="run the local flow job-manager web UI")
@@ -319,6 +322,9 @@ def _main(argv: list[str] | None = None) -> int:
               f"  2. saage validate {dest}/flow.yaml     # free, no API key\n"
               f"  3. saage run {dest}/flow.yaml          # needs the provider's key")
         return 0
+    if args.command == "setup":
+        from .setup import run_setup
+        return run_setup()
     if args.command == "doctor":
         from .doctor import run_doctor
         return 1 if run_doctor() else 0
