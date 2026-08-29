@@ -23,81 +23,63 @@ behavior entirely. This engine makes the LLM choose only *content*, never *contr
 
 ## Install
 
-Requires Python ≥ 3.10. Recommended with [uv](https://docs.astral.sh/uv/):
+Requires Python ≥ 3.10. Clone, run the setup script, done:
 
 ```bash
 git clone <this-repo> && cd saage
-uv venv                          # create .venv/
+./setup.sh                       # Linux / macOS / WSL2
 source .venv/bin/activate
-uv pip install -e ".[dev]"       # editable install + pytest
 ```
-
-This installs the `saage` CLI and the `saage` import. `-e` (editable) makes source edits take
-effect immediately; drop it for a normal install. `[dev]` adds `pytest`.
-
-**Platforms:** Linux, macOS, and Windows — both WSL2 and native.
-
-### Native Windows
-
-Flow commands are POSIX `sh` everywhere; on Windows the engine runs them
-through Git Bash, so the same flow works unchanged on every OS. What you need:
-
-- **Python ≥ 3.10** from [python.org](https://www.python.org/downloads/) or
-  `winget install Python.Python.3.12` — with `python` on `PATH` (flows use
-  the auto-seeded `{{ python }}` variable, which is `python` on Windows and
-  `python3` elsewhere; there is no `python3.exe` on Windows).
-- **[Git for Windows](https://git-scm.com/download/win)** — required anyway
-  for the engine's git tools, and its bundled `bash.exe` is what runs flow
-  commands. The engine finds it automatically (next to `git.exe`); it never
-  uses `System32\bash.exe` (the WSL launcher). Set `SAAGE_SHELL` to a bash
-  path to override discovery.
 
 ```powershell
 git clone <this-repo>; cd saage
-python -m venv .venv
+setup_windows.bat                # native Windows
 .venv\Scripts\activate
-pip install -e ".[dev]"
-pytest -q                        # full offline suite, should be green
 ```
 
-Both `saage run` and `saage remote` work natively: handoffs from Windows push
-over ssh with binary-safe stdin, and transfers go over tar-into-ssh — no
-extra installs beyond Git for Windows, and **don't** install an rsync port:
-on Windows saage deliberately never uses rsync (cygwin/MSYS rsync mis-parses
-`C:/...` paths as remote hosts). Verified live against Lambda Cloud and
-Thunder Compute nodes.
+The script creates `.venv/`, installs everything (CLI, web UI, test tools;
+editable, so source edits take effect immediately), and finishes with a
+`saage doctor` environment check. It's idempotent — re-run it after a `git
+pull`. Prefer doing it by hand? It's just `python -m venv .venv` +
+`pip install -e ".[dev,server]"` (or `uv venv` + `uv pip install`, which
+`setup.sh` uses automatically when uv is installed).
 
-Alternatives:
-
-```bash
-pip install -e ".[dev]"          # plain pip
-uv run pytest -q                 # uv as runner — no manual activate
-uv run saage run flows/story_writer/flow.yaml
-```
+**Platforms:** Linux, macOS, and Windows — both WSL2 and native. On native
+Windows you also need [Git for Windows](https://git-scm.com/download/win):
+flow commands are POSIX `sh` everywhere, and its bundled `bash.exe` is what
+runs them (found automatically next to `git.exe`, never `System32\bash.exe`;
+set `SAAGE_SHELL` to override). Don't install an rsync port — saage
+deliberately never uses rsync on Windows; remote handoffs go over
+tar-into-ssh and work natively.
 
 ## Quickstart
 
 ```bash
-pytest -q                         # full suite, offline, no API key needed
 saage setup                       # one-time: pick a default provider + model, paste an API key
-saage run flows/story_writer/flow.yaml          # a live run with your defaults
-saage run flows/guessing_game/flow.yaml --set target=0.3   # override a flow knob from the CLI
+saage serve                       # web UI at http://127.0.0.1:8321 — browse and launch flows
 ```
 
 `saage setup` is interactive (aws-configure style): it validates the key with a
 cheap live call, saves the defaults to `~/.saage/config.yaml`, and the key to
-`~/.saage/credentials.toml` (chmod 600). The example flows don't pin a provider,
-so they all run with whatever you chose. Prefer env vars? `export
-OPENROUTER_API_KEY=...` (etc.) always wins over the saved key, and
-`--provider/--model` beats everything for a single run:
+`~/.saage/credentials.toml` (chmod 600). Everything — CLI runs, the web UI, its
+natural-language launcher — uses those defaults from then on.
+
+Or drive it from the command line:
 
 ```bash
+saage run flows/story_writer/flow.yaml                     # a live run with your defaults
+saage run flows/guessing_game/flow.yaml --set target=0.3   # override a flow knob
 saage run flows/story_writer/flow.yaml --provider anthropic --model claude-opus-4-8
+                                                           # different provider for one run
+pytest -q                         # full test suite: offline, no API key needed
 ```
 
-A flow *can* pin its own `provider: { type: ..., model: ... }` block (e.g. one
-that needs a specific strong model) — a pin beats your defaults, and the model
-id must then match that provider.
+The example flows don't pin a provider, so they all run with whatever you chose
+in setup. `export OPENROUTER_API_KEY=...` (etc.) always wins over the saved
+key, and `--provider/--model` beats everything for a single run. A flow *can*
+pin its own `provider: { type: ..., model: ... }` block (e.g. one that needs a
+specific strong model) — a pin beats your defaults, and the model id must then
+match that provider.
 
 While a flow runs, the engine logs each step to stderr as it happens — flow
 loading, skills loaded, every node entering/finishing, model calls, tool calls,
@@ -137,26 +119,24 @@ monitoring. The server requires a POSIX OS (Linux/macOS): job control uses proce
 POSIX signals, which are unavailable on Windows.
 
 ```bash
-uv pip install -e ".[server]"        # fastapi + uvicorn extras (plain pip works
-                                     # in a venv that has pip; `uv venv` doesn't)
 saage serve                          # from the repo root: ./flows is picked up automatically
 # Open http://127.0.0.1:8321
 ```
 
-With no config file, `saage serve` auto-discovers a `flows/` directory under the
-current directory, and `--flow-path DIR` (repeatable) adds any directory without
-a config. If you've run `saage setup`, that's all you need — jobs and the
-natural-language launcher use your saved defaults and key. A
-`~/.saage/server.yaml` customizes any of it (an explicit `parser_provider`
-beats the setup defaults):
+(`setup.sh` installs the server; on a hand-rolled install without the
+`[server]` extra, add it with `pip install -e ".[server]"`.)
+
+The provider and API key come from `saage setup` — jobs and the
+natural-language launcher use your saved defaults; there is nothing
+LLM-related to configure on the server. With no config file, `saage serve`
+auto-discovers a `flows/` directory under the current directory, and
+`--flow-path DIR` (repeatable) adds any directory without a config. To pin
+flow directories or the bind address persistently, write `~/.saage/server.yaml`:
 
 ```bash
 cat > ~/.saage/server.yaml << 'EOF'
 flow_paths:
   - ./flows                          # search these dirs for */flow.yaml
-parser_provider:
-  type: openrouter
-  model: "anthropic/claude-3.5-sonnet"  # or any provider type (anthropic, openai, etc.)
 host: 127.0.0.1
 port: 8321
 EOF
@@ -232,11 +212,11 @@ curl http://127.0.0.1:8321/jobs/<job_id>/dag.svg
 
 - **`flow_paths`** (list) — directories whose *immediate* subdirectories are scanned for
   `<flow_name>/flow.yaml` (one level deep, not recursive). Paths are relative to cwd or absolute.
-- **`parser_provider`** (dict, optional) — LLM provider spec (same shape as `provider:` in
-  flow.yaml). If not set, falls back to your `saage setup` defaults; with neither, the
-  natural-language parser is disabled (503 Service Unavailable).
-  Examples: `{ type: anthropic, model: claude-opus-4-8 }`,
-  `{ type: openrouter, model: "anthropic/claude-3.5-sonnet" }`.
+- **`parser_provider`** (dict, optional) — advanced override: use a *different*
+  LLM for natural-language parsing than your `saage setup` defaults (same shape
+  as `provider:` in flow.yaml, e.g. `{ type: openrouter, model: "openai/gpt-4o-mini" }`
+  for a cheaper parser model). Normally leave it unset — the parser uses the
+  setup defaults; with neither, the NL launcher is disabled (503).
 - **`host`** (str, default `127.0.0.1`) — bind address.
 - **`port`** (int, default `8321`) — bind port.
 
@@ -315,11 +295,13 @@ You can override the flow's `provider` block without editing the YAML using
 `--provider`, `--model`, and `--base-url`. For OpenRouter:
 
 ```bash
-export OPENROUTER_API_KEY=sk-or-...
 saage run flows/story_writer/flow.yaml \
     --provider openrouter \
     --model "anthropic/claude-3.5-sonnet"      # any model id from openrouter.ai/models
 ```
+
+(The key comes from `saage setup` / the env var as usual — export
+`OPENROUTER_API_KEY=...` if you haven't saved one for that provider.)
 
 Same idea for a local model (no key needed):
 

@@ -12,7 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-uv pip install -e ".[dev]"        # editable install + pytest + boto3 (or: pip install -e ".[dev]")
+./setup.sh                         # venv + editable install of ".[dev,server]" + saage doctor
+uv pip install -e ".[dev]"        # or by hand (setup_windows.bat on native Windows)
 pytest -q                          # full suite — offline, no API key, bit-reproducible
 pytest tests/test_primitives.py -q # one file
 pytest -q -k retry                 # by name substring
