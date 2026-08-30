@@ -165,9 +165,11 @@ saage speaks to coding agents on two surfaces — say `y` at `saage setup`'s
 "wire up coding agents?" step and both are configured:
 
 - **`saage mcp`** — an MCP server (stdio) over the same job manager as the web
-  UI: `list_flows`, `launch_flow`, `job_status`, `job_logs`, `cancel_job`,
-  `validate_flow`. Claude Code, Cursor, or any MCP client can launch and
-  monitor flows as native tool calls.
+  UI: `list_flows`, `launch_flow`, `wait_for_job`, `job_status`, `job_logs`,
+  `cancel_job`, `validate_flow`. Claude Code, Cursor, or any MCP client can
+  launch and monitor flows as native tool calls — and the server steers agents
+  away from token-burning poll loops (one blocking `wait_for_job`, only after
+  asking the user).
 - **Two skills**, installed to `~/.claude/skills/` so they work in every
   project: `designing-saage-flows` (a guided interview that turns "help me
   automate X" into a concrete flow design) and `building-saage-flows` (the

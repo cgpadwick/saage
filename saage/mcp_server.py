@@ -23,12 +23,17 @@ log = logging.getLogger(__name__)
 
 _INSTRUCTIONS = """\
 saage runs deterministic multi-step LLM workflows ("flows"): control flow is
-fixed YAML, only step content comes from a model. Typical use: list_flows to
-see what exists, launch_flow to start one (it returns immediately with a
-job_id), then poll job_status / job_logs until the status is completed or
-failed. Flows can take minutes — poll, don't wait. To author a NEW flow, edit
-files (flow.yaml + skill dirs) per the repo's AGENTS.md and check it with
-validate_flow before launching."""
+fixed YAML, only step content comes from a model. list_flows shows what
+exists; launch_flow starts one in the background and returns a job_id
+immediately.
+
+After launching, DO NOT poll job_status/job_logs in a loop — each round costs
+the user tokens while the flow runs fine on its own. Instead ASK THE USER
+whether they want to wait for the result. If yes, make ONE wait_for_job call
+(it blocks server-side until the job finishes — no tokens are spent while
+blocked). If no, just report the job_id and check job_status later when the
+user asks. To author a NEW flow, edit files (flow.yaml + skill dirs) per the
+repo's AGENTS.md and check it with validate_flow before launching."""
 
 
 def _tail(path: Path, n: int) -> str | None:
@@ -58,10 +63,13 @@ def build_server(config_path=None, flow_paths=None):
                  "knobs": f.knobs, "error": f.error}
                 for f in catalog.flows.values()]
 
-    @server.tool(description="Launch a flow as a background job. Returns a "
-                             "job_id immediately — poll job_status/job_logs; "
-                             "flows can take minutes. `overrides` sets knob "
-                             "values (see list_flows).")
+    @server.tool(description="Launch a flow as a background job; returns a "
+                             "job_id immediately. `overrides` sets knob "
+                             "values (see list_flows). Then ASK THE USER "
+                             "whether to wait: one wait_for_job call if yes, "
+                             "otherwise just report the job_id. Never poll "
+                             "job_status in a loop — it wastes the user's "
+                             "tokens while the flow runs by itself.")
     def launch_flow(flow: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         catalog.refresh()
         info = catalog.get(flow)
@@ -75,11 +83,42 @@ def build_server(config_path=None, flow_paths=None):
         except ValueError as e:         # unknown knob — agent picked a bad override
             return {"error": str(e)}
         return {"job_id": job.job_id, "flow": job.flow_name,
-                "hint": "poll job_status(job_id) until completed/failed"}
+                "hint": "running in the background — ask the user whether to "
+                        "wait (one wait_for_job call) or report the job_id "
+                        "and check later; don't poll in a loop"}
+
+    @server.tool(description="Wait (blocking, server-side) until a job "
+                             "finishes, then return its status + log tail. "
+                             "ONE of these replaces a whole polling loop and "
+                             "costs no tokens while blocked. Returns with "
+                             "status 'running' after `timeout_seconds` if the "
+                             "job is still going — call again to keep "
+                             "waiting, or stop and check later.")
+    def wait_for_job(job_id: str, timeout_seconds: int = 120) -> dict[str, Any]:
+        import time
+        if registry.get(job_id) is None:
+            return {"error": f"unknown job {job_id!r}"}
+        deadline = time.monotonic() + max(1, min(int(timeout_seconds), 3600))
+        while True:
+            status = registry.status(job_id)
+            if status != "running" or time.monotonic() >= deadline:
+                break
+            time.sleep(1.0)
+        run_dir = registry.home / "runs" / job_id
+        tail_txt = _tail(run_dir / "run.log", 20) \
+            or _tail(run_dir / "server_launch.log", 20) or ""
+        out: dict[str, Any] = {"status": status, "log_tail": tail_txt}
+        if status == "running":
+            out["hint"] = ("still running after the timeout — call "
+                           "wait_for_job again to keep waiting, or report "
+                           "back to the user and check later")
+        return out
 
     @server.tool(description="Status of one job: running | completed | failed "
-                             "| cancelled, plus its record. Poll this after "
-                             "launch_flow.")
+                             "| cancelled, plus its record. For a one-off "
+                             "check when the user asks — to wait for a "
+                             "result, use wait_for_job instead of polling "
+                             "this in a loop.")
     def job_status(job_id: str) -> dict[str, Any]:
         rec = registry.get(job_id)
         if rec is None:

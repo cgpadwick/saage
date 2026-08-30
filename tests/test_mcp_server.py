@@ -39,7 +39,7 @@ def test_tool_roster(tmp_path):
     server = _server(tmp_path, {})
     tools = anyio.run(server.list_tools)
     assert {t.name for t in tools} == {
-        "list_flows", "launch_flow", "job_status", "job_logs",
+        "list_flows", "launch_flow", "wait_for_job", "job_status", "job_logs",
         "list_jobs", "cancel_job", "validate_flow"}
 
 
@@ -64,22 +64,19 @@ def test_launch_unknown_flow_and_bad_knob(tmp_path):
 
 
 @posix_only
-def test_launch_poll_logs_cycle(tmp_path):
+def test_launch_wait_logs_cycle(tmp_path):
     server = _server(tmp_path, {"echo": FLOW})
     out, is_error = _call(server, "launch_flow",
                           {"flow": "echo", "overrides": {"word": "bonjour"}})
     assert not is_error and "job_id" in out, out
+    assert "poll" not in out["hint"].split("don't")[0]   # hint steers away from polling
     job_id = out["job_id"]
 
-    deadline = time.time() + 30
-    status = None
-    while time.time() < deadline:
-        rec, _ = _call(server, "job_status", {"job_id": job_id})
-        status = rec["status"]
-        if status in ("completed", "failed"):
-            break
-        time.sleep(0.3)
-    assert status == "completed", _call(server, "job_logs", {"job_id": job_id})[0]
+    # ONE blocking wait replaces the polling loop (the token-burn fix)
+    done, _ = _call(server, "wait_for_job", {"job_id": job_id,
+                                             "timeout_seconds": 30})
+    assert done["status"] == "completed", done
+    assert "run complete" in done["log_tail"]
 
     assert (tmp_path / "flows" / "echo" / "out.txt").read_text().strip() == "bonjour"
     logs, _ = _call(server, "job_logs", {"job_id": job_id})
@@ -88,9 +85,26 @@ def test_launch_poll_logs_cycle(tmp_path):
     assert any(j["job_id"] == job_id for j in jobs["result"])
 
 
+@posix_only
+def test_wait_for_job_timeout_returns_running(tmp_path):
+    slow = ("# Sleepy flow.\nworkflow:\n"
+            "  - {id: nap, type: command, run: 'sleep 5'}\n")
+    server = _server(tmp_path, {"slow": slow})
+    out, _ = _call(server, "launch_flow", {"flow": "slow"})
+    job_id = out["job_id"]
+    t0 = time.time()
+    res, _ = _call(server, "wait_for_job", {"job_id": job_id,
+                                            "timeout_seconds": 1})
+    assert res["status"] == "running" and "again" in res["hint"]
+    assert time.time() - t0 < 4                    # returned at the timeout
+    _call(server, "cancel_job", {"job_id": job_id})
+
+
 def test_status_logs_cancel_unknown_job(tmp_path):
     server = _server(tmp_path, {})
     out, _ = _call(server, "job_status", {"job_id": "zzz"})
+    assert "unknown job" in out["error"]
+    out, _ = _call(server, "wait_for_job", {"job_id": "zzz"})
     assert "unknown job" in out["error"]
     logs, _ = _call(server, "job_logs", {"job_id": "zzz"})
     assert "unknown job" in logs["result"]

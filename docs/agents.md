@@ -41,11 +41,20 @@ jobs requires a POSIX OS (same as `saage serve`) and the `mcp` extra
 |---|---|
 | `list_flows` | flows with description + knobs (re-scans, so freshly authored flows appear) |
 | `launch_flow(flow, overrides)` | start a background job, returns `job_id` immediately |
-| `job_status(job_id)` | `running` / `completed` / `failed` / `cancelled` + the job record |
+| `wait_for_job(job_id, timeout_seconds)` | **block server-side until the job finishes** — one call instead of a polling loop, and an agent blocked on a tool call burns zero tokens |
+| `job_status(job_id)` | one-off check: `running` / `completed` / `failed` / `cancelled` + the job record |
 | `job_logs(job_id, tail)` | last N lines of the run's engine log |
 | `list_jobs` | all jobs, newest first |
 | `cancel_job(job_id)` | SIGTERM the job's process group |
 | `validate_flow(flow_yaml)` | free hydrate-check of a flow file — no key, no tokens |
+
+**Token etiquette is built in**: the server's instructions and the
+`launch_flow` response both tell the agent *not* to poll after launching —
+flows run fine unattended. The agent is steered to ask the user whether to
+wait; "yes" costs one blocking `wait_for_job` call, "no" means the job_id is
+reported and checked only when the user asks. `wait_for_job` returns cleanly
+(status `running`) at its timeout, so a client-side tool-call cap never turns
+a long flow into an error.
 
 Manual registration (what the wizard writes for you — use the absolute path
 to `saage` inside your venv, since MCP clients won't have it on PATH):
@@ -85,6 +94,7 @@ of [`AGENTS.md`](../AGENTS.md), which remains the full schema reference.
 
 An agent with both surfaces can go end to end: interview the user
 (`designing-saage-flows`) → author files (`building-saage-flows`) →
-`validate_flow` (MCP, free) → `launch_flow` → poll `job_status`/`job_logs` →
-report results — with saage guaranteeing the workflow's control flow stays
-deterministic no matter which agent drives it.
+`validate_flow` (MCP, free) → `launch_flow` → ask the user, then one
+`wait_for_job` (or hand back the job_id) → report results — with saage
+guaranteeing the workflow's control flow stays deterministic no matter which
+agent drives it.
