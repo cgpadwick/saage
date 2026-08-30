@@ -112,6 +112,14 @@ def run_shell(command: str, *, cwd, env: dict | None = None,
     process group — see the module docstring for why the group and not just
     the shell.
 
+    stdin is /dev/null on both paths: a flow command must never inherit the
+    engine's stdin. An agent that emits `cat > x` (a mangled heredoc) or a
+    bare `python` would otherwise block for the whole timeout. User
+    interaction is the engine's job (tools.ask_user reads in-process).
+    Residual: a program that opens /dev/tty directly (sudo, ssh passphrase,
+    git credential prompts) is NOT stopped by this and still waits out the
+    timeout — the git tools set GIT_TERMINAL_PROMPT=0 for their own case.
+
     Note (Windows): the command travels to bash as one argv element through
     CreateProcess quoting; a ``\\`` immediately before a ``"`` inside the
     command gets doubled in transit (`subprocess.list2cmdline` rules). Windows
@@ -128,7 +136,8 @@ def run_shell(command: str, *, cwd, env: dict | None = None,
             argv, use_shell = [shell, "-c", command], False
     if timeout is None:                      # untimed path: unchanged behavior
         return subprocess.run(argv, shell=use_shell, cwd=cwd, env=env,
-                              capture_output=True, **_CAPTURE)
+                              stdin=subprocess.DEVNULL, capture_output=True,
+                              **_CAPTURE)
     return _run_tree_killable(argv, use_shell, command, timeout, cwd=cwd, env=env)
 
 
@@ -178,8 +187,9 @@ def _run_tree_killable(argv, use_shell: bool, command: str, timeout: float,
     engine) runs no handler, and a workload that re-sessions itself escapes
     the group kill.
     """
-    popen: dict = dict(cwd=cwd, env=env, stdout=subprocess.PIPE,
-                       stderr=subprocess.PIPE, shell=use_shell, **_CAPTURE)
+    popen: dict = dict(cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                       shell=use_shell, **_CAPTURE)
     if os.name != "nt":
         popen["start_new_session"] = True
     with subprocess.Popen(argv, **popen) as p:   # ctx mgr: pipes always closed

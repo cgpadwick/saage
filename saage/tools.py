@@ -156,9 +156,15 @@ def git_tools(root: Path) -> list[Tool]:
     root = Path(root)
 
     def _git(*args: str, timeout: int = 60) -> str:
-        # explicit utf-8: Windows' locale codepage can't decode UTF-8 diff bytes
-        r = subprocess.run(["git", *args], cwd=root,
-                           capture_output=True, text=True, timeout=timeout,
+        # explicit utf-8: Windows' locale codepage can't decode UTF-8 diff bytes.
+        # stdin=DEVNULL + GIT_TERMINAL_PROMPT=0: same policy as shell.run_shell
+        # — a credential/passphrase prompt must fail fast, not sit on the
+        # engine's console until `timeout` (git opens /dev/tty for prompts,
+        # which /dev/null stdin alone would not stop).
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        r = subprocess.run(["git", *args], cwd=root, env=env,
+                           stdin=subprocess.DEVNULL, capture_output=True,
+                           text=True, timeout=timeout,
                            encoding="utf-8", errors="replace")
         out = (r.stdout + ("\n[stderr] " + r.stderr if r.stderr else "")).strip()
         return out or "(ok)"

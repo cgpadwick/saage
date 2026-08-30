@@ -118,3 +118,25 @@ def test_saage_shell_cmd_forces_legacy_cmd(tmp_path, monkeypatch):
         assert str(tmp_path) in r.stdout
     finally:
         find_bash.cache_clear()
+
+
+# --- stdin: flow commands must never wait on the engine's console ------------
+# An agent that emits `cat > x` (a mangled heredoc) or `python` with no script
+# would otherwise inherit the terminal and block for the full timeout. Both run
+# paths (untimed + tree-killable) must hand the child /dev/null instead.
+
+@pytest.mark.usefixtures("blocked_stdin")
+def test_timed_command_gets_eof_on_stdin(tmp_path):
+    r = run_shell("cat", cwd=tmp_path, timeout=5)   # would raise TimeoutExpired
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+@pytest.mark.usefixtures("blocked_stdin")
+def test_untimed_command_gets_eof_on_stdin(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(1) as ex:
+        fut = ex.submit(run_shell, "cat", cwd=tmp_path)
+        # .result(timeout) re-raises a real exception; a hang surfaces as
+        # concurrent.futures.TimeoutError
+        assert fut.result(timeout=5).returncode == 0
