@@ -12,10 +12,19 @@ teaches the agent to *author* flows, an MCP server lets it *run* them:
   monitor, cancel — as native tool calls, no shell access required.
 
 One command wires both: run **`saage setup`** and answer `y` at the
-"wire up coding agents?" step. It installs the skills into
-`~/.claude/skills/` (so they work in every project, not just the saage repo),
-registers the MCP server with the `claude` CLI when it's on PATH, and prints
-the config line for every other MCP client.
+"wire up coding agents?" step. It scans for installed agents — Claude Code,
+Cursor, Codex, Windsurf, Gemini CLI — shows the list with detected ones
+marked, and *configures* the ones you pick (Enter takes all detected):
+
+- **Claude Code** — installs the skills into `~/.claude/skills/` (so they work
+  in every project, not just the saage repo) and registers the MCP server via
+  the `claude` CLI (falling back to `~/.claude.json` directly).
+- **Cursor** (`~/.cursor/mcp.json`), **Windsurf**
+  (`~/.codeium/windsurf/mcp_config.json`), **Gemini CLI**
+  (`~/.gemini/settings.json`) — the `saage` entry is merged into the JSON,
+  everything else preserved.
+- **Codex** (`~/.codex/config.toml`) — a `[mcp_servers.saage]` section is
+  spliced in, comments and the rest of the file untouched.
 
 ## The MCP server (`saage mcp`)
 
@@ -38,8 +47,8 @@ jobs requires a POSIX OS (same as `saage serve`) and the `mcp` extra
 | `cancel_job(job_id)` | SIGTERM the job's process group |
 | `validate_flow(flow_yaml)` | free hydrate-check of a flow file — no key, no tokens |
 
-Manual registration (what the wizard does / prints — use the absolute path to
-`saage` inside your venv, since MCP clients won't have it on PATH):
+Manual registration (what the wizard writes for you — use the absolute path
+to `saage` inside your venv, since MCP clients won't have it on PATH):
 
 ```bash
 # Claude Code
