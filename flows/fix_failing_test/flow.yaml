@@ -1,7 +1,6 @@
 # Fix a failing test: implement a fix, run the suite, and on failure loop back
 # with the failure fed in as context — until the tests pass or 4 attempts run
 # out. Demonstrates retry_loop + real run_command + feedback re-injection.
-provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 
 workflow:
   - id: fix

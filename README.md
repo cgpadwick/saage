@@ -23,72 +23,63 @@ behavior entirely. This engine makes the LLM choose only *content*, never *contr
 
 ## Install
 
-Requires Python ≥ 3.10. Recommended with [uv](https://docs.astral.sh/uv/):
+Requires Python ≥ 3.10. Clone, run the setup script, done:
 
 ```bash
 git clone <this-repo> && cd saage
-uv venv                          # create .venv/
+./setup.sh                       # Linux / macOS / WSL2
 source .venv/bin/activate
-uv pip install -e ".[dev]"       # editable install + pytest
 ```
-
-This installs the `saage` CLI and the `saage` import. `-e` (editable) makes source edits take
-effect immediately; drop it for a normal install. `[dev]` adds `pytest`.
-
-**Platforms:** Linux, macOS, and Windows — both WSL2 and native.
-
-### Native Windows
-
-Flow commands are POSIX `sh` everywhere; on Windows the engine runs them
-through Git Bash, so the same flow works unchanged on every OS. What you need:
-
-- **Python ≥ 3.10** from [python.org](https://www.python.org/downloads/) or
-  `winget install Python.Python.3.12` — with `python` on `PATH` (flows use
-  the auto-seeded `{{ python }}` variable, which is `python` on Windows and
-  `python3` elsewhere; there is no `python3.exe` on Windows).
-- **[Git for Windows](https://git-scm.com/download/win)** — required anyway
-  for the engine's git tools, and its bundled `bash.exe` is what runs flow
-  commands. The engine finds it automatically (next to `git.exe`); it never
-  uses `System32\bash.exe` (the WSL launcher). Set `SAAGE_SHELL` to a bash
-  path to override discovery.
 
 ```powershell
 git clone <this-repo>; cd saage
-python -m venv .venv
+setup_windows.bat                # native Windows
 .venv\Scripts\activate
-pip install -e ".[dev]"
-pytest -q                        # full offline suite, should be green
 ```
 
-Both `saage run` and `saage remote` work natively: handoffs from Windows push
-over ssh with binary-safe stdin, and transfers go over tar-into-ssh — no
-extra installs beyond Git for Windows, and **don't** install an rsync port:
-on Windows saage deliberately never uses rsync (cygwin/MSYS rsync mis-parses
-`C:/...` paths as remote hosts). Verified live against Lambda Cloud and
-Thunder Compute nodes.
+The script creates `.venv/`, installs everything (CLI, web UI, test tools;
+editable, so source edits take effect immediately), and finishes with a
+`saage doctor` environment check. It's idempotent — re-run it after a `git
+pull`. Prefer doing it by hand? It's just `python -m venv .venv` +
+`pip install -e ".[dev,server]"` (or `uv venv` + `uv pip install`, which
+`setup.sh` uses automatically when uv is installed).
 
-Alternatives:
-
-```bash
-pip install -e ".[dev]"          # plain pip
-uv run pytest -q                 # uv as runner — no manual activate
-uv run saage run flows/story_writer/flow.yaml
-```
+**Platforms:** Linux, macOS, and Windows — both WSL2 and native. On native
+Windows you also need [Git for Windows](https://git-scm.com/download/win):
+flow commands are POSIX `sh` everywhere, and its bundled `bash.exe` is what
+runs them (found automatically next to `git.exe`, never `System32\bash.exe`;
+set `SAAGE_SHELL` to override). Don't install an rsync port — saage
+deliberately never uses rsync on Windows; remote handoffs go over
+tar-into-ssh and work natively.
 
 ## Quickstart
 
 ```bash
-pytest -q                         # full suite, offline, no API key needed
-saage run flows/story_writer/flow.yaml          # a live run (needs OPENROUTER_API_KEY; see Providers below)
-saage run flows/guessing_game/flow.yaml --set target=0.3   # override a flow knob from the CLI
+saage setup                       # one-time: pick a default provider + model, paste an API key
+saage serve                       # web UI at http://127.0.0.1:8321 — browse and launch flows
 ```
 
-The example flows are pinned to OpenRouter. To run one with a different provider,
-override both the provider and the model (the model id must match the provider):
+`saage setup` is interactive (aws-configure style): it validates the key with a
+cheap live call, saves the defaults to `~/.saage/config.yaml`, and the key to
+`~/.saage/credentials.toml` (chmod 600). Everything — CLI runs, the web UI, its
+natural-language launcher — uses those defaults from then on.
+
+Or drive it from the command line:
 
 ```bash
+saage run flows/story_writer/flow.yaml                     # a live run with your defaults
+saage run flows/guessing_game/flow.yaml --set target=0.3   # override a flow knob
 saage run flows/story_writer/flow.yaml --provider anthropic --model claude-opus-4-8
+                                                           # different provider for one run
+pytest -q                         # full test suite: offline, no API key needed
 ```
+
+The example flows don't pin a provider, so they all run with whatever you chose
+in setup. `export OPENROUTER_API_KEY=...` (etc.) always wins over the saved
+key, and `--provider/--model` beats everything for a single run. A flow *can*
+pin its own `provider: { type: ..., model: ... }` block (e.g. one that needs a
+specific strong model) — a pin beats your defaults, and the model id must then
+match that provider.
 
 While a flow runs, the engine logs each step to stderr as it happens — flow
 loading, skills loaded, every node entering/finishing, model calls, tool calls,
@@ -128,28 +119,28 @@ monitoring. The server requires a POSIX OS (Linux/macOS): job control uses proce
 POSIX signals, which are unavailable on Windows.
 
 ```bash
-pip install -e ".[server]"           # install fastapi + uvicorn extras
 saage serve                          # from the repo root: ./flows is picked up automatically
 # Open http://127.0.0.1:8321
 ```
 
-With no config file, `saage serve` auto-discovers a `flows/` directory under the
-current directory, and `--flow-path DIR` (repeatable) adds any directory without
-a config. For a persistent setup — and to enable the natural-language launcher —
-write `~/.saage/server.yaml`:
+(`setup.sh` installs the server; on a hand-rolled install without the
+`[server]` extra, add it with `pip install -e ".[server]"`.)
+
+The provider and API key come from `saage setup` — jobs and the
+natural-language launcher use your saved defaults; there is nothing
+LLM-related to configure on the server. With no config file, `saage serve`
+auto-discovers a `flows/` directory under the current directory, and
+`--flow-path DIR` (repeatable) adds any directory without a config. To pin
+flow directories or the bind address persistently, write `~/.saage/server.yaml`:
 
 ```bash
 cat > ~/.saage/server.yaml << 'EOF'
 flow_paths:
   - ./flows                          # search these dirs for */flow.yaml
-parser_provider:
-  type: openrouter
-  model: "anthropic/claude-3.5-sonnet"  # or any provider type (anthropic, openai, etc.)
 host: 127.0.0.1
 port: 8321
 EOF
 
-export OPENROUTER_API_KEY="sk-or-..."  # or set ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
 saage serve
 # Open http://127.0.0.1:8321
 ```
@@ -164,67 +155,18 @@ cancel button.
 
 **History page:** All past runs, newest first.
 
-### API equivalents (curl examples)
-
-List all flows:
-```bash
-curl http://127.0.0.1:8321/api/flows
-```
-
-Parse natural language to a launch spec:
-```bash
-curl -X POST http://127.0.0.1:8321/api/parse \
-  -H "Content-Type: application/json" \
-  -d '{"text": "Run story writer with 5 iterations"}'
-```
-
-Launch a job (with knob overrides):
-```bash
-curl -X POST http://127.0.0.1:8321/api/jobs \
-  -H "Content-Type: application/json" \
-  -d '{"flow": "story_writer", "overrides": {"iterations": "5"}}'
-```
-
-List all jobs:
-```bash
-curl http://127.0.0.1:8321/api/jobs
-```
-
-Get job status and shared-store snapshot:
-```bash
-curl http://127.0.0.1:8321/api/jobs/<job_id>
-```
-
-Stream job logs (Server-Sent Events):
-```bash
-curl http://127.0.0.1:8321/api/jobs/<job_id>/logs
-```
-
-Cancel a running job:
-```bash
-curl -X POST http://127.0.0.1:8321/api/jobs/<job_id>/cancel
-```
-
-Stream ledger events (Server-Sent Events):
-```bash
-curl http://127.0.0.1:8321/api/jobs/<job_id>/ledger
-```
-
-Get live DAG visualization (SVG):
-```bash
-curl http://127.0.0.1:8321/jobs/<job_id>/dag.svg
-```
-
-**Note:** `POST /launch-form` is a UI-internal form-encoded endpoint used by the browser UI; no direct API call needed.
+Everything the UI does is a plain JSON API — curl examples for every endpoint
+in [docs/server_api.md](docs/server_api.md).
 
 ### Server config (`~/.saage/server.yaml`)
 
 - **`flow_paths`** (list) — directories whose *immediate* subdirectories are scanned for
   `<flow_name>/flow.yaml` (one level deep, not recursive). Paths are relative to cwd or absolute.
-- **`parser_provider`** (dict, optional) — LLM provider spec (same shape as `provider:` in
-  flow.yaml). If not set, the natural-language parser is disabled (503 Service Unavailable).
-  Examples: `{ type: anthropic, model: claude-opus-4-8 }`,
-  `{ type: openrouter, model: "anthropic/claude-3.5-sonnet" }`.
+- **`parser_provider`** (dict, optional) — advanced override: use a *different*
+  LLM for natural-language parsing than your `saage setup` defaults (same shape
+  as `provider:` in flow.yaml, e.g. `{ type: openrouter, model: "openai/gpt-4o-mini" }`
+  for a cheaper parser model). Normally leave it unset — the parser uses the
+  setup defaults; with neither, the NL launcher is disabled (503).
 - **`host`** (str, default `127.0.0.1`) — bind address.
 - **`port`** (int, default `8321`) — bind port.
 
@@ -261,8 +203,14 @@ level) if resumability matters.
 
 ## Providers
 
-The native agent loop is provider-agnostic. Set the YAML `provider.type` and the matching
-env var:
+The native agent loop is provider-agnostic. The provider for a run is resolved as:
+
+1. `--provider/--model/--base-url` CLI flags (single-run override), else
+2. the flow's own `provider:` block (a pin — for flows that need a specific model), else
+3. your `saage setup` defaults (`~/.saage/config.yaml`).
+
+The API key comes from the provider's env var when set, else from
+`~/.saage/credentials.toml` `[keys]` (written by `saage setup`, chmod 600):
 
 | `provider.type` | backend | env var |
 |---|---|---|
@@ -297,11 +245,13 @@ You can override the flow's `provider` block without editing the YAML using
 `--provider`, `--model`, and `--base-url`. For OpenRouter:
 
 ```bash
-export OPENROUTER_API_KEY=sk-or-...
 saage run flows/story_writer/flow.yaml \
     --provider openrouter \
     --model "anthropic/claude-3.5-sonnet"      # any model id from openrouter.ai/models
 ```
+
+(The key comes from `saage setup` / the env var as usual — export
+`OPENROUTER_API_KEY=...` if you haven't saved one for that provider.)
 
 Same idea for a local model (no key needed):
 
@@ -403,74 +353,11 @@ le-wm world-model hill-climbs (`lewm_hillclimb`, `lewm_hillclimb_guided`).
 
 ## Remote handoff (`saage remote`)
 
-Develop a flow locally, then hand the *entire run* off to a remote GPU box —
-the node runs the unchanged engine under tmux; your machine packages, pushes,
-starts, and disconnects. Any flow works remotely with zero flow edits.
-
-```bash
-saage remote init                                   # one-time: ssh key + credentials file
-saage remote add-target spark --host spark.local --user saage   # any SSH-able box
-saage remote handoff flows/greenfield_ml/flow.yaml --target spark \
-    --set train_epochs=8                            # package, push, start, disconnect
-
-saage remote status            # phase, heartbeat, ledger, log tail (latest run)
-saage remote logs --live       # follow the engine log
-saage remote ps                # every target: sessions vs local state (orphan detector)
-saage remote fetch             # pull artifacts back: ./results/<run_id>/
-saage remote kill <run>        # stop the run — never the box
-
-saage remote list              # registered targets (local, no network)
-saage remote cleanup           # prune stale targets: y/N prompt per target
-                               #   (--check to ssh-probe first, info only;
-                               #   removal only forgets the ssh entry — it
-                               #   never terminates a box)
-```
-
-A killed remote run is resumable. The engine checkpoint (and any file listed in
-the flow's `artifacts:`, e.g. the best model) is mirrored to R2 each sync
-(changed-only — big files upload only when they change). Then:
-
-```bash
-saage remote resume <run>                 # node still up: resume in place
-saage remote resume <run> --target spark  # node gone: fresh box, from the R2 checkpoint
-```
-
-Cross-box resume restores the checkpoint + mirrored artifacts from R2 and
-reconstructs code from the run branch; heavy regenerable inputs (datasets) are
-re-staged by the flow's `cloud_setup`, and the hill-climb continues from its
-recorded `best_score`/iteration. To keep the trained best model across a box
-death, list its (workspace-relative) path in the flow's `artifacts:`.
-
-Targets are just SSH hosts (a LAN box, a hand-launched cloud instance —
-`--port` and `--key` cover NAT'd ports and per-instance keys, e.g. Thunder
-Compute). For Lambda Cloud there's provisioning built in:
-
-```bash
-saage remote spawn --gpu a100        # launch + register as a target (live capacity/pricing)
-saage remote terminate <target>      # stops the meter (the only thing that does, on Lambda)
-                                     #   and unregisters the target
-```
-
-How it works, briefly:
-
-- **Workspace packaging — a git ref, not files.** Brownfield flows (whose
-  `workspace:` is an existing repo) get a `saage-run-<id>` branch: pushed to
-  `origin` when possible, `git bundle` fallback otherwise. Uncommitted
-  changes: `--dirty abort` (default) / `commit` (snapshot them, your checkout
-  untouched) / `ship-head` (package HEAD; for workspaces under active use).
-- **Per-run secrets** (LLM key for the flow's provider, repo token) travel
-  over ssh stdin into a 0600 `run_env` that is deleted when the run stops.
-- **Artifacts**: a sidecar collects ledgers/reports into the node's run dir
-  (`~/.saage_runs/<id>/artifacts/`); with a `[storage]` section in
-  `~/.saage/credentials.toml` they also mirror to R2/S3, and `status`/`fetch`
-  fall back to the mirror when the node is gone. A watchdog stops wedged runs.
-- **Flow env setup**: `--ws-setup "bash ../flow/cloud_setup.sh"` runs a
-  flow-supplied script inside the workspace at bootstrap (see
-  `contrib/lewm_hillclimb/cloud_setup.sh` — curated torch stacks via
-  [ml-frameworks](https://github.com/cgpadwick/ml-frameworks) with
-  driver-aware CUDA selection, dataset staging from HF, headless-EGL libs).
-
-Design + field notes: [`docs/remote_handoff_plan.md`](docs/remote_handoff_plan.md).
+Develop a flow locally, then hand the *entire run* off to a remote GPU box over
+ssh — package, push, start, disconnect. Observe with `saage remote status/logs`,
+pull artifacts back with `fetch`, resume killed runs (even onto a fresh box),
+and provision Lambda Cloud instances with `spawn`. Full guide:
+[docs/remote_handoff.md](docs/remote_handoff.md).
 
 ## Testing
 
@@ -484,7 +371,8 @@ are scripted, so the suite is free, offline, and bit-reproducible. For a real en
 smoke test, run a flow live against a provider:
 
 ```bash
-OPENROUTER_API_KEY=... saage run flows/story_writer/flow.yaml
+saage setup                                    # once: default provider/model + key
+saage run flows/story_writer/flow.yaml
 ```
 
 (or point it at another provider with `--provider`/`--model`, above).

@@ -4,7 +4,6 @@
 # reads, so it can binary-search until it converges. Demonstrates a multi-agent
 # feedback loop: counting_loop + exit_when + a shared file, target hidden from
 # the guesser.
-provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 shared: { target: 0.62, tolerance: 0.02, feedback: "" }
 
 workflow:
