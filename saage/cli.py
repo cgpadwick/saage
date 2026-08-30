@@ -236,7 +236,12 @@ def _provider_error_types() -> tuple:
     """Exception bases meaning 'the provider call itself failed' — network
     down, bad key (401), empty responses — after retry.py has given up. These
     reach the CLI as SDK exceptions and deserve a one-line error, not a
-    100-line traceback (which goes to run.log instead)."""
+    100-line traceback (which goes to run.log instead).
+
+    Two SDK bases cover every provider type saage supports: AnthropicProvider
+    raises anthropic.AnthropicError, and OpenAIProvider — which also backs
+    `openrouter`, `nvidia`, and `local` (all OpenAI-wire-format) — raises
+    openai.OpenAIError. A future provider on a new SDK adds its base here."""
     from .llm import EmptyResponseError
     errs: list = [EmptyResponseError]
     for mod, name in (("openai", "OpenAIError"), ("anthropic", "AnthropicError")):
