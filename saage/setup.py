@@ -61,7 +61,16 @@ def run_setup(input_fn=None, getpass_fn=None, check_fn=_check_key) -> int:
     if getpass_fn is None:
         import getpass
         getpass_fn = getpass.getpass
+    try:
+        return _wizard(input_fn, getpass_fn, check_fn)
+    except (EOFError, KeyboardInterrupt):
+        # Ctrl-C / Ctrl-D at any prompt is a cancel, not a crash — and nothing
+        # is written until the very end, so a cancel really saves nothing
+        print("\nsetup cancelled — nothing saved", file=sys.stderr)
+        return 1
 
+
+def _wizard(input_fn, getpass_fn, check_fn) -> int:
     from .settings import default_provider
     current = default_provider() or {}
     print("saage setup — choose the default provider flows run with when their")

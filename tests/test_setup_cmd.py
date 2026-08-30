@@ -96,3 +96,23 @@ def test_non_tty_fails_cleanly(monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", type("S", (), {"isatty": lambda self: False})())
     assert main(["setup"]) == 1
     assert "not a terminal" in capsys.readouterr().err
+
+
+def test_ctrl_d_cancels_cleanly(capsys):
+    # EOF (Ctrl-D) at any prompt is a cancel, not an EOFError traceback
+    def eof_input(prompt=""):
+        raise EOFError
+    rc = run_setup(input_fn=eof_input, getpass_fn=lambda p="": "")
+    assert rc == 1
+    assert "cancelled" in capsys.readouterr().err
+    assert default_provider() is None
+
+
+def test_ctrl_c_cancels_cleanly(capsys):
+    def interrupt_getpass(prompt=""):
+        raise KeyboardInterrupt
+    inp, _ = _io(["openrouter", ""], [])
+    rc = run_setup(input_fn=inp, getpass_fn=interrupt_getpass)
+    assert rc == 1
+    assert "cancelled" in capsys.readouterr().err
+    assert default_provider() is None

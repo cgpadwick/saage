@@ -225,6 +225,39 @@ def _cmd_runs() -> int:
     return 0
 
 
+def _provider_error_types() -> tuple:
+    """Exception bases meaning 'the provider call itself failed' — network
+    down, bad key (401), empty responses — after retry.py has given up. These
+    reach the CLI as SDK exceptions and deserve a one-line error, not a
+    100-line traceback (which goes to run.log instead)."""
+    from .llm import EmptyResponseError
+    errs: list = [EmptyResponseError]
+    for mod, name in (("openai", "OpenAIError"), ("anthropic", "AnthropicError")):
+        try:
+            errs.append(getattr(__import__(mod), name))
+        except (ImportError, AttributeError):
+            pass
+    return tuple(errs)
+
+
+def _save_traceback(run_dir: Path) -> None:
+    """Append the active exception's traceback to run.log, so the console
+    stays a one-liner but nothing is lost."""
+    import traceback
+    try:
+        with open(run_dir / "run.log", "a", encoding="utf-8") as fh:
+            fh.write(traceback.format_exc())
+    except OSError:
+        pass
+
+
+def _report_provider_failure(log, e, run_dir: Path) -> None:
+    _save_traceback(run_dir)
+    log.error("run failed: provider call failed after retries: %s — check "
+              "your network and API key (`saage setup` re-validates the key); "
+              "full traceback in %s", e, run_dir / "run.log")
+
+
 def _cmd_resume(args) -> int:
     from .hydrate import run_flow
     log = logging.getLogger("saage")
@@ -252,6 +285,7 @@ def _cmd_resume(args) -> int:
     log.info("resuming %s (run dir: %s)", run.run_id, run.dir)
     # run_flow marks the run failed if it raises; the engine stamps the terminal
     # completed/failed status into the final checkpoint write on a clean finish.
+    provider_errors = _provider_error_types()
     try:
         run_flow(flow_path,
                  provider_overrides=rec.get("provider_overrides") or None,
@@ -262,6 +296,9 @@ def _cmd_resume(args) -> int:
         # step, so the run stays exactly as resumable as before — export the
         # key and `saage resume` again
         log.error("%s", e)
+        return 1
+    except provider_errors as e:
+        _report_provider_failure(log, e, run.dir)
         return 1
     return 0
 
@@ -393,8 +430,13 @@ def _main(argv: list[str] | None = None) -> int:
     log.info("starting run %s", run_id)
     # The engine stamps the terminal completed/failed status into the final
     # checkpoint write; here we only need to record a crash (a raised exception).
+    provider_errors = _provider_error_types()
     try:
         flow.run(seed)
+    except provider_errors as e:
+        run.mark("failed")
+        _report_provider_failure(log, e, run.dir)
+        return 1
     except BaseException:
         run.mark("failed")
         raise
