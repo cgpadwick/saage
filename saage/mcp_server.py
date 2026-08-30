@@ -7,8 +7,8 @@ server's `JobRegistry` (each job a detached `saage run` subprocess with its own
 checkpoint + run.log), so the web UI, the HTTP API, and MCP all see the same
 jobs. Transport is stdio — clients spawn `saage mcp` themselves; flows are
 found exactly as `saage serve` finds them (server.yaml flow_paths, --flow-path,
-or ./flows in the launch directory). Registered for Claude Code by the
-`saage setup` wizard; other clients get a config snippet from the same wizard.
+or ./flows in the launch directory). The `saage setup` wizard registers this
+server with whichever agents the user picks (see saage.agents).
 
 Like `saage serve`, launching jobs needs a POSIX OS (process groups + signals).
 Needs the `mcp` extra: pip install 'saage[mcp]'.
@@ -120,10 +120,9 @@ def build_server(config_path=None, flow_paths=None):
                              "result, use wait_for_job instead of polling "
                              "this in a loop.")
     def job_status(job_id: str) -> dict[str, Any]:
-        rec = registry.get(job_id)
+        rec = registry.get(job_id)         # get() derives 'status' itself
         if rec is None:
             return {"error": f"unknown job {job_id!r}"}
-        rec["status"] = registry.status(job_id)
         return rec
 
     @server.tool(description="Last `tail` lines of a job's engine log "
@@ -159,8 +158,10 @@ def build_server(config_path=None, flow_paths=None):
         if not path.is_file():
             return {"ok": False, "error": f"flow file not found: {path}"}
         try:
-            build_flow(path, provider=object(),
-                       workspace=tempfile.mkdtemp(prefix="saage-validate-"))
+            # context-managed: this server is long-lived, so a leaked dir per
+            # validate call (unlike the one-shot CLI) would pile up in /tmp
+            with tempfile.TemporaryDirectory(prefix="saage-validate-") as ws:
+                build_flow(path, provider=object(), workspace=ws)
         except Exception as e:  # noqa: BLE001 — the message IS the result
             return {"ok": False, "error": str(e)}
         return {"ok": True}

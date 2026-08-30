@@ -50,8 +50,16 @@ def _merge_mcp_json(path: Path, bin_: str) -> str:
 
 def _splice_codex_toml(path: Path, bin_: str) -> str:
     """Add/replace `[mcp_servers.saage]` in Codex's config.toml by text splice
-    (same convention as remote.creds: a TOML re-emit would strip comments)."""
-    section = (f'[mcp_servers.saage]\ncommand = "{bin_}"\nargs = ["mcp"]\n')
+    (same convention as remote.creds: a TOML re-emit would strip comments).
+    The command path is a TOML *literal* string: a Windows path in a basic
+    string ("C:\\Users\\...") is a backslash-escape soup that corrupts the
+    whole file. Literal strings can't hold a single quote — same guard as
+    remote.creds key paths."""
+    if "'" in bin_:
+        raise RuntimeError(f"saage path contains a single quote ({bin_!r}) — "
+                           f"can't write it to config.toml; add the server "
+                           f"manually")
+    section = (f"[mcp_servers.saage]\ncommand = '{bin_}'\nargs = [\"mcp\"]\n")
     if not path.is_file():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(section, encoding="utf-8")
@@ -103,13 +111,19 @@ def _claude_configure(home: Path, bin_: str, run_cmd) -> list[str]:
     lines: list[str] = []
     _install_skills(home / ".claude", lines)
     if shutil.which("claude"):
-        r = run_cmd(["claude", "mcp", "add", "-s", "user", "saage", bin_, "mcp"])
-        if r.returncode == 0:
-            lines.append("MCP server registered via the claude CLI (scope: user)")
-            return lines
-        tail = (r.stderr or r.stdout or "").strip().splitlines()
-        lines.append(f"claude CLI registration failed "
-                     f"({tail[-1] if tail else 'nonzero exit'}) — writing "
+        # anything short of a clean exit — nonzero, a hang past the timeout,
+        # a spawn failure — falls back to the direct ~/.claude.json write, so
+        # the skills already installed above are never reported as a failure
+        try:
+            r = run_cmd(["claude", "mcp", "add", "-s", "user", "saage", bin_, "mcp"])
+            if r.returncode == 0:
+                lines.append("MCP server registered via the claude CLI (scope: user)")
+                return lines
+            why = ((r.stderr or r.stdout or "").strip().splitlines() or
+                   ["nonzero exit"])[-1]
+        except Exception as e:  # noqa: BLE001 — e.g. TimeoutExpired
+            why = str(e)
+        lines.append(f"claude CLI registration failed ({why}) — writing "
                      f"~/.claude.json directly")
     # no CLI (or it failed): user-scope MCP servers live in ~/.claude.json
     lines.append(_merge_mcp_json(home / ".claude.json", bin_))

@@ -280,3 +280,62 @@ def test_packaged_skills_match_repo_canon():
     for n in names:
         assert (assets / n / "SKILL.md").read_bytes() == \
                (canon / n / "SKILL.md").read_bytes(), f"{n} drifted — re-sync"
+
+
+def test_codex_toml_survives_windows_paths(tmp_path, monkeypatch):
+    # a backslash path in a TOML basic string is escape soup; the splice must
+    # emit a literal string that round-trips through a real TOML parser
+    import shutil
+    import saage.agents as agents_mod
+    monkeypatch.setattr(shutil, "which", lambda c: None)
+    monkeypatch.setattr(agents_mod, "saage_bin",
+                        lambda: r"C:\Users\me\.venv\Scripts\saage.exe")
+    (tmp_path / ".codex").mkdir()
+    wire_agents(input_fn=_inp(["codex"]), run_cmd=lambda c: _Result(0),
+                home=tmp_path, out=lambda s: None)
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib
+    cfg = tomllib.loads((tmp_path / ".codex" / "config.toml").read_text())
+    assert cfg["mcp_servers"]["saage"]["command"] == \
+        r"C:\Users\me\.venv\Scripts\saage.exe"
+
+
+def test_claude_cli_exception_falls_back_to_claude_json(tmp_path, monkeypatch):
+    # a hung/failed spawn (e.g. TimeoutExpired) must fall back like a nonzero
+    # exit does — never report the already-installed skills as a failure
+    import shutil
+    monkeypatch.setattr(shutil, "which",
+                        lambda c: "/usr/bin/claude" if c == "claude" else None)
+
+    def hang(cmd):
+        import subprocess
+        raise subprocess.TimeoutExpired(cmd, 30)
+
+    lines = []
+    wire_agents(input_fn=_inp(["claude"]), run_cmd=hang,
+                home=tmp_path, out=lines.append)
+    cfg = json.loads((tmp_path / ".claude.json").read_text())
+    assert cfg["mcpServers"]["saage"]["args"] == ["mcp"]
+    assert not any(ln.lstrip().startswith("\u2717") for ln in lines)
+
+
+def test_cancel_at_wiring_prompt_keeps_saved_config(monkeypatch, capsys):
+    # provider/model/key are saved BEFORE the agent prompt: Ctrl-C there must
+    # not claim "nothing saved" — it only skips wiring, and setup succeeds
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    answers = iter(["1", ""])
+
+    def inp(prompt=""):
+        if "wire up coding agents" in prompt:
+            raise KeyboardInterrupt
+        return next(answers, "")
+
+    rc = run_setup(input_fn=inp, getpass_fn=lambda p="": "sk-x",
+                   check_fn=_ok_check)
+    assert rc == 0
+    assert default_provider() is not None
+    assert stored_key("OPENROUTER_API_KEY") == "sk-x"
+    out = capsys.readouterr()
+    assert "wiring skipped" in out.out and "nothing saved" not in out.err

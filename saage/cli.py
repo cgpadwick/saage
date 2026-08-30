@@ -390,12 +390,18 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "mcp":
         _setup_logging(verbose=False, quiet=False)   # logs go to stderr; stdout is protocol
         log = logging.getLogger("saage")
-        try:
-            from .mcp_server import serve_mcp
-            return serve_mcp(config_path=args.config, flow_paths=args.flow_paths)
-        except ImportError as e:      # the mcp SDK import is inside build_server
-            log.error("saage mcp needs the mcp extra: pip install 'saage[mcp]' (%s)", e)
+        # probe for the SDK up front (not a blanket except around the server
+        # run — that would misreport any runtime ImportError as a missing extra)
+        import importlib.util
+        if importlib.util.find_spec("mcp") is None:
+            log.error("saage mcp needs the mcp extra: pip install 'saage[mcp]'")
             return 1
+        if importlib.util.find_spec("mcp.server.mcpserver") is None:
+            log.error("mcp 1.x is installed but saage needs the 2.x SDK: "
+                      "pip install -U 'mcp>=2'")
+            return 1
+        from .mcp_server import serve_mcp
+        return serve_mcp(config_path=args.config, flow_paths=args.flow_paths)
     if args.command == "serve":
         _setup_logging(verbose=False, quiet=False)
         log = logging.getLogger("saage")

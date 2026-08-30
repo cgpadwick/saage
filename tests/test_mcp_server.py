@@ -8,7 +8,8 @@ import time
 import anyio
 import pytest
 
-pytest.importorskip("mcp", reason="mcp extra not installed")
+pytest.importorskip("mcp.server.mcpserver",
+                    reason="mcp>=2 not installed (the extra, and not the 1.x SDK)")
 
 from saage.mcp_server import build_server  # noqa: E402
 
