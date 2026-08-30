@@ -83,8 +83,11 @@ def _install_skills(claude_dir: Path, out_lines: list[str]) -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(skill)
         fresh += 1
-    out_lines.append(f"{fresh} skill(s) installed to {claude_dir / 'skills'}"
-                     if fresh else f"skills up to date ({claude_dir / 'skills'})")
+    if fresh:
+        out_lines.append(f"{fresh} skill(s) installed to {claude_dir / 'skills'} "
+                         f"(restart any open Claude Code session to load them)")
+    else:
+        out_lines.append(f"skills up to date ({claude_dir / 'skills'})")
 
 
 @dataclass
