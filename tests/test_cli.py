@@ -18,3 +18,27 @@ def test_main_runs_command_flow(tmp_path):
     rc = main(["run", str(flow), "--workspace", str(ws), "--set", "n=42", "-q"])
     assert rc == 0
     assert (ws / "out.txt").read_text().strip() == "hi 42"   # shared + --set rendered
+
+
+def test_provider_failure_is_one_line_not_traceback(tmp_path, caplog, capsys):
+    # a provider that can't be reached (here: a local server on a closed port)
+    # must end the run with a clean one-line error; the traceback goes to
+    # run.log, never the console
+    (tmp_path / "s").mkdir()
+    (tmp_path / "s" / "skill.md").write_text("---\n---\nSKILL_ID: s\n")
+    flow = tmp_path / "flow.yaml"
+    flow.write_text(
+        "provider: { type: local, model: m, base_url: 'http://127.0.0.1:1/v1',\n"
+        "            retry: { max_attempts: 1, base_delay: 0 } }\n"
+        "workflow:\n"
+        "  - { id: a, type: agent, skill: s }\n")
+    rc = main(["run", str(flow), "--workspace", str(tmp_path / "ws"), "-q"])
+    assert rc == 1
+    assert "Traceback" not in capsys.readouterr().err
+    assert any("provider call failed" in r.message for r in caplog.records)
+    from saage import checkpoint as ckpt
+    runs = ckpt.list_runs()
+    rec = runs[0].load()
+    assert rec["status"] == "failed"
+    run_log = (runs[0].dir / "run.log").read_text()
+    assert "Traceback" in run_log            # full detail preserved on disk
