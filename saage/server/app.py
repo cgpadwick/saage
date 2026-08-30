@@ -568,14 +568,8 @@ def serve(config_path=None, host=None, port=None, flow_paths=None) -> int:
     else:
         log.info("server config: %s (not found — using defaults)",
                  config_path or saage_home() / "server.yaml")
-    if flow_paths:                      # --flow-path DIR beats server.yaml
-        cfg.flow_paths = [Path(p).expanduser().resolve() for p in flow_paths]
-    elif not cfg.flow_paths:
-        # zero-config: if the launch directory has a flows/ dir, just use it
-        discovered = Path.cwd() / "flows"
-        if any(discovered.glob("*/flow.yaml")):
-            cfg.flow_paths = [discovered.resolve()]
-            log.info("auto-discovered flows in %s", cfg.flow_paths[0])
+    from .config import resolve_flow_paths
+    cfg = resolve_flow_paths(cfg, flow_paths)
     for p in cfg.flow_paths:
         if not Path(p).is_dir():
             log.warning("flow path does not exist: %s", p)

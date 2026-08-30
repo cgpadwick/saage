@@ -83,6 +83,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("doctor", help="check the local setup: python, keys, flows")
 
+    mcp = sub.add_parser("mcp", help="run the MCP server (stdio) so coding "
+                                     "agents can list/launch/monitor flows")
+    mcp.add_argument("--config", default=None, help="path to server.yaml")
+    mcp.add_argument("--flow-path", action="append", dest="flow_paths", metavar="DIR",
+                     help="directory to scan for */flow.yaml (repeatable; "
+                          "overrides server.yaml flow_paths)")
+
     srv = sub.add_parser("serve", help="run the local flow job-manager web UI")
     srv.add_argument("--host", default=None, help="override server.yaml host")
     srv.add_argument("--port", type=int, default=None, help="override server.yaml port")
@@ -380,6 +387,21 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "resume":
         _setup_logging(args.verbose, args.quiet)
         return _cmd_resume(args)
+    if args.command == "mcp":
+        _setup_logging(verbose=False, quiet=False)   # logs go to stderr; stdout is protocol
+        log = logging.getLogger("saage")
+        # probe for the SDK up front (not a blanket except around the server
+        # run — that would misreport any runtime ImportError as a missing extra)
+        import importlib.util
+        if importlib.util.find_spec("mcp") is None:
+            log.error("saage mcp needs the mcp extra: pip install 'saage[mcp]'")
+            return 1
+        if importlib.util.find_spec("mcp.server.mcpserver") is None:
+            log.error("mcp 1.x is installed but saage needs the 2.x SDK: "
+                      "pip install -U 'mcp>=2'")
+            return 1
+        from .mcp_server import serve_mcp
+        return serve_mcp(config_path=args.config, flow_paths=args.flow_paths)
     if args.command == "serve":
         _setup_logging(verbose=False, quiet=False)
         log = logging.getLogger("saage")

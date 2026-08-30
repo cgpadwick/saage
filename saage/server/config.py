@@ -22,6 +22,20 @@ class ServerConfig:
     source: Path | None = None   # the config file actually read; None = not found
 
 
+def resolve_flow_paths(cfg: ServerConfig, flow_paths=None) -> ServerConfig:
+    """Apply the CLI's --flow-path override, else fall back to zero-config
+    discovery of ./flows in the launch directory. Shared by `saage serve` and
+    `saage mcp` so both find the same flows from the same place."""
+    if flow_paths:                      # --flow-path DIR beats server.yaml
+        cfg.flow_paths = [Path(p).expanduser().resolve() for p in flow_paths]
+    elif not cfg.flow_paths:
+        discovered = Path.cwd() / "flows"
+        if any(discovered.glob("*/flow.yaml")):
+            cfg.flow_paths = [discovered.resolve()]
+            log.info("auto-discovered flows in %s", cfg.flow_paths[0])
+    return cfg
+
+
 def load_server_config(path: Path | None = None) -> ServerConfig:
     # parser_provider falls back to the user's `saage setup` defaults, so the
     # NL launcher works out of the box once setup has run; an explicit

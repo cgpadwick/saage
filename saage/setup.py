@@ -64,8 +64,10 @@ def run_setup(input_fn=None, getpass_fn=None, check_fn=_check_key) -> int:
     try:
         return _wizard(input_fn, getpass_fn, check_fn)
     except (EOFError, KeyboardInterrupt):
-        # Ctrl-C / Ctrl-D at any prompt is a cancel, not a crash — and nothing
-        # is written until the very end, so a cancel really saves nothing
+        # Ctrl-C / Ctrl-D at a pre-save prompt is a cancel, not a crash —
+        # nothing is written before the save point, so nothing was saved.
+        # (Cancels at the post-save agent-wiring prompts are handled inside
+        # _wizard: the config IS saved by then, so they only skip wiring.)
         print("\nsetup cancelled — nothing saved", file=sys.stderr)
         return 1
 
@@ -128,5 +130,15 @@ def _wizard(input_fn, getpass_fn, check_fn) -> int:
     if key:
         cred = save_key(key_env, key)
         print(f"saved {key_env} to {cred} (chmod 600)")
+
+    try:
+        if _ask(input_fn, "\nwire up coding agents (flow skills + the `saage "
+                "mcp` server)? (y/N)", "n").lower().startswith("y"):
+            from .agents import wire_agents
+            wire_agents(input_fn=input_fn)
+    except (EOFError, KeyboardInterrupt):
+        # provider/model/key are saved above — a cancel here loses nothing
+        print("\n(agent wiring skipped — re-run `saage setup` anytime)")
+
     print("try it:  saage run flows/story_writer/flow.yaml")
     return 0

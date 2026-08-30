@@ -22,7 +22,7 @@ if not exist .venv (
     if errorlevel 1 exit /b 1
 )
 .venv\Scripts\python -m pip install --quiet --upgrade pip
-.venv\Scripts\pip install --quiet -e ".[dev,server]"
+.venv\Scripts\pip install --quiet -e ".[dev,server,mcp]"
 if errorlevel 1 exit /b 1
 
 echo.

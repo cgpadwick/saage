@@ -6,9 +6,13 @@ from scratch; drop into the source only when you need an internal detail.
 
 > Building a flow from a user request? Follow the step-by-step recipe in
 > [`.claude/skills/building-saage-flows/SKILL.md`](.claude/skills/building-saage-flows/SKILL.md).
-> Despite the directory name it is harness-agnostic — plain markdown any agent
+> The request still vague? Interview the user first with
+> [`.claude/skills/designing-saage-flows/SKILL.md`](.claude/skills/designing-saage-flows/SKILL.md).
+> Despite the directory name both are harness-agnostic — plain markdown any agent
 > (Codex, Gemini, Copilot, …) can follow; the frontmatter is just discovery
-> metadata for harnesses with skill support.
+> metadata for harnesses with skill support. To *run* flows as native tool
+> calls instead of shelling out, connect to the `saage mcp` server
+> ([docs/agents.md](docs/agents.md)).
 
 ## Mental model (read this first)
 
