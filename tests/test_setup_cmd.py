@@ -116,3 +116,86 @@ def test_ctrl_c_cancels_cleanly(capsys):
     assert rc == 1
     assert "cancelled" in capsys.readouterr().err
     assert default_provider() is None
+
+
+# ------------------------------------------------------------------------- #
+# agent wiring (skills + MCP registration), offered at the end of the wizard
+# ------------------------------------------------------------------------- #
+
+class _Result:
+    def __init__(self, rc=0, err=""):
+        self.returncode, self.stdout, self.stderr = rc, "", err
+
+
+def test_wire_agents_installs_skills_and_registers(tmp_path, monkeypatch):
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda c: "/usr/bin/claude")
+    calls, lines = [], []
+    from saage.setup import wire_agents
+    wire_agents(claude_dir=tmp_path / ".claude",
+                run_cmd=lambda cmd: calls.append(cmd) or _Result(0),
+                out=lines.append)
+    for name in ("building-saage-flows", "designing-saage-flows"):
+        skill = tmp_path / ".claude" / "skills" / name / "SKILL.md"
+        assert skill.is_file() and "saage" in skill.read_text()
+    assert calls and calls[0][:6] == ["claude", "mcp", "add", "-s", "user", "saage"]
+    assert calls[0][-1] == "mcp"
+    assert any("registered" in ln for ln in lines)
+
+    # second run: idempotent, nothing rewritten
+    lines2 = []
+    wire_agents(claude_dir=tmp_path / ".claude",
+                run_cmd=lambda cmd: _Result(0), out=lines2.append)
+    assert sum("up to date" in ln for ln in lines2) == 2
+
+
+def test_wire_agents_without_claude_cli_prints_manual_cmd(tmp_path, monkeypatch):
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda c: None)
+    lines = []
+    from saage.setup import wire_agents
+    wire_agents(claude_dir=tmp_path / ".claude",
+                run_cmd=lambda cmd: (_ for _ in ()).throw(AssertionError("no CLI run")),
+                out=lines.append)
+    assert any("claude mcp add -s user saage" in ln for ln in lines)
+    assert any("mcpServers" in ln for ln in lines)      # snippet for other clients
+
+
+def test_wire_agents_registration_failure_is_not_fatal(tmp_path, monkeypatch):
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda c: "/usr/bin/claude")
+    lines = []
+    from saage.setup import wire_agents
+    wire_agents(claude_dir=tmp_path / ".claude",
+                run_cmd=lambda cmd: _Result(1, "already exists"),
+                out=lines.append)
+    assert any("register manually" in ln for ln in lines)
+
+
+def test_wizard_offers_agent_wiring(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    wired = []
+    import saage.setup as setup_mod
+    monkeypatch.setattr(setup_mod, "wire_agents", lambda **kw: wired.append(1))
+    inp, gp = _io(["1", "", "y"], ["sk-x"])          # 'y' at the agent prompt
+    assert run_setup(input_fn=inp, getpass_fn=gp, check_fn=_ok_check) == 0
+    assert wired == [1]
+    # declined (or blank = default n): not called
+    wired.clear()
+    inp, gp = _io(["1", "", "n"], ["sk-x"])
+    assert run_setup(input_fn=inp, getpass_fn=gp, check_fn=_ok_check) == 0
+    assert wired == []
+
+
+def test_packaged_skills_match_repo_canon():
+    # the wizard installs saage/agent_assets/*; the repo-discovered canon lives
+    # in .claude/skills/*. They must stay byte-identical.
+    from pathlib import Path
+    import saage
+    assets = Path(saage.__file__).parent / "agent_assets"
+    canon = Path(saage.__file__).parent.parent / ".claude" / "skills"
+    names = sorted(p.name for p in assets.iterdir())
+    assert names == sorted(p.name for p in canon.iterdir())
+    for n in names:
+        assert (assets / n / "SKILL.md").read_bytes() == \
+               (canon / n / "SKILL.md").read_bytes(), f"{n} drifted — re-sync"

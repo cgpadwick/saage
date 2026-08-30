@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-./setup.sh                         # venv + editable install of ".[dev,server]" + saage doctor
+./setup.sh                         # venv + editable install of ".[dev,server,mcp]" + saage doctor
 uv pip install -e ".[dev]"        # or by hand (setup_windows.bat on native Windows)
 pytest -q                          # full suite — offline, no API key, bit-reproducible
 pytest tests/test_primitives.py -q # one file
@@ -63,6 +63,11 @@ control flow is deterministic (code) and only step *content* comes from an LLM.
    `setup.py` — the interactive `saage setup` wizard that writes them. Provider
    resolution: CLI flags → flow `provider:` pin → setup defaults; key: env var →
    stored key (exported into the env by `make_provider`).
+9. `mcp_server.py` — `saage mcp`: MCP (stdio) server for coding agents over the
+   same `FlowCatalog`/`JobRegistry` as `saage serve` (needs the `mcp` extra).
+   `agent_assets/` — the flow-design/authoring skills the setup wizard installs
+   to `~/.claude/skills`; canonical copies live in `.claude/skills/` and a test
+   asserts they stay byte-identical.
 
 **Key invariants when editing:**
 - *Determinism is the product.* Control flow (looping, polling, exit conditions, ordering)

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 from .llm import PROVIDER_ENV
 from .settings import config_path, save_default_provider, save_key, stored_key
@@ -47,6 +48,60 @@ def _ask(input_fn, prompt: str, default: str = "") -> str:
     suffix = f" [{default}]" if default else ""
     got = input_fn(f"{prompt}{suffix}: ").strip()
     return got or default
+
+
+def _saage_bin() -> str:
+    """Absolute path to the saage executable in this environment. MCP clients
+    spawn the server themselves, usually without this venv on PATH — a bare
+    'saage' in their config would not resolve."""
+    exe = Path(sys.executable).with_name("saage.exe" if os.name == "nt" else "saage")
+    return str(exe) if exe.exists() else "saage"
+
+
+def wire_agents(claude_dir=None, run_cmd=None, out=print) -> None:
+    """Wire up coding agents (the Graft pattern): install the flow-design and
+    flow-authoring skills where Claude Code auto-discovers them in every
+    project (~/.claude/skills), register the `saage mcp` server with the
+    claude CLI when it is on PATH, and print the config line for every other
+    MCP client. Idempotent; called from the setup wizard."""
+    import shutil
+    import subprocess
+
+    def _run(cmd):
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    run_cmd = run_cmd or _run
+
+    assets = Path(__file__).parent / "agent_assets"
+    skills_dir = Path(claude_dir or Path.home() / ".claude") / "skills"
+    for src in sorted(p for p in assets.iterdir() if (p / "SKILL.md").is_file()):
+        skill = (src / "SKILL.md").read_bytes()
+        dest = skills_dir / src.name / "SKILL.md"
+        if dest.exists() and dest.read_bytes() == skill:
+            out(f"  skill {src.name}: up to date ({dest.parent})")
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(skill)
+        out(f"  skill {src.name}: installed → {dest.parent}")
+
+    bin_ = _saage_bin()
+    manual = f"claude mcp add -s user saage {bin_} mcp"
+    if shutil.which("claude"):
+        try:
+            r = run_cmd(["claude", "mcp", "add", "-s", "user", "saage", bin_, "mcp"])
+            if r.returncode == 0:
+                out("  Claude Code: MCP server registered (scope: user)")
+            else:
+                tail = (r.stderr or r.stdout or "").strip().splitlines()
+                out(f"  Claude Code: not registered ({tail[-1] if tail else 'nonzero exit'})")
+                out(f"    register manually: {manual}")
+        except Exception as e:  # noqa: BLE001 — wiring must never sink the wizard
+            out(f"  Claude Code: could not run the claude CLI ({e})")
+            out(f"    register manually: {manual}")
+    else:
+        out(f"  Claude Code: CLI not on PATH — once installed, run: {manual}")
+    out(f"  other MCP clients (Cursor, Codex, Windsurf, …): command `{bin_}`, args `[\"mcp\"]`")
+    out(f'    Cursor ~/.cursor/mcp.json: {{"mcpServers": {{"saage": '
+        f'{{"command": "{bin_}", "args": ["mcp"]}}}}}}')
 
 
 def run_setup(input_fn=None, getpass_fn=None, check_fn=_check_key) -> int:
@@ -128,5 +183,11 @@ def _wizard(input_fn, getpass_fn, check_fn) -> int:
     if key:
         cred = save_key(key_env, key)
         print(f"saved {key_env} to {cred} (chmod 600)")
+
+    if _ask(input_fn, "\nwire up coding agents? installs the flow-design/"
+            "authoring skills for Claude Code and registers the `saage mcp` "
+            "server (y/N)", "n").lower().startswith("y"):
+        wire_agents()
+
     print("try it:  saage run flows/story_writer/flow.yaml")
     return 0

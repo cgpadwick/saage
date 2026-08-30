@@ -90,6 +90,11 @@ def run_doctor() -> int:
     else:
         _warn("server extra not installed — pip install 'saage[server]' "
               "for the web UI")
+    if importlib.util.find_spec("mcp"):
+        _ok("mcp extra installed (saage mcp available for coding agents)")
+    else:
+        _warn("mcp extra not installed — pip install 'saage[mcp]' to let "
+              "coding agents launch flows over MCP")
     server_yaml = saage_home() / "server.yaml"
     if server_yaml.is_file():
         _ok(f"server config: {server_yaml}")

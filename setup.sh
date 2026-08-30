@@ -16,11 +16,11 @@ python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || {
 
 if command -v uv >/dev/null 2>&1; then
     [ -d .venv ] || uv venv
-    uv pip install -e ".[dev,server]"
+    uv pip install -e ".[dev,server,mcp]"
 else
     [ -d .venv ] || python3 -m venv .venv
     ./.venv/bin/pip install --quiet --upgrade pip
-    ./.venv/bin/pip install --quiet -e ".[dev,server]"
+    ./.venv/bin/pip install --quiet -e ".[dev,server,mcp]"
 fi
 
 echo

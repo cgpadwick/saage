@@ -41,7 +41,7 @@ The script creates `.venv/`, installs everything (CLI, web UI, test tools;
 editable, so source edits take effect immediately), and finishes with a
 `saage doctor` environment check. It's idempotent — re-run it after a `git
 pull`. Prefer doing it by hand? It's just `python -m venv .venv` +
-`pip install -e ".[dev,server]"` (or `uv venv` + `uv pip install`, which
+`pip install -e ".[dev,server,mcp]"` (or `uv venv` + `uv pip install`, which
 `setup.sh` uses automatically when uv is installed).
 
 **Platforms:** Linux, macOS, and Windows — both WSL2 and native. On native
@@ -62,7 +62,8 @@ saage serve                       # web UI at http://127.0.0.1:8321 — browse a
 `saage setup` is interactive (aws-configure style): it validates the key with a
 cheap live call, saves the defaults to `~/.saage/config.yaml`, and the key to
 `~/.saage/credentials.toml` (chmod 600). Everything — CLI runs, the web UI, its
-natural-language launcher — uses those defaults from then on.
+natural-language launcher, the MCP server — uses those defaults from then on.
+The wizard ends by offering to **wire up your coding agents** (see below).
 
 Or drive it from the command line:
 
@@ -157,6 +158,23 @@ cancel button.
 
 Everything the UI does is a plain JSON API — curl examples for every endpoint
 in [docs/server_api.md](docs/server_api.md).
+
+## Coding agents (MCP + skills)
+
+saage speaks to coding agents on two surfaces — say `y` at `saage setup`'s
+"wire up coding agents?" step and both are configured:
+
+- **`saage mcp`** — an MCP server (stdio) over the same job manager as the web
+  UI: `list_flows`, `launch_flow`, `job_status`, `job_logs`, `cancel_job`,
+  `validate_flow`. Claude Code, Cursor, or any MCP client can launch and
+  monitor flows as native tool calls.
+- **Two skills**, installed to `~/.claude/skills/` so they work in every
+  project: `designing-saage-flows` (a guided interview that turns "help me
+  automate X" into a concrete flow design) and `building-saage-flows` (the
+  author → validate → offline-test → run loop). Non-Claude agents get the same
+  content via [`AGENTS.md`](AGENTS.md).
+
+Details, tool reference, and manual client configs: [docs/agents.md](docs/agents.md).
 
 ### Server config (`~/.saage/server.yaml`)
 
