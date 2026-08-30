@@ -22,11 +22,15 @@ from typing import Callable
 
 
 def saage_bin() -> str:
-    """Absolute path to the saage executable in this environment. MCP clients
-    spawn the server themselves, usually without this venv on PATH — a bare
-    'saage' in their config would not resolve."""
+    """Absolute path to the saage executable. MCP clients spawn the server
+    themselves, usually without this environment on PATH — a bare 'saage' in
+    their config would not resolve. Next to sys.executable in a venv; a user
+    install (pip install --user) puts the script elsewhere (~/.local/bin), so
+    fall back to resolving it on the current PATH before giving up."""
     exe = Path(sys.executable).with_name("saage.exe" if os.name == "nt" else "saage")
-    return str(exe) if exe.exists() else "saage"
+    if exe.exists():
+        return str(exe)
+    return shutil.which("saage") or "saage"
 
 
 def _merge_mcp_json(path: Path, bin_: str) -> str:

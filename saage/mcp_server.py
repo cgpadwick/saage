@@ -15,7 +15,9 @@ Needs the `mcp` extra: pip install 'saage[mcp]'.
 """
 from __future__ import annotations
 
+import json
 import logging
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -37,10 +39,14 @@ repo's AGENTS.md and check it with validate_flow before launching."""
 
 
 def _tail(path: Path, n: int) -> str | None:
+    """Last n lines (clamped to [1, 1000]) streamed through a bounded deque —
+    run.log grows without bound on long flows, and lines[-0:] would have
+    returned the entire file for tail=0."""
     if not path.is_file():
         return None
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    return "\n".join(lines[-n:])
+    n = max(1, min(int(n), 1000))
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return "".join(deque(fh, maxlen=n)).rstrip("\n")
 
 
 def build_server(config_path=None, flow_paths=None):
@@ -79,7 +85,12 @@ def build_server(config_path=None, flow_paths=None):
         if info.error:
             return {"error": f"flow {flow!r} is broken: {info.error}"}
         try:
-            job = registry.launch(info, {k: str(v) for k, v in (overrides or {}).items()})
+            # JSON-encode non-string values (True -> "true", None -> "null",
+            # lists/dicts -> JSON) so the CLI's --set parser reconstructs the
+            # original type; str(True) would arrive as the string "True"
+            job = registry.launch(info, {
+                k: v if isinstance(v, str) else json.dumps(v)
+                for k, v in (overrides or {}).items()})
         except ValueError as e:         # unknown knob — agent picked a bad override
             return {"error": str(e)}
         return {"job_id": job.job_id, "flow": job.flow_name,
@@ -125,15 +136,15 @@ def build_server(config_path=None, flow_paths=None):
             return {"error": f"unknown job {job_id!r}"}
         return rec
 
-    @server.tool(description="Last `tail` lines of a job's engine log "
-                             "(step progress, model/tool calls, errors).")
-    def job_logs(job_id: str, tail: int = 60) -> str:
+    @server.tool(description="Last `tail` lines (max 1000) of a job's engine "
+                             "log (step progress, model/tool calls, errors).")
+    def job_logs(job_id: str, tail: int = 60) -> dict[str, Any]:
         if registry.get(job_id) is None:
-            return f"ERROR: unknown job {job_id!r}"
+            return {"error": f"unknown job {job_id!r}"}
         run_dir = registry.home / "runs" / job_id
         out = _tail(run_dir / "run.log", tail) \
             or _tail(run_dir / "server_launch.log", tail)
-        return out if out else "(no log output yet)"
+        return {"log_tail": out if out else "(no log output yet)"}
 
     @server.tool(description="All jobs, newest first, with statuses.")
     def list_jobs() -> list[dict[str, Any]]:

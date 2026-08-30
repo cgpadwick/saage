@@ -81,9 +81,23 @@ def test_launch_wait_logs_cycle(tmp_path):
 
     assert (tmp_path / "flows" / "echo" / "out.txt").read_text().strip() == "bonjour"
     logs, _ = _call(server, "job_logs", {"job_id": job_id})
-    assert "run complete" in logs["result"]
+    assert "run complete" in logs["log_tail"]
+    clamped, _ = _call(server, "job_logs", {"job_id": job_id, "tail": 0})
+    assert len(clamped["log_tail"].splitlines()) == 1   # 0 clamps to 1, not whole file
     jobs, _ = _call(server, "list_jobs", {})
     assert any(j["job_id"] == job_id for j in jobs["result"])
+
+
+@posix_only
+def test_overrides_keep_their_json_types(tmp_path):
+    # an agent passing True/None/lists must reach the flow as those types,
+    # not as Python reprs — launch JSON-encodes, the CLI --set parser decodes
+    server = _server(tmp_path, {"echo": FLOW})
+    out, _ = _call(server, "launch_flow",
+                   {"flow": "echo", "overrides": {"word": True}})
+    rec, _ = _call(server, "job_status", {"job_id": out["job_id"]})
+    assert rec["overrides"] == {"word": "true"}    # json, not str(True)="True"
+    _call(server, "cancel_job", {"job_id": out["job_id"]})
 
 
 @posix_only
@@ -108,7 +122,7 @@ def test_status_logs_cancel_unknown_job(tmp_path):
     out, _ = _call(server, "wait_for_job", {"job_id": "zzz"})
     assert "unknown job" in out["error"]
     logs, _ = _call(server, "job_logs", {"job_id": "zzz"})
-    assert "unknown job" in logs["result"]
+    assert "unknown job" in logs["error"]          # same shape as every tool
     out, _ = _call(server, "cancel_job", {"job_id": "zzz"})
     assert "unknown job" in out["error"]
 
