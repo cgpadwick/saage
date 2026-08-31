@@ -298,7 +298,8 @@ server, lists its tools, and exposes them as `<server>__<tool>` (e.g.
 - `saage validate` / hydrate tests check the block's schema without spawning
   anything. Offline tests swap the server for `tests/fake_mcp_server.py`
   (see `tests/integration/test_reddit_digest.py` for the recipe).
-- Demo flows: `flows/reddit_digest/`, `flows/research_report/`.
+- Demo flows: `flows/reddit_digest/`, `flows/research_report/`,
+  `flows/bluesky_digest/`.
 
 ## Conventions & gotchas
 

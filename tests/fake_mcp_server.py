@@ -67,6 +67,30 @@ def build(profile: str):
                 {"author": "u/bob", "body": "disagree, see the docs"},
             ])
 
+    elif profile == "bluesky":
+        FEEDS = {
+            "sebastianraschka.com": [
+                {"text": "New post: LoRA vs full fine-tuning, benchmarked",
+                 "uri": "at://did:plc:rasbt/app.bsky.feed.post/1",
+                 "created_at": "2026-08-29T12:00:00Z", "likes": 412},
+            ],
+            "simonwillison.net": [
+                {"text": "TIL sqlite-utils can do this",
+                 "uri": "at://did:plc:simonw/app.bsky.feed.post/9",
+                 "created_at": "2026-08-29T15:00:00Z", "likes": 233},
+            ],
+        }
+
+        @server.tool()
+        def get_author_feed(actor: str, limit: int = 20) -> str:
+            """Get posts from a specific user."""
+            return json.dumps(FEEDS.get(actor, [])[:limit])
+
+        @server.tool()
+        def get_profile(actor: str) -> str:
+            """Get a user profile."""
+            return json.dumps({"handle": actor, "followers": 1000})
+
     elif profile == "search":
         @server.tool(name="tavily-search")
         def tavily_search(query: str, max_results: int = 5) -> str:
