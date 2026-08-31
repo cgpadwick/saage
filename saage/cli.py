@@ -337,15 +337,17 @@ def _cmd_mcp_registry(args) -> int:
     from .settings import list_mcp_servers, remove_mcp_server, save_mcp_value
     if args.mcp_cmd == "add":
         import getpass
-        for var in args.env_vars:
+        values = {}                      # collect ALL before saving ANY, so an
+        for var in args.env_vars:        # aborted prompt leaves no partial state
             val = getpass.getpass(f"{args.server}.{var}: ")
             if not val:
                 print(f"saage: error: empty value for {var}; nothing saved",
                       file=sys.stderr)
                 return 1
+            values[var] = val
+        for var, val in values.items():
             path = save_mcp_value(args.server, var, val)
-        print(f"saved {len(args.env_vars)} value(s) for {args.server!r} "
-              f"in {path}")
+        print(f"saved {len(values)} value(s) for {args.server!r} in {path}")
         return 0
     if args.mcp_cmd == "rm":
         if remove_mcp_server(args.server):

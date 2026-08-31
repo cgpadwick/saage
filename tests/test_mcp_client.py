@@ -69,11 +69,21 @@ def test_unspawnable_command_raises_mcp_error():
 
 def test_connect_servers_closes_started_on_failure(monkeypatch):
     # first server fine, second unspawnable -> the first must be closed
-    block = {"fake": {"command": sys.executable,
-                      "args": [FAKE, "--profile", "echo"]},
+    closed = []
+    orig_close = McpClient.close
+    monkeypatch.setattr(McpClient, "close",
+                        lambda self: (closed.append(self.spec.name),
+                                      orig_close(self)) and None)
+    block = {"sweep": {"command": sys.executable,
+                       "args": [FAKE, "--profile", "echo"]},
              "nope": {"command": "saage-no-such-binary-xyz"}}
     with pytest.raises(McpError):
         connect_servers(block)
+    # "nope" closes itself inside the failed ctor; "sweep" must be swept too,
+    # and its server thread must actually be gone
+    assert closed == ["nope", "sweep"]
+    import threading
+    assert not any(t.name == "mcp:sweep" for t in threading.enumerate())
 
 
 # --- env resolution ---------------------------------------------------------

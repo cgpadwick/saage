@@ -169,13 +169,16 @@ class McpClient:
                     parameters=schema, fn=call)
 
     def call(self, tool_name: str, args: dict) -> str:
-        if self._session is None:
+        session = self._session          # local: close() may null the attribute
+        if session is None:
             return f"ERROR: MCP server {self.spec.name!r} is not connected"
         fut = asyncio.run_coroutine_threadsafe(
-            self._session.call_tool(tool_name, args or {}), self._loop)
+            session.call_tool(tool_name, args or {}), self._loop)
         try:
             return _result_text(fut.result(CALL_TIMEOUT))
         except TimeoutError:
+            # client-side bound only: the cancel stops our listener, not
+            # whatever the server is still doing with the request
             fut.cancel()
             return (f"ERROR: MCP tool {tool_name!r} timed out after "
                     f"{CALL_TIMEOUT}s")
@@ -195,7 +198,12 @@ class McpClient:
         if self._loop.is_running():
             self._loop.call_soon_threadsafe(self._loop.stop)
         self._thread.join(CLOSE_TIMEOUT)
-        if not self._thread.is_alive() and not self._loop.is_closed():
+        if self._thread.is_alive():
+            # daemon thread: it dies with the process, but say so rather than
+            # leak silently mid-run
+            log.warning("mcp %s: server did not shut down within %ds",
+                        self.spec.name, CLOSE_TIMEOUT)
+        elif not self._loop.is_closed():
             self._loop.close()
 
 
