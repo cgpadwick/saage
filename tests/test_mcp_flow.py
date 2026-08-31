@@ -140,3 +140,40 @@ def test_cli_mcp_add_rejects_empty_value(monkeypatch):
     from saage.cli import _main
     monkeypatch.setattr(getpass, "getpass", lambda prompt: "")
     assert _main(["mcp", "add", "reddit", "REDDIT_CLIENT_ID"]) == 1
+
+
+def test_cli_mcp_add_discovers_env_names_from_flows(tmp_path, monkeypatch,
+                                                    capsys):
+    import getpass
+
+    from saage.cli import _main
+    fd = tmp_path / "flows" / "digest"
+    fd.mkdir(parents=True)
+    (fd / "flow.yaml").write_text(
+        "mcp:\n"
+        "  reddit:\n"
+        "    command: uvx\n"
+        "    args: [reddit-mcp]\n"
+        "    env: [REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET]\n"
+        "workflow:\n"
+        "  - { id: s, type: command, run: 'echo hi' }\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    vals = iter(["cid", "cs"])
+    monkeypatch.setattr(getpass, "getpass", lambda prompt: next(vals))
+    assert _main(["mcp", "add", "reddit"]) == 0            # no ENV_VAR args
+    out = capsys.readouterr().out
+    assert "REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET" in out
+    from saage.settings import list_mcp_servers
+    assert list_mcp_servers() == {"reddit": ["REDDIT_CLIENT_ID",
+                                             "REDDIT_CLIENT_SECRET"]}
+
+
+def test_cli_mcp_add_bare_with_unknown_server_names_the_fix(tmp_path,
+                                                            monkeypatch,
+                                                            capsys):
+    from saage.cli import _main
+    monkeypatch.chdir(tmp_path)                            # no flows here
+    assert _main(["mcp", "add", "reddit"]) == 1
+    err = capsys.readouterr().err
+    assert "no flow near here declares" in err
+    assert "saage mcp add reddit ENV_VAR" in err

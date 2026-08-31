@@ -99,9 +99,10 @@ def _build_parser() -> argparse.ArgumentParser:
                     "(prompts for each value; writes credentials.toml)")
     mcp_add.add_argument("server", help="server name as it appears under the "
                                         "flow's `mcp:` block")
-    mcp_add.add_argument("env_vars", nargs="+", metavar="ENV_VAR",
+    mcp_add.add_argument("env_vars", nargs="*", metavar="ENV_VAR",
                          help="env-var name(s) the server needs, e.g. "
-                              "REDDIT_CLIENT_ID")
+                              "REDDIT_CLIENT_ID (default: discovered from the "
+                              "`mcp:` block of flows under ./flows or .)")
     mcp_sub.add_parser("list", help="configured MCP servers (values masked)")
     mcp_rm = mcp_sub.add_parser("rm", help="delete a server's stored secrets")
     mcp_rm.add_argument("server")
@@ -331,12 +332,38 @@ def _cmd_resume(args) -> int:
     return 0
 
 
+def _discover_mcp_env(server: str) -> list[str]:
+    """The env-var names flows near cwd declare for *server*: scan
+    */flow.yaml under ./flows (else .) for an `mcp:` entry of that name.
+    First-seen order, deduped; unreadable YAML is skipped."""
+    names: list[str] = []
+    base = Path("flows") if Path("flows").is_dir() else Path(".")
+    for fy in sorted(base.glob("*/flow.yaml")):
+        try:
+            spec = yaml.safe_load(fy.read_text(encoding="utf-8")) or {}
+            env = (spec.get("mcp") or {}).get(server, {}).get("env") or []
+        except Exception:  # noqa: BLE001 — a broken flow shouldn't block `add`
+            continue
+        names += [e for e in env if isinstance(e, str) and e not in names]
+    return names
+
+
 def _cmd_mcp_registry(args) -> int:
     """`saage mcp add|list|rm` — the [mcp.<server>] secret store flows
     resolve their `mcp:` env names against (env vars always win)."""
     from .settings import list_mcp_servers, remove_mcp_server, save_mcp_value
     if args.mcp_cmd == "add":
         import getpass
+        if not args.env_vars:            # bare `saage mcp add <server>`: pull
+            args.env_vars = _discover_mcp_env(args.server)   # names from flows
+            if not args.env_vars:
+                print(f"saage: error: no flow near here declares an MCP "
+                      f"server {args.server!r} — name the vars yourself: "
+                      f"saage mcp add {args.server} ENV_VAR [ENV_VAR ...]",
+                      file=sys.stderr)
+                return 1
+            print(f"{args.server} needs (from the flows here): "
+                  f"{', '.join(args.env_vars)}")
         values = {}                      # collect ALL before saving ANY, so an
         for var in args.env_vars:        # aborted prompt leaves no partial state
             val = getpass.getpass(f"{args.server}.{var}: ")

@@ -289,8 +289,10 @@ server, lists its tools, and exposes them as `<server>__<tool>` (e.g.
   the whole control, so grant read-only tools unless the flow truly writes.
 - `env:` lists the env-var **names** the server needs. Values resolve
   env var → credentials.toml `[mcp.<server>]` (written by
-  `saage mcp add <server> <ENV_VAR>…`); a missing value fails at build time
-  with that exact command. Never put secret values in flow.yaml.
+  `saage mcp add <server> <ENV_VAR>…`; bare `saage mcp add <server>` discovers
+  the names from the flows under ./flows or . and prompts); a missing value
+  fails at build time with that exact command. Never put secret values in
+  flow.yaml.
 - Tool failures come back as `ERROR:` strings like every harness tool; tell
   the skill how to proceed when one fails. Per-call timeout 120s.
 - `saage validate` / hydrate tests check the block's schema without spawning

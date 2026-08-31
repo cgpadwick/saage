@@ -10,8 +10,9 @@ search + page extraction.
 ## One-time setup
 
 1. Get a Tavily API key (free tier): https://app.tavily.com
-2. Store it: `saage mcp add tavily TAVILY_API_KEY`
-   (an exported `TAVILY_API_KEY` also works and takes precedence).
+2. Store it: `saage mcp add tavily` (from the repo root it discovers
+   `TAVILY_API_KEY` from this flow and prompts; an exported `TAVILY_API_KEY`
+   also works and takes precedence).
 3. Node.js v20+ — the flow launches the server with `npx -y tavily-mcp@latest`.
 
 ## Run

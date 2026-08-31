@@ -14,10 +14,13 @@ that aren't really there. First demo of saage's MCP client: the flow's
 2. Store them for this server:
 
    ```bash
-   saage mcp add reddit REDDIT_CLIENT_ID REDDIT_CLIENT_SECRET
+   saage mcp add reddit
    ```
 
-   (Exported env vars of the same names also work and take precedence.)
+   Run from the repo root it discovers the var names (REDDIT_CLIENT_ID,
+   REDDIT_CLIENT_SECRET) from this flow's `mcp:` block and prompts for each;
+   you can also name them explicitly. Exported env vars of the same names
+   take precedence.
 3. `uvx` must be on PATH (comes with [uv](https://docs.astral.sh/uv/)) — the
    flow launches the server with `uvx reddit-mcp`.
 
