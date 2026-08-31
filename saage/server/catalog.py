@@ -67,7 +67,8 @@ class FlowCatalog:
             info.knobs = {k: str(v) for k, v in (spec.get("shared") or {}).items()}
             info.spec = spec
             # hydrate against a throwaway workspace: free schema validation
-            build_flow(fy, provider=object(), workspace=fy.parent)
+            build_flow(fy, provider=object(), workspace=fy.parent,
+                       connect_mcp=False)
         except Exception as e:                                # noqa: BLE001
             info.error = str(e)
         return info

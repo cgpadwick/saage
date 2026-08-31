@@ -140,3 +140,32 @@ def test_command_only_flow_needs_no_provider_at_all(tmp_path):
 def test_config_path_honors_saage_home(tmp_path, monkeypatch):
     monkeypatch.setenv("SAAGE_HOME", str(tmp_path / "custom"))
     assert config_path() == tmp_path / "custom" / "config.yaml"
+
+
+# ------------------------------------------------------------------------- #
+# MCP server secrets ([mcp.<server>] tables, written by `saage mcp add`)
+# ------------------------------------------------------------------------- #
+
+def test_mcp_values_round_trip_and_mask():
+    from saage.settings import (list_mcp_servers, remove_mcp_server,
+                                save_mcp_value, stored_mcp_value)
+    p = save_mcp_value("reddit", "REDDIT_CLIENT_ID", "cid")
+    save_mcp_value("reddit", "REDDIT_CLIENT_SECRET", "cs")
+    assert stat.S_IMODE(p.stat().st_mode) == 0o600
+    assert stored_mcp_value("reddit", "REDDIT_CLIENT_ID") == "cid"
+    save_mcp_value("reddit", "REDDIT_CLIENT_ID", "cid2")   # replace in place
+    assert stored_mcp_value("reddit", "REDDIT_CLIENT_ID") == "cid2"
+    assert p.read_text().count("REDDIT_CLIENT_ID") == 1
+    assert list_mcp_servers() == {"reddit": ["REDDIT_CLIENT_ID",
+                                             "REDDIT_CLIENT_SECRET"]}
+    assert remove_mcp_server("reddit") is True
+    assert stored_mcp_value("reddit", "REDDIT_CLIENT_ID") is None
+    assert remove_mcp_server("reddit") is False
+
+
+def test_mcp_section_coexists_with_keys():
+    from saage.settings import save_mcp_value, stored_mcp_value
+    save_key("OPENROUTER_API_KEY", "sk-one")
+    save_mcp_value("tavily", "TAVILY_API_KEY", "tv-1")
+    assert stored_key("OPENROUTER_API_KEY") == "sk-one"
+    assert stored_mcp_value("tavily", "TAVILY_API_KEY") == "tv-1"

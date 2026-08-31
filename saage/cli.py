@@ -84,11 +84,27 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor", help="check the local setup: python, keys, flows")
 
     mcp = sub.add_parser("mcp", help="run the MCP server (stdio) so coding "
-                                     "agents can list/launch/monitor flows")
+                                     "agents can list/launch/monitor flows; "
+                                     "or manage MCP-server secrets for flows "
+                                     "(add/list/rm)")
     mcp.add_argument("--config", default=None, help="path to server.yaml")
     mcp.add_argument("--flow-path", action="append", dest="flow_paths", metavar="DIR",
                      help="directory to scan for */flow.yaml (repeatable; "
                           "overrides server.yaml flow_paths)")
+    # bare `saage mcp` serves (unchanged — .mcp.json entries in the wild rely
+    # on it); add/list/rm manage the [mcp.<server>] secrets flows resolve.
+    mcp_sub = mcp.add_subparsers(dest="mcp_cmd")
+    mcp_add = mcp_sub.add_parser(
+        "add", help="store env-var values for an MCP server a flow declares "
+                    "(prompts for each value; writes credentials.toml)")
+    mcp_add.add_argument("server", help="server name as it appears under the "
+                                        "flow's `mcp:` block")
+    mcp_add.add_argument("env_vars", nargs="+", metavar="ENV_VAR",
+                         help="env-var name(s) the server needs, e.g. "
+                              "REDDIT_CLIENT_ID")
+    mcp_sub.add_parser("list", help="configured MCP servers (values masked)")
+    mcp_rm = mcp_sub.add_parser("rm", help="delete a server's stored secrets")
+    mcp_rm.add_argument("server")
 
     srv = sub.add_parser("serve", help="run the local flow job-manager web UI")
     srv.add_argument("--host", default=None, help="override server.yaml host")
@@ -315,6 +331,39 @@ def _cmd_resume(args) -> int:
     return 0
 
 
+def _cmd_mcp_registry(args) -> int:
+    """`saage mcp add|list|rm` — the [mcp.<server>] secret store flows
+    resolve their `mcp:` env names against (env vars always win)."""
+    from .settings import list_mcp_servers, remove_mcp_server, save_mcp_value
+    if args.mcp_cmd == "add":
+        import getpass
+        for var in args.env_vars:
+            val = getpass.getpass(f"{args.server}.{var}: ")
+            if not val:
+                print(f"saage: error: empty value for {var}; nothing saved",
+                      file=sys.stderr)
+                return 1
+            path = save_mcp_value(args.server, var, val)
+        print(f"saved {len(args.env_vars)} value(s) for {args.server!r} "
+              f"in {path}")
+        return 0
+    if args.mcp_cmd == "rm":
+        if remove_mcp_server(args.server):
+            print(f"removed {args.server!r}")
+            return 0
+        print(f"saage: error: no stored secrets for {args.server!r}",
+              file=sys.stderr)
+        return 1
+    servers = list_mcp_servers()
+    if not servers:
+        print("no MCP servers configured — a flow that declares `mcp:` will "
+              "name the `saage mcp add ...` command it needs")
+        return 0
+    for name, vars_ in sorted(servers.items()):
+        print(f"{name}: {', '.join(vars_)}")
+    return 0
+
+
 def _cmd_validate(args) -> int:
     """Hydrate the flow with a dummy provider: parses the YAML, validates the
     spec, loads every skill.md, and wires the loop graph — no key, no tokens."""
@@ -327,7 +376,8 @@ def _cmd_validate(args) -> int:
         print(f"saage: error: flow file not found: {path}", file=sys.stderr)
         return 1
     build_flow(path, provider=object(),
-               workspace=tempfile.mkdtemp(prefix="saage-validate-"))
+               workspace=tempfile.mkdtemp(prefix="saage-validate-"),
+               connect_mcp=False)
     spec = yaml.safe_load(path.read_text(encoding="utf-8"))
     print(f"ok: {path} — {len(spec['workflow'])} top-level step(s), "
           f"{len(load_skills(path.parent))} skill(s)")
@@ -387,6 +437,8 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "resume":
         _setup_logging(args.verbose, args.quiet)
         return _cmd_resume(args)
+    if args.command == "mcp" and getattr(args, "mcp_cmd", None):
+        return _cmd_mcp_registry(args)
     if args.command == "mcp":
         _setup_logging(verbose=False, quiet=False)   # logs go to stderr; stdout is protocol
         log = logging.getLogger("saage")
@@ -467,6 +519,9 @@ def _main(argv: list[str] | None = None) -> int:
     except BaseException:
         run.mark("failed")
         raise
+    finally:
+        for c in getattr(flow, "mcp_clients", []):
+            c.close()
     log.info("run complete")
     after = _snapshot(root)
 

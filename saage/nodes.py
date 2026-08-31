@@ -118,7 +118,8 @@ class AgentNode(Node):
     """Runs an LLM agent (a skill) with the harness tools."""
 
     def __init__(self, id: str, skill: Skill, provider, tools: list[Tool],
-                 captures: dict | None = None, max_steps: int = 20):
+                 captures: dict | None = None, max_steps: int = 20,
+                 extra_tools: list[Tool] | None = None):
         super().__init__()
         self.id = id
         self.skill = skill
@@ -128,15 +129,19 @@ class AgentNode(Node):
         allow = set(skill.tools) if skill.tools else None
         # opt-in tools (e.g. the blocking ask_user) are NOT in the default set —
         # a skill gets one only by naming it in its tools: allow-list, so it can
-        # never fire in an autonomous flow that didn't ask for it.
+        # never fire in an autonomous flow that didn't ask for it. `extra_tools`
+        # (a flow's MCP server tools) follow the same rule: allow-list or nothing.
         from .tools import OPT_IN_TOOL_NAMES, opt_in_tools
-        available_tools = list(tools) + (opt_in_tools(allow) if allow else [])
+        available_tools = (list(tools)
+                           + (opt_in_tools(allow) if allow else [])
+                           + (list(extra_tools or []) if allow else []))
         self.tools = [t for t in available_tools if allow is None or t.name in allow]
         if allow is not None:
             # a tools: allow-list with names that don't exist is a config error —
             # warn (so a typo is visible) and hard-fail if it leaves the agent with
             # no tools, rather than silently running tool-less.
-            available = {t.name for t in tools} | OPT_IN_TOOL_NAMES
+            available = ({t.name for t in tools} | OPT_IN_TOOL_NAMES
+                         | {t.name for t in (extra_tools or [])})
             unknown = allow - available
             if unknown:
                 log.warning("skill %r lists unknown tool(s) in tools: %s "

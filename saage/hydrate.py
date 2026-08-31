@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -32,6 +32,7 @@ class Context:
     skills: dict[str, Skill]
     tools: list
     venv: str | None = None   # venv to auto-activate for commands (relative to root)
+    mcp_tools: list = field(default_factory=list)   # opt-in via a skill's tools:
 
 
 def _needs_llm(step_specs) -> bool:
@@ -117,7 +118,8 @@ def build_step(spec: dict, ctx: Context):
         skill = ctx.skills[spec["skill"]]
         return AgentNode(spec["id"], skill, ctx.provider, ctx.tools,
                          captures=spec.get("set"),
-                         max_steps=spec.get("max_steps", 20))
+                         max_steps=spec.get("max_steps", 20),
+                         extra_tools=ctx.mcp_tools)
     if t == "command":
         timeout = spec.get("timeout")
         if timeout is not None and (isinstance(timeout, bool)
@@ -191,7 +193,8 @@ def _all_subflows(node, seen=None, out=None):
 def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
                workspace=None, venv: str | None = None,
                config: "str | Path | EngineConfig | None" = None,
-               checkpoint=None, resume_step: int | None = None):
+               checkpoint=None, resume_step: int | None = None,
+               connect_mcp: bool = True):
     """Return (flow, shared).
 
     `provider` injects a ready provider object (used by tests). Otherwise the
@@ -208,6 +211,12 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
     `config` is the engine config governing the `run_command` safety policy: an
     `EngineConfig`, a path to an engine YAML, or None for the safe built-in
     denylist (always applied, so the default execution path is restricted).
+
+    `connect_mcp=False` skips spawning the flow's `mcp:` servers (the block is
+    still schema-checked) — used by every validate-only caller, which must not
+    launch subprocesses or demand secrets. When servers ARE connected they ride
+    on the returned flow as `flow.mcp_clients`; `run_flow` closes them, and any
+    caller that builds without running owns that cleanup.
     """
     flow_yaml = Path(flow_yaml)
     log.info("loading flow: %s", flow_yaml)
@@ -249,16 +258,28 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
             log.info("provider: %s / %s", pspec.get("type"), pspec.get("model"))
     skills = load_skills(flow_dir)
     log.info("loaded %d skill(s): %s", len(skills), ", ".join(skills) or "(none)")
-    ctx = Context(root=ws, provider=provider, skills=skills,
-                  tools=default_tools(ws, venv=venv, command_policy=cfg.command_policy),
-                  venv=venv)
-    steps = [build_step(s, ctx) for s in spec["workflow"]]
+    mcp_clients: list = []
+    if connect_mcp and spec.get("mcp"):
+        from .mcp_client import connect_servers
+        mcp_clients = connect_servers(spec["mcp"], cwd=flow_dir)
+    try:
+        ctx = Context(root=ws, provider=provider, skills=skills,
+                      tools=default_tools(ws, venv=venv,
+                                          command_policy=cfg.command_policy),
+                      venv=venv,
+                      mcp_tools=[t for c in mcp_clients for t in c.tools])
+        steps = [build_step(s, ctx) for s in spec["workflow"]]
+    except BaseException:
+        for c in mcp_clients:      # a bad step spec must not leak live servers
+            c.close()
+        raise
     for k, step in enumerate(steps):
         _tag_step(step, k)               # tag BEFORE chaining (walk stays in-step)
     for a, b in zip(steps, steps[1:]):
         a >> b
     log.info("workflow ready: %d top-level step(s)", len(steps))
     top = Subflow(start=steps[0])
+    top.mcp_clients = mcp_clients
     if checkpoint is not None:
         for sf in _all_subflows(top):    # top + every nested loop subflow
             sf.sink = checkpoint
@@ -313,5 +334,8 @@ def run_flow(flow_yaml, provider=None, shared: dict | None = None,
         if checkpoint is not None:
             checkpoint.mark("failed")
         raise
+    finally:
+        for c in getattr(flow, "mcp_clients", []):
+            c.close()
     log.info("run complete")
     return seed
