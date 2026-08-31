@@ -1,0 +1,38 @@
+# Research a question on the live web via the Tavily MCP server, then write a
+# cited report — a verifier loop rejects any claim without a collected source.
+#
+# Needs a Tavily API key (free tier: https://app.tavily.com):
+#   saage mcp add tavily TAVILY_API_KEY
+# (or export TAVILY_API_KEY). Node/npx required. See README.md.
+
+mcp:
+  tavily:
+    command: npx
+    args: ["-y", "tavily-mcp@latest"]
+    env: [TAVILY_API_KEY]
+
+shared:
+  question: "What is the current state of solid-state batteries for EVs?"
+  max_sources: 5
+
+workflow:
+  - id: plan
+    type: agent
+    skill: plan
+
+  - id: research
+    type: agent
+    skill: research
+    max_steps: 30
+
+  - id: report_loop
+    type: retry_loop
+    max_iterations: 3
+    action:
+      id: write_report
+      type: agent
+      skill: write_report
+    check:
+      id: verify_report
+      type: agent
+      skill: verify_report

@@ -40,6 +40,8 @@ def flow_copy(tmp_path):
     # never copy run artifacts a prior in-place `saage run` may have left behind
     ignore = shutil.ignore_patterns(
         "story.md", "review.md", "history.txt", "job_*.count",
+        "notes.md", "digest.md",                       # reddit_digest artifacts
+        "queries.md", "sources.md", "report.md",      # research_report artifacts
         "__pycache__", "*.pyc")
 
     def _copy(name: str) -> Path:

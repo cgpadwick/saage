@@ -70,6 +70,11 @@ workspace: /tmp/saage_run        # optional: tool/command cwd. default = the flo
 venv: .venv                    # optional: auto-activated for commands once it exists
 artifacts: [experiments.jsonl, "report*.html"]   # optional: workspace files/globs
                                # `saage remote` syncs back; ignored by local runs
+mcp:                           # optional: external stdio MCP servers (see below)
+  reddit:
+    command: uvx
+    args: [reddit-mcp]
+    env: [REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET]   # env-var NAMES, never values
 shared:                        # optional: initial shared-store values
   question: "..."
   target_accuracy: 0.97
@@ -270,6 +275,28 @@ lists it in `tools:`).
 - **`run_command` is NOT sandboxed** (real shell, cwd = workspace) but is screened
   by a denylist policy (rm -rf, sudo, curl|sh, …); a refused command returns an
   `ERROR:` string instead of running. The venv is auto-activated once it exists.
+
+### MCP server tools (`mcp:` block)
+
+A flow may declare local **stdio MCP servers** under a top-level `mcp:` block
+(schema in the flow.yaml reference above). At run start the engine spawns each
+server, lists its tools, and exposes them as `<server>__<tool>` (e.g.
+`reddit__search_posts`, `tavily__tavily-search`).
+
+- **Opt-in only, like `ask_user`:** MCP tools are NEVER in the default set. A
+  skill gets one solely by naming the full `<server>__<tool>` name in its
+  `tools:` allow-list. The denylist does not apply to them — the allow-list is
+  the whole control, so grant read-only tools unless the flow truly writes.
+- `env:` lists the env-var **names** the server needs. Values resolve
+  env var → credentials.toml `[mcp.<server>]` (written by
+  `saage mcp add <server> <ENV_VAR>…`); a missing value fails at build time
+  with that exact command. Never put secret values in flow.yaml.
+- Tool failures come back as `ERROR:` strings like every harness tool; tell
+  the skill how to proceed when one fails. Per-call timeout 120s.
+- `saage validate` / hydrate tests check the block's schema without spawning
+  anything. Offline tests swap the server for `tests/fake_mcp_server.py`
+  (see `tests/integration/test_reddit_digest.py` for the recipe).
+- Demo flows: `flows/reddit_digest/`, `flows/research_report/`.
 
 ## Conventions & gotchas
 

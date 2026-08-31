@@ -1,0 +1,35 @@
+# Digest chosen subreddits via a Reddit MCP server: gather posts, rank them
+# against your interests, and verify the digest cites only real posts.
+#
+# Needs Reddit "script app" credentials (free, 2 min): create one at
+# https://www.reddit.com/prefs/apps then run
+#   saage mcp add reddit REDDIT_CLIENT_ID REDDIT_CLIENT_SECRET
+# (or export both env vars). See README.md.
+
+mcp:
+  reddit:
+    command: uvx
+    args: [reddit-mcp]
+    env: [REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET]
+
+shared:
+  subreddits: "MachineLearning, Python"     # comma-separated, no r/ prefix
+  interests: "machine learning research, python tooling"
+  posts_per_subreddit: 5
+
+workflow:
+  - id: gather
+    type: agent
+    skill: gather
+
+  - id: digest_loop
+    type: retry_loop
+    max_iterations: 3
+    action:
+      id: write_digest
+      type: agent
+      skill: write_digest
+    check:
+      id: verify_digest
+      type: agent
+      skill: verify_digest
