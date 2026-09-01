@@ -96,11 +96,21 @@ class _RecordingClient:
         self.kwargs = kwargs
 
 
+class _RecordingTimeout:
+    """Stands in for the SDKs' Timeout re-export; records what saage asks
+    for. Tests must not import httpx directly: the SDKs' current majors sit
+    on httpx2, so classic httpx may be absent (this is exactly what broke CI)."""
+    def __init__(self, default, connect=None):
+        self.default, self.connect = default, connect
+
+
 def _fake_sdks(monkeypatch):
     import openai
     monkeypatch.setattr(openai, "OpenAI", _RecordingClient)
+    monkeypatch.setattr(openai, "Timeout", _RecordingTimeout, raising=False)
     anthropic = pytest.importorskip("anthropic")
     monkeypatch.setattr(anthropic, "Anthropic", _RecordingClient)
+    monkeypatch.setattr(anthropic, "Timeout", _RecordingTimeout, raising=False)
 
 
 @pytest.mark.parametrize("spec", [
@@ -110,14 +120,14 @@ def _fake_sdks(monkeypatch):
 def test_request_timeout_is_plumbed(monkeypatch, spec):
     _fake_sdks(monkeypatch)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
-    import httpx
     p = make_provider(spec)
     assert p.request_timeout == 3600            # saage's contract attr
     kw = p.client.kwargs                        # what actually reached the SDK
     assert kw["max_retries"] == 0               # saage's retry layer owns retries
-    assert isinstance(kw["timeout"], httpx.Timeout)
-    assert kw["timeout"].read == 3600           # the budget on read/write/pool
-    assert kw["timeout"].connect == 5.0         # fast-fail TCP connect kept
+    t = kw["timeout"]                           # built from the SDK's Timeout
+    assert isinstance(t, _RecordingTimeout)
+    assert t.default == 3600                    # the budget on the slow phases
+    assert t.connect == 5.0                     # fast-fail TCP connect kept
 
 
 def test_request_timeout_defaults_to_sdk(monkeypatch):

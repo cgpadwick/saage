@@ -159,7 +159,7 @@ def _validated_timeout(rt: "float | None") -> "float | None":
     return float(rt)
 
 
-def _sdk_client_kwargs(request_timeout: "float | None") -> dict:
+def _sdk_client_kwargs(request_timeout: "float | None", sdk) -> dict:
     """SDK constructor kwargs for a validated request_timeout.
 
     When set: cap read/write/pool at the budget but keep a fast 5s TCP
@@ -175,12 +175,24 @@ def _sdk_client_kwargs(request_timeout: "float | None") -> dict:
     NOTE the budget is PER ATTEMPT: call_with_retry still classifies
     timeouts as retryable, so a genuinely hung server can cost up to
     max_attempts x request_timeout. Size the budget for one long
-    legitimate turn, not as a total deadline."""
+    legitimate turn, not as a total deadline.
+
+    `sdk` is the imported SDK module (openai / anthropic): the granular
+    timeout is built from the SDK's own `Timeout` re-export, NOT from a
+    direct httpx import — the SDKs' current majors (openai>=3,
+    anthropic>=1) sit on httpx2, so classic httpx may not be installed
+    at all. If the re-export is missing or its signature drifts, fall
+    back to the bare budget (every phase capped, connect included)."""
     if request_timeout is None:
         return {}
-    import httpx  # a dependency of both SDKs
-    return {"timeout": httpx.Timeout(request_timeout, connect=5.0),
-            "max_retries": 0}
+    timeout = request_timeout
+    timeout_cls = getattr(sdk, "Timeout", None)
+    if timeout_cls is not None:
+        try:
+            timeout = timeout_cls(request_timeout, connect=5.0)
+        except TypeError:
+            timeout = request_timeout
+    return {"timeout": timeout, "max_retries": 0}
 
 
 # --------------------------------------------------------------------------- #
@@ -195,7 +207,7 @@ class AnthropicProvider:
         # fast connect, saage-owned retries when a timeout is configured)
         self.request_timeout = _validated_timeout(request_timeout)
         self.client = anthropic.Anthropic(
-            **_sdk_client_kwargs(self.request_timeout))
+            **_sdk_client_kwargs(self.request_timeout, anthropic))
         self.model = model
         self.max_tokens = max_tokens
         self.retry_policy = retry_policy or RetryPolicy()
@@ -251,7 +263,8 @@ class OpenAIProvider:
         # legitimately think for >10 min (the SDK default read as a hang).
         self.request_timeout = _validated_timeout(request_timeout)
         self.client = openai.OpenAI(
-            base_url=base_url, **_sdk_client_kwargs(self.request_timeout),
+            base_url=base_url,
+            **_sdk_client_kwargs(self.request_timeout, openai),
             api_key=os.environ.get(api_key_env, "not-needed"))  # local needs no real key
         self.model = model
         # Resolved wiring kept as our own attrs so callers/tests assert on saage's
