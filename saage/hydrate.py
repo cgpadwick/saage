@@ -57,16 +57,25 @@ def make_provider(spec: dict, require_key: bool = True):
     With `require_key` (the default), a provider whose API-key env var is
     unset fails here with a message naming the var, instead of a 401 deep in
     the first model call. Pass require_key=False when the provider will never
-    be invoked (e.g. a flow with no agent steps).
+    be invoked (e.g. a flow with no agent steps). A key saved by `saage setup`
+    (credentials.toml [keys]) fills in when the env var is unset — it is
+    exported into the process env so the provider SDKs (which read env) and
+    any child the run spawns see the same key an `export` would give them.
     """
     t = spec["type"]
     model = spec["model"]
     if require_key and t != "local":
         key_env = spec.get("api_key_env") or PROVIDER_ENV.get(t)
         if key_env and not os.environ.get(key_env):
-            raise ProviderKeyError(
-                f"provider {t!r} needs an API key: set {key_env}, or pick a "
-                f"different provider with --provider/--model")
+            from .settings import stored_key
+            saved = stored_key(key_env)
+            if saved:
+                os.environ[key_env] = saved
+            else:
+                raise ProviderKeyError(
+                    f"provider {t!r} needs an API key: run `saage setup`, "
+                    f"set {key_env}, or pick a different provider with "
+                    f"--provider/--model")
     rp = RetryPolicy(**spec["retry"]) if spec.get("retry") else None
     rt = spec.get("request_timeout")
     if rt is not None and (isinstance(rt, bool) or not isinstance(rt, (int, float))
@@ -229,12 +238,27 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
     if ws != flow_dir.resolve():
         log.info("workspace: %s", ws)
     if provider is None:
-        pspec = dict(spec["provider"])
+        # a flow's `provider:` block is an override: when present it pins the
+        # provider wholesale; when absent the user's `saage setup` defaults
+        # apply. CLI --provider/--model merge on top in either case.
+        pspec = dict(spec.get("provider") or {})
+        if not pspec:
+            from .settings import default_provider
+            pspec = default_provider() or {}
         for k, v in (provider_overrides or {}).items():
             if v is not None:
                 pspec[k] = v
-        provider = make_provider(pspec, require_key=_needs_llm(spec["workflow"]))
-        log.info("provider: %s / %s", pspec.get("type"), pspec.get("model"))
+        needs_llm = _needs_llm(spec["workflow"])
+        if not pspec.get("type") or not pspec.get("model"):
+            if needs_llm:
+                raise ProviderKeyError(
+                    "no LLM provider configured: this flow doesn't pin one and "
+                    "no default is saved — run `saage setup` once to set a "
+                    "default provider + model, or pass --provider/--model")
+            provider = object()      # command-only flow: no LLM is ever invoked
+        else:
+            provider = make_provider(pspec, require_key=needs_llm)
+            log.info("provider: %s / %s", pspec.get("type"), pspec.get("model"))
     skills = load_skills(flow_dir)
     log.info("loaded %d skill(s): %s", len(skills), ", ".join(skills) or "(none)")
     ctx = Context(root=ws, provider=provider, skills=skills,

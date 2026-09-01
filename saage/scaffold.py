@@ -7,7 +7,10 @@ from pathlib import Path
 _FLOW_YAML = '''\
 # {name}: describe what this flow does. This first comment line is the
 # description shown in the `saage serve` UI.
-provider: {{ type: openrouter, model: "openai/gpt-4o-mini" }}
+#
+# With no provider: block the flow runs with your `saage setup` defaults.
+# Uncomment to pin this flow to one provider+model (pins win over defaults):
+# provider: {{ type: openrouter, model: "openai/gpt-4o-mini" }}
 
 # Knobs: every key here can be overridden at run time with --set key=value
 # (and shows up as a form field in the web UI).

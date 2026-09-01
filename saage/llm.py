@@ -30,7 +30,9 @@ PROVIDER_ENV = {
 
 
 class ProviderKeyError(RuntimeError):
-    """The flow's provider needs an API key that is not in the environment."""
+    """The run has no usable provider: no provider configured anywhere (flow /
+    `saage setup` defaults / CLI flags), or the chosen one's API key is neither
+    in the environment nor saved by `saage setup`."""
 
 
 @dataclass

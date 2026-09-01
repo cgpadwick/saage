@@ -58,17 +58,30 @@ def run_doctor() -> int:
         _bad(f"bash not found ({e}) — command steps cannot run")
         problems += 1
 
+    print("provider defaults (saage setup)")
+    from .settings import config_path, default_provider, stored_key
+    dp = default_provider()
+    if dp:
+        _ok(f"default provider: {dp.get('type')} / {dp.get('model')} "
+            f"({config_path()})")
+    else:
+        _warn(f"no {config_path()} — flows that don't pin a provider need "
+              f"`saage setup` (or --provider/--model on each run)")
+
     print("provider API keys (any one is enough to run the example flows)")
     have_key = False
     for ptype, env in _KEYS:
         if os.environ.get(env):
-            _ok(f"{env} set ({ptype})")
+            _ok(f"{env} set in the environment ({ptype})")
+            have_key = True
+        elif stored_key(env):
+            _ok(f"{env} saved in credentials.toml ({ptype})")
             have_key = True
         else:
             _warn(f"{env} not set ({ptype})")
     if not have_key:
-        _warn("no provider key in the environment — agent flows will refuse "
-              "to start; export one, or use a local model "
+        _warn("no provider key configured — agent flows will refuse to "
+              "start; run `saage setup`, export a key, or use a local model "
               "(--provider local --base-url http://localhost:11434/v1)")
 
     print("web UI")
@@ -77,6 +90,11 @@ def run_doctor() -> int:
     else:
         _warn("server extra not installed — pip install 'saage[server]' "
               "for the web UI")
+    if importlib.util.find_spec("mcp"):
+        _ok("mcp extra installed (saage mcp available for coding agents)")
+    else:
+        _warn("mcp extra not installed — pip install 'saage[mcp]' to let "
+              "coding agents launch flows over MCP")
     server_yaml = saage_home() / "server.yaml"
     if server_yaml.is_file():
         _ok(f"server config: {server_yaml}")

@@ -219,7 +219,8 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
         if config.parser_provider is None:
             raise HTTPException(
                 status_code=503,
-                detail="parser_provider not configured in server.yaml")
+                detail="no parser provider: run `saage setup` or set "
+                       "parser_provider in server.yaml")
         from saage.hydrate import make_provider
         from saage.llm import ProviderKeyError
         try:
@@ -567,14 +568,8 @@ def serve(config_path=None, host=None, port=None, flow_paths=None) -> int:
     else:
         log.info("server config: %s (not found — using defaults)",
                  config_path or saage_home() / "server.yaml")
-    if flow_paths:                      # --flow-path DIR beats server.yaml
-        cfg.flow_paths = [Path(p).expanduser().resolve() for p in flow_paths]
-    elif not cfg.flow_paths:
-        # zero-config: if the launch directory has a flows/ dir, just use it
-        discovered = Path.cwd() / "flows"
-        if any(discovered.glob("*/flow.yaml")):
-            cfg.flow_paths = [discovered.resolve()]
-            log.info("auto-discovered flows in %s", cfg.flow_paths[0])
+    from .config import resolve_flow_paths
+    cfg = resolve_flow_paths(cfg, flow_paths)
     for p in cfg.flow_paths:
         if not Path(p).is_dir():
             log.warning("flow path does not exist: %s", p)
@@ -591,7 +586,7 @@ def serve(config_path=None, host=None, port=None, flow_paths=None) -> int:
                     "flow_paths to %s, or start saage serve from a directory "
                     "containing flows/", cfg.source or "~/.saage/server.yaml")
     if cfg.parser_provider is None:
-        log.info("natural-language launcher disabled "
-                 "(no parser_provider in server.yaml)")
+        log.info("natural-language launcher disabled (run `saage setup` or "
+                 "set parser_provider in server.yaml)")
     uvicorn.run(app, host=cfg.host, port=cfg.port)
     return 0

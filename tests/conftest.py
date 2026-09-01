@@ -1,4 +1,5 @@
 """Make `tests/` importable (so `saage_testkit` works from subdirs) + flow fixture."""
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -47,3 +48,22 @@ def flow_copy(tmp_path):
         shutil.copytree(FLOWS / name, dst, ignore=ignore)
         return dst / "flow.yaml"
     return _copy
+
+
+@pytest.fixture
+def blocked_stdin():
+    """Make fd 0 a pipe whose writer is held open for the test: any child that
+    reads stdin blocks forever unless the engine handed it EOF (/dev/null).
+    Windows: os.dup2 on CRT fd 0 does not touch the Win32 STD_INPUT_HANDLE
+    that subprocess inherits, so the fixture would be a silent no-op there."""
+    if sys.platform == "win32":
+        pytest.skip("fd-0 dup2 does not reach the Win32 stdin handle")
+    r, w = os.pipe()
+    saved = os.dup(0)
+    os.dup2(r, 0)
+    try:
+        yield
+    finally:
+        os.dup2(saved, 0)
+        for fd in (r, w, saved):
+            os.close(fd)

@@ -22,7 +22,7 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install -e ".[dev,server]"
+        run: pip install -e ".[dev,server,mcp]"
 
       - name: Run tests
         run: pytest -q
