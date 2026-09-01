@@ -81,3 +81,90 @@ def test_agent_flow_preflights_key_even_when_nested(tmp_path, monkeypatch):
         "      - { id: a, type: agent, skill: s }\n")
     with pytest.raises(ProviderKeyError, match="OPENAI_API_KEY"):
         build_flow(flow, workspace=str(tmp_path / "ws"))
+
+
+# ------------------------------------------------------------------------- #
+# request_timeout: per-attempt cap plumbed to the SDK client; bad values fail
+# at build time (like step `timeout:`), not as an httpx surprise mid-run.
+# Wiring is verified with recording fakes — never by asserting on the
+# unpinned SDK clients' internals (see the L13 comment).
+# ------------------------------------------------------------------------- #
+
+class _RecordingClient:
+    """Stands in for openai.OpenAI / anthropic.Anthropic; records ctor kwargs."""
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+class _RecordingTimeout:
+    """Stands in for the SDKs' Timeout re-export; records what saage asks
+    for. Tests must not import httpx directly: the SDKs' current majors sit
+    on httpx2, so classic httpx may be absent (this is exactly what broke CI)."""
+    def __init__(self, default, connect=None):
+        self.default, self.connect = default, connect
+
+
+def _fake_sdks(monkeypatch):
+    import openai
+    monkeypatch.setattr(openai, "OpenAI", _RecordingClient)
+    monkeypatch.setattr(openai, "Timeout", _RecordingTimeout, raising=False)
+    anthropic = pytest.importorskip("anthropic")
+    monkeypatch.setattr(anthropic, "Anthropic", _RecordingClient)
+    monkeypatch.setattr(anthropic, "Timeout", _RecordingTimeout, raising=False)
+
+
+@pytest.mark.parametrize("spec", [
+    {"type": "local", "model": "m", "request_timeout": 3600},
+    {"type": "anthropic", "model": "m", "request_timeout": 3600},
+])
+def test_request_timeout_is_plumbed(monkeypatch, spec):
+    _fake_sdks(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    p = make_provider(spec)
+    assert p.request_timeout == 3600            # saage's contract attr
+    kw = p.client.kwargs                        # what actually reached the SDK
+    assert kw["max_retries"] == 0               # saage's retry layer owns retries
+    t = kw["timeout"]                           # built from the SDK's Timeout
+    assert isinstance(t, _RecordingTimeout)
+    assert t.default == 3600                    # the budget on the slow phases
+    assert t.connect == 5.0                     # fast-fail TCP connect kept
+
+
+def test_request_timeout_defaults_to_sdk(monkeypatch):
+    _fake_sdks(monkeypatch)
+    p = make_provider({"type": "local", "model": "m"})
+    assert p.request_timeout is None
+    # no timeout => SDK defaults AND SDK retries stay untouched for
+    # existing flows (max_retries=0 is scoped to configured timeouts)
+    assert "timeout" not in p.client.kwargs
+    assert "max_retries" not in p.client.kwargs
+
+
+@pytest.mark.parametrize("bad", ["1h", -5, 0, True, float("inf")])
+def test_bad_request_timeout_fails_at_build(bad):
+    with pytest.raises(ValueError, match="request_timeout"):
+        make_provider({"type": "local", "model": "m", "request_timeout": bad})
+
+
+def test_bad_request_timeout_fails_on_direct_construction():
+    # validation must live in the constructors, not only make_provider —
+    # request_timeout=0.0 must be a loud error, not a silent SDK default
+    with pytest.raises(ValueError, match="request_timeout"):
+        OpenAIProvider("m", request_timeout=0.0)
+
+
+def test_empty_message_is_retried_not_swallowed(monkeypatch):
+    # a 200 whose message has neither content nor tool_calls (stealth-provider
+    # failure mode) must raise EmptyResponseError inside the retried call, so
+    # call_with_retry backs off instead of run_agent taking "" as final answer
+    from types import SimpleNamespace as NS
+    from saage.llm import EmptyResponseError
+    p = make_provider({"type": "local", "model": "m"})
+    empty = NS(choices=[NS(message=NS(content=None, tool_calls=None))], usage=None)
+    good = NS(choices=[NS(message=NS(content="done", tool_calls=None))], usage=None)
+    responses = iter([empty, empty, good])
+    monkeypatch.setattr(p.client.chat.completions, "create",
+                        lambda **kw: next(responses))
+    monkeypatch.setattr("time.sleep", lambda s: None)   # no real backoff waits
+    out = p.complete("sys", [{"role": "user", "text": "hi"}], [])
+    assert out.text == "done" and out.tool_calls == []  # survived 2 empties

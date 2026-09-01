@@ -20,6 +20,7 @@ import yaml
 
 from .hydrate import build_flow
 from .llm import ProviderKeyError
+from .validate import FlowSpecError
 from . import checkpoint as ckpt
 
 # third-party libs whose INFO chatter (e.g. "HTTP Request: POST ...") is noise
@@ -41,6 +42,10 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--provider", help="override the flow's provider type")
     run.add_argument("--model", help="override the model")
     run.add_argument("--base-url", dest="base_url", help="override the provider base URL")
+    run.add_argument("--request-timeout", dest="request_timeout", type=float,
+                     metavar="SECONDS",
+                     help="override the provider request_timeout (cap on a "
+                          "single model call, per retry attempt)")
     run.add_argument("--config", metavar="engine.yaml",
                      help="engine config YAML tuning the run_command safety policy "
                           "(default: the built-in denylist)")
@@ -303,10 +308,12 @@ def _cmd_resume(args) -> int:
                  provider_overrides=rec.get("provider_overrides") or None,
                  workspace=workspace, venv=rec.get("venv"),
                  config=rec.get("config_path"), resume=run)
-    except ProviderKeyError as e:
+    except FlowSpecError:
+        raise            # main() prints authoring errors as clean CLI errors
+    except (ProviderKeyError, ValueError) as e:
         # checkpoint deliberately untouched: the aborted attempt never ran a
         # step, so the run stays exactly as resumable as before — export the
-        # key and `saage resume` again
+        # key (or fix the config value) and `saage resume` again
         log.error("%s", e)
         return 1
     except provider_errors as e:
@@ -415,7 +422,9 @@ def _main(argv: list[str] | None = None) -> int:
     _setup_logging(args.verbose, args.quiet)
     log = logging.getLogger("saage")
 
-    overrides = {"type": args.provider, "model": args.model, "base_url": args.base_url}
+    overrides = {"type": args.provider, "model": args.model,
+                 "base_url": args.base_url,
+                 "request_timeout": args.request_timeout}
     run_id = args.run_id or os.environ.get("SAAGE_RUN_ID") or ckpt.new_run_id()
 
     existing = ckpt.Checkpoint(run_id)
@@ -443,7 +452,10 @@ def _main(argv: list[str] | None = None) -> int:
         flow, seed = build_flow(args.flow, provider_overrides=overrides,
                                 workspace=args.workspace, venv=args.venv,
                                 config=args.config, checkpoint=run)
-    except ProviderKeyError as e:
+    except FlowSpecError:
+        raise            # main() prints authoring errors as clean CLI errors
+    except (ProviderKeyError, ValueError) as e:
+        # ValueError: build-time config errors (e.g. a bad request_timeout)
         run.mark("failed")
         log.error("%s", e)
         return 1
