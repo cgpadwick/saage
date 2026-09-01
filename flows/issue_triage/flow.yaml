@@ -1,0 +1,45 @@
+# Triage a GitHub issue against a working checkout: fetch the issue, locate
+# the suspect code, build a repro that provably fails for the issue's reason,
+# then write a triage report with a suggested (unapplied) fix.
+#
+# Run it FROM the target project's checkout — the workspace is your dev
+# environment, so tests and imports already work (no clone, no install):
+#   saage run flows/issue_triage/flow.yaml --workspace ~/code/project --set issue=1234
+# Needs the `gh` CLI authenticated for the target repo. See README.md.
+
+shared:
+  issue: ""                       # REQUIRED: the issue number, via --set issue=N
+  test_cmd: "pytest -q"           # how this repo runs its tests
+
+workflow:
+  - id: fetch_issue
+    type: command
+    run: >
+      gh issue view {{ issue }} --json number,title,body,comments
+      > triage_issue.json 2> triage_fetch_err.txt
+      || echo '{"error": "gh failed — see triage_fetch_err.txt"}'
+      > triage_issue.json
+    timeout: 60
+
+  - id: locate
+    type: agent
+    skill: locate
+    max_steps: 25
+
+  - id: repro_loop
+    type: retry_loop
+    max_iterations: 3
+    action:
+      id: write_repro
+      type: agent
+      skill: write_repro
+      max_steps: 25
+    check:
+      id: verify_repro
+      type: agent
+      skill: verify_repro
+
+  - id: report
+    type: agent
+    skill: report
+    max_steps: 15
