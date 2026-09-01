@@ -183,8 +183,19 @@ workflow:
           type: command
           # pytest gate + deterministic no-op probe: a change that is not on
           # the default execution path fails HERE, with feedback, instead of
-          # wasting the iteration on a bit-identical tie
-          run: 'python3 -B -m pytest -q tests/ && python3 "{{ flow_dir }}/no_op_probe.py" && echo "ACTION: pass" || echo "ACTION: fail"'
+          # wasting the iteration on a bit-identical tie.
+          # pytest runs under an INNER timeout so a too-slow suite fails with
+          # actionable feedback ("slim the tests") instead of the step's outer
+          # timeout killing it (which yields only a generic timed-out note and
+          # sent live runs into 3x reimplement cycles once the champion grew
+          # transformer members). The outer timeout stays as the hang backstop.
+          run: 'timeout 780 python3 -B -m pytest -q tests/; rc=$?;
+            if [ "$rc" -eq 124 ]; then
+              echo "SMOKE SUITE TOO SLOW: pytest tests/ exceeded 780s. Do NOT reimplement the experiment; slim tests/test_smoke.py instead - stub or subsample heavy members (fine-tuned encoders), use tiny synthetic fixtures, target < 120s total.";
+              echo "ACTION: fail";
+            elif [ "$rc" -eq 0 ] && python3 "{{ flow_dir }}/no_op_probe.py"; then
+              echo "ACTION: pass";
+            else echo "ACTION: fail"; fi'
           timeout: 900
       # hardware-fitness gate on the experiment's diff (see baseline_perf_loop)
       - id: perf_loop
