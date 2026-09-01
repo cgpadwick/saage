@@ -25,9 +25,9 @@ WORKFLOW:
    - `tests/test_smoke.py` — fast smoke tests: imports work, model
      instantiates, train.py --help exits 0, a tiny synthetic-data fit runs.
      Tests must NOT need the real data and must finish in seconds. This
-     budget is FOREVER: later experiments add heavy members (fine-tuned
-     encoders), and the suite must stay < 120s by stubbing/subsampling
-     them — the implement gate fails any suite slower than 780s.
+     budget is FOREVER: as later experiments add heavy components, the
+     suite must stay < 120s by stubbing/faking them — the implement gate
+     enforces that budget and fails slower suites.
 3. Verify with `run_command: python -B -m pytest -q tests/` and fix failures.
 4. Do NOT run full training and do NOT generate submission.csv here.
 

@@ -17,15 +17,15 @@ WORKFLOW:
 2. Implement the proposal (edit_file for targeted changes, write_file for
    rewrites/new files).
 3. Update `tests/test_smoke.py` if the interface changed. Keep it a TRUE
-   smoke suite: the whole run must finish in < 120s. Test your CHANGE (the
-   delta), not the whole world — stub or subsample heavy members (fine-tuned
-   encoders: tiny fixtures, cached/fake outputs), never load and run every
-   real checkpoint. The gate kills the suite at 780s and fails the attempt.
-   If the gate reports "SMOKE SUITE TOO SLOW", slim the tests — do NOT
-   reimplement the experiment.
-4. Verify with `run_command: timeout 300 python -B -m pytest -q tests/` and
-   fix failures (a suite that cannot finish in 300s here is itself a failure
-   to fix — see rule 3).
+   smoke suite: the whole run must finish in < 120s — the gate enforces
+   this budget and fails the attempt. Test your CHANGE (the delta), not
+   the whole world: stub or fake heavy components (tiny synthetic
+   stand-ins, cached/fake outputs) instead of loading and running every
+   real artifact. If the gate reports "SMOKE SUITE TOO SLOW", slim the
+   tests — do NOT reimplement the experiment.
+4. Verify with `run_command: python -B -m pytest -q tests/` (pass the
+   tool's `timeout` argument, e.g. 150) and fix failures — a suite that
+   cannot finish inside the budget is itself a failure to fix (rule 3).
 
 CRITICAL RULES (the harness depends on these):
 - Keep the train.py CLI stable: `--device --epochs --data-path

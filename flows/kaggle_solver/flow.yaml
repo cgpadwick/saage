@@ -96,6 +96,7 @@ workflow:
       id: baseline_smoke
       type: command
       run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+      timeout: 900   # hang backstop; the 120s budget is enforced at implement_smoke
   # hardware-fitness gate BEFORE the training budget is spent: reviews the
   # baseline against hardware.md and applies mechanical fixes (device
   # placement, de-pinned threads, batched inference). The check is a
@@ -109,6 +110,7 @@ workflow:
       id: baseline_perf_recheck
       type: command
       run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+      timeout: 900   # hang backstop; the 120s budget is enforced at implement_smoke
 
   - id: baseline_train_loop
     type: retry_loop
@@ -183,14 +185,16 @@ workflow:
           # pytest gate + deterministic no-op probe: a change that is not on
           # the default execution path fails HERE, with feedback, instead of
           # wasting the iteration on a bit-identical tie.
-          # pytest runs under an INNER timeout so a too-slow suite fails with
-          # actionable feedback ("slim the tests") instead of the step's outer
-          # timeout killing it (which yields only a generic timed-out note and
-          # sent live runs into 3x reimplement cycles once the champion grew
-          # transformer members). The outer timeout stays as the hang backstop.
-          run: 'timeout 780 python3 -B -m pytest -q tests/; rc=$?;
+          # pytest runs under an INNER deadline (run_with_timeout.py — GNU
+          # `timeout` is absent on stock macOS) so a too-slow suite fails
+          # with actionable feedback ("slim the tests") instead of the
+          # step's outer timeout killing it, which yields only a generic
+          # timed-out note and sends runs into reimplement cycles. 120s is
+          # the enforced smoke budget the skills promise; the outer timeout
+          # stays as the pure hang backstop.
+          run: 'python3 "{{ flow_dir }}/run_with_timeout.py" 120 python3 -B -m pytest -q tests/; rc=$?;
             if [ "$rc" -eq 124 ]; then
-              echo "SMOKE SUITE TOO SLOW: pytest tests/ exceeded 780s. Do NOT reimplement the experiment; slim tests/test_smoke.py instead - stub or subsample heavy members (fine-tuned encoders), use tiny synthetic fixtures, target < 120s total.";
+              echo "SMOKE SUITE TOO SLOW: pytest tests/ exceeded the 120s smoke budget. Do NOT reimplement the experiment; slim tests/test_smoke.py instead - test the delta, stub or fake heavy components, use tiny synthetic fixtures.";
               echo "ACTION: fail";
             elif [ "$rc" -eq 0 ] && python3 "{{ flow_dir }}/no_op_probe.py"; then
               echo "ACTION: pass";
@@ -205,6 +209,7 @@ workflow:
           id: perf_recheck
           type: command
           run: 'python3 -B -m pytest -q tests/ && echo "ACTION: pass" || echo "ACTION: fail"'
+          timeout: 900   # hang backstop; the 120s budget is enforced at implement_smoke
 
       # a failed train must read as nan (revert), never the previous score
       - id: reset_candidate
