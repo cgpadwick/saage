@@ -39,7 +39,15 @@ workflow:
       type: agent
       skill: verify_repro
 
-  - id: report
-    type: agent
-    skill: report
-    max_steps: 30
+  - id: report_loop
+    type: retry_loop
+    max_iterations: 2
+    action:
+      id: report
+      type: agent
+      skill: report
+      max_steps: 30
+    check:
+      id: check_report
+      type: agent
+      skill: check_report

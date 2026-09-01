@@ -73,11 +73,12 @@ def test_issue_triage_flow(flow_copy):
         ],
         "report": tool_turn("write_file", path="triage_report.md",
                             content=REPORT),
+        "check_report": [resp("ACTION: pass")],
     })
     shared = run_flow(flow_yaml, provider=provider, shared={"issue": "7"})
 
     assert shared["_trace"] == ["fetch_issue", "locate", "write_repro",
-                                "verify_repro", "report"]
+                                "verify_repro", "report", "check_report"]
     assert json.loads((ws / "triage_issue.json").read_text())["number"] == 7
     assert (ws / "triage_report.md").read_text(encoding="utf-8") == REPORT
     assert (ws / "mathy.py").read_text(encoding="utf-8") == BUGGY  # untouched
