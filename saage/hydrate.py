@@ -77,12 +77,10 @@ def make_provider(spec: dict, require_key: bool = True):
                     f"set {key_env}, or pick a different provider with "
                     f"--provider/--model")
     rp = RetryPolicy(**spec["retry"]) if spec.get("retry") else None
+    # request_timeout is validated by the provider constructors (llm.py) so
+    # direct construction fails identically; it is a PER-ATTEMPT cap — see
+    # _sdk_client_kwargs for the retry interaction.
     rt = spec.get("request_timeout")
-    if rt is not None and (isinstance(rt, bool) or not isinstance(rt, (int, float))
-                           or not math.isfinite(rt) or rt <= 0):
-        # catch "1h"/"abc"/negative at build time, like step `timeout:` above
-        raise ValueError(f"provider request_timeout must be a positive number "
-                         f"of seconds, got {rt!r}")
     if t == "anthropic":
         return AnthropicProvider(model, retry_policy=rp, request_timeout=rt)
     if t == "openai":

@@ -11,6 +11,7 @@ Neutral history items the loop appends:
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -146,6 +147,42 @@ class LLMProvider(Protocol):
                  tools: list[Tool]) -> LLMResponse: ...
 
 
+def _validated_timeout(rt: "float | None") -> "float | None":
+    """Validate request_timeout HERE (not only in make_provider) so direct
+    construction gets the same build-time error. None = SDK default."""
+    if rt is None:
+        return None
+    if (isinstance(rt, bool) or not isinstance(rt, (int, float))
+            or not math.isfinite(rt) or rt <= 0):
+        raise ValueError(f"request_timeout must be a positive number of "
+                         f"seconds, got {rt!r}")
+    return float(rt)
+
+
+def _sdk_client_kwargs(request_timeout: "float | None") -> dict:
+    """SDK constructor kwargs for a validated request_timeout.
+
+    When set: cap read/write/pool at the budget but keep a fast 5s TCP
+    connect (a bare float would make an unreachable host burn the whole
+    budget per attempt — and connect errors are retryable, so x attempts),
+    and take max_retries=0 so saage's call_with_retry is the ONLY retry
+    layer (the SDK's silent internal retries multiply with ours — a hung
+    server stalled a live run 3x timeout before our layer saw one failure).
+
+    When None: {} — SDK defaults, including its own retries, stay in
+    charge, so existing flows keep their current resilience semantics.
+
+    NOTE the budget is PER ATTEMPT: call_with_retry still classifies
+    timeouts as retryable, so a genuinely hung server can cost up to
+    max_attempts x request_timeout. Size the budget for one long
+    legitimate turn, not as a total deadline."""
+    if request_timeout is None:
+        return {}
+    import httpx  # a dependency of both SDKs
+    return {"timeout": httpx.Timeout(request_timeout, connect=5.0),
+            "max_retries": 0}
+
+
 # --------------------------------------------------------------------------- #
 # Anthropic
 # --------------------------------------------------------------------------- #
@@ -154,15 +191,13 @@ class AnthropicProvider:
                  retry_policy: RetryPolicy | None = None,
                  request_timeout: float | None = None):
         import anthropic  # lazy: only needed when actually used
-        # max_retries=0: saage's call_with_retry owns retries. The SDK default
-        # (2 silent internal retries) multiplies with ours — a slow/hung server
-        # stalled a run 3 x timeout before our layer even saw one failure.
+        # timeout/retry wiring: see _sdk_client_kwargs (per-attempt budget,
+        # fast connect, saage-owned retries when a timeout is configured)
+        self.request_timeout = _validated_timeout(request_timeout)
         self.client = anthropic.Anthropic(
-            max_retries=0,
-            **({"timeout": request_timeout} if request_timeout else {}))
+            **_sdk_client_kwargs(self.request_timeout))
         self.model = model
         self.max_tokens = max_tokens
-        self.request_timeout = request_timeout
         self.retry_policy = retry_policy or RetryPolicy()
 
     def _tools(self, tools: list[Tool]) -> list[dict]:
@@ -211,20 +246,18 @@ class OpenAIProvider:
                  retry_policy: RetryPolicy | None = None,
                  request_timeout: float | None = None):
         import openai  # lazy
-        # max_retries=0: saage's call_with_retry owns retries (see
-        # AnthropicProvider). request_timeout matters for `local` servers: a
-        # 27B on consumer hardware can legitimately think for >10 min (the SDK
-        # default), which read as a hang and looped timeout -> full regenerate.
+        # timeout/retry wiring: see _sdk_client_kwargs. request_timeout
+        # matters for `local` servers: a 27B on consumer hardware can
+        # legitimately think for >10 min (the SDK default read as a hang).
+        self.request_timeout = _validated_timeout(request_timeout)
         self.client = openai.OpenAI(
-            base_url=base_url, max_retries=0,
-            **({"timeout": request_timeout} if request_timeout else {}),
+            base_url=base_url, **_sdk_client_kwargs(self.request_timeout),
             api_key=os.environ.get(api_key_env, "not-needed"))  # local needs no real key
         self.model = model
         # Resolved wiring kept as our own attrs so callers/tests assert on saage's
         # contract, not the (unpinned) openai client's internals.
         self.base_url = base_url
         self.api_key_env = api_key_env
-        self.request_timeout = request_timeout
         self.retry_policy = retry_policy or RetryPolicy()
 
     def _tools(self, tools: list[Tool]) -> list[dict]:

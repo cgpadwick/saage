@@ -83,9 +83,11 @@ workflow:                      # required: an ordered list of steps
   genuinely needs (a pin beats the defaults, and must carry both `type` and
   `model`). `provider.type` ∈ `anthropic | openai | openrouter | nvidia |
   local`; optional `retry: { max_attempts, base_delay }` sub-block, optional
-  `request_timeout` (seconds per model call — raise for slow `local` servers
-  whose thinking turns outlive the SDK default of 600s). CLI
-  `--provider/--model/--base-url` beats both at run time.
+  `request_timeout` (cap in seconds on a single model call — raise for slow
+  `local` servers whose thinking turns outlive the SDK default of 600s; the
+  cap is per retry attempt, so a hung server can cost up to
+  `retry.max_attempts x request_timeout`). CLI
+  `--provider/--model/--base-url/--request-timeout` beats both at run time.
 - `workspace`, `venv`, `flow_dir`, and `python` are auto-seeded into the shared
   store, so `{{ workspace }}` / `{{ flow_dir }}` / `{{ venv }}` / `{{ python }}`
   are available in templates. `python` is the interpreter launcher for helper
