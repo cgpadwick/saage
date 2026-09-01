@@ -36,8 +36,10 @@ never modified:
 - `triage_notes.md` — located suspect code, `path:line`, hypothesis
 - `repro_saage.py` — self-contained repro; exits non-zero while the bug
   exists, would pass once fixed
-- `triage_report.md` — root cause, verified repro status, suggested fix as
-  a unified diff, risks
+- `triage_report.html` — self-contained HTML: an executive summary table up
+  front (the bug, reproduced ✅/❌, root cause, suggested fix, T-shirt effort
+  estimate XS–XL, confidence — the 30-second read), then root cause,
+  verified repro status, suggested fix as a unified diff, risks
 
 ## How it works
 
@@ -45,7 +47,9 @@ never modified:
 reads the codebase, writes evidence) → `repro_loop` (retry_loop, max 3: an
 agent writes `repro_saage.py`; a checker *runs it* and passes only if it
 fails non-zero **for the issue's stated symptom** and asserts the expected
-behavior — so it would pass on a fixed tree) → `report`.
+behavior — so it would pass on a fixed tree) → `report_loop` (retry_loop:
+an agent writes the HTML report; a checker fails until the file exists with
+the executive summary table and every section).
 
 The repro gate is the point: a triage report backed by an executing,
 symptom-matched reproduction, enforced by the engine's loop wiring rather

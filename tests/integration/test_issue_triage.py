@@ -31,12 +31,18 @@ assert got == 5, f"expected 5, got {got}"
 print("ok")
 """
 
-REPORT = """# Triage: issue 7
-Root cause: mathy.py:2 subtracts instead of adding. Repro verified.
-```diff
--    return a - b   # the bug
-+    return a + b
-```
+REPORT = """<!doctype html><html><head><meta charset="utf-8">
+<title>Triage: issue 7</title><style>body{font-family:sans-serif}</style></head>
+<body><table><tr><th>Issue</th><td>#7 add() returns wrong result</td></tr>
+<tr><th>The bug</th><td>add(2, 3) returns -1</td></tr>
+<tr><th>Reproduced</th><td>✅ Verified</td></tr>
+<tr><th>Root cause</th><td>mathy.py:2 subtracts instead of adding</td></tr>
+<tr><th>Suggested fix</th><td>use + instead of -</td></tr>
+<tr><th>Effort</th><td>XS — one-line fix</td></tr>
+<tr><th>Confidence</th><td>High</td></tr></table>
+<pre>-    return a - b   # the bug
++    return a + b</pre>
+</body></html>
 """
 
 PY = sys.executable
@@ -71,7 +77,7 @@ def test_issue_triage_flow(flow_copy):
             resp(calls=[call("run_command", command=f"'{PY}' repro_saage.py")]),
             resp("exits non-zero with the reported symptom\nACTION: pass"),
         ],
-        "report": tool_turn("write_file", path="triage_report.md",
+        "report": tool_turn("write_file", path="triage_report.html",
                             content=REPORT),
         "check_report": [resp("ACTION: pass")],
     })
@@ -80,7 +86,7 @@ def test_issue_triage_flow(flow_copy):
     assert shared["_trace"] == ["fetch_issue", "locate", "write_repro",
                                 "verify_repro", "report", "check_report"]
     assert json.loads((ws / "triage_issue.json").read_text())["number"] == 7
-    assert (ws / "triage_report.md").read_text(encoding="utf-8") == REPORT
+    assert (ws / "triage_report.html").read_text(encoding="utf-8") == REPORT
     assert (ws / "mathy.py").read_text(encoding="utf-8") == BUGGY  # untouched
 
     # the repro contract, checked mechanically: non-zero on the buggy tree...
