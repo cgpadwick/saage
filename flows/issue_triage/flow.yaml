@@ -24,7 +24,7 @@ workflow:
   - id: locate
     type: agent
     skill: locate
-    max_steps: 25
+    max_steps: 40
 
   - id: repro_loop
     type: retry_loop
@@ -33,7 +33,7 @@ workflow:
       id: write_repro
       type: agent
       skill: write_repro
-      max_steps: 25
+      max_steps: 40
     check:
       id: verify_repro
       type: agent
@@ -42,4 +42,4 @@ workflow:
   - id: report
     type: agent
     skill: report
-    max_steps: 15
+    max_steps: 30

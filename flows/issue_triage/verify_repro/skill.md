@@ -5,7 +5,9 @@ tools: [read_file, run_command]
 ---
 SKILL_ID: verify_repro
 
-Run `{{ python }} repro_saage.py` yourself with `run_command`. Then read
+Run `{{ python }} -P repro_saage.py` yourself with `run_command` (`-P` stops
+a source checkout at the workspace root from shadowing the installed
+package; drop it only if this python predates 3.11). Then read
 `triage_issue.json` and `repro_saage.py` and judge:
 
 - the script exited non-zero, AND

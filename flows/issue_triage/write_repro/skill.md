@@ -16,8 +16,10 @@ Contract for the script:
   the buggy one
 - no network, no project files modified
 
-Run it with `{{ python }} repro_saage.py` and iterate until its failure
-matches the issue's reported symptom. If feedback from a previous attempt is
+Run it with `{{ python }} -P repro_saage.py` (`-P` keeps a source checkout at
+the workspace root from shadowing the installed package; drop it only if this
+python predates 3.11) and iterate until its failure matches the issue's
+reported symptom. If feedback from a previous attempt is
 provided, fix exactly what it names. If the issue genuinely cannot be
 reproduced this way (needs external services, hardware, races), say so
 explicitly in your final message and leave your best attempt in place.
