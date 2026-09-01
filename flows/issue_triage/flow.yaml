@@ -41,7 +41,7 @@ workflow:
 
   - id: report_loop
     type: retry_loop
-    max_iterations: 2
+    max_iterations: 3
     action:
       id: report
       type: agent

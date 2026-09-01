@@ -1,30 +1,27 @@
 ---
 name: report
 description: "Write the triage report: root cause, evidence, suggested fix."
-tools: [read_file, write_file, run_command]
+tools: [read_file, write_file]
 ---
 SKILL_ID: report
 
-Read `triage_notes.md`, `triage_issue.json`, `repro_saage.py`, and the
-suspect source files. Then WRITE `triage_report.md` IMMEDIATELY — a complete
-report from what you already know is the deliverable; a perfect analysis
-with no report file is a failed step. Only after the file exists may you
-spend remaining steps validating the suggested fix (e.g. in a /tmp copy,
-never the workspace) and updating the report with what you verified.
-
-`triage_report.md` structure:
+Your ONLY deliverable is `triage_report.md`. Verification already happened
+upstream (the repro loop ran the repro; its verdict is in the record) — your
+job is synthesis, not further investigation. Read `triage_notes.md`,
+`triage_issue.json`, `repro_saage.py`, and at most the one or two source
+files the notes point at. Then write `triage_report.md`:
 
 1. **Issue** — one-paragraph restatement (number + title).
 2. **Root cause** — the mechanism, with `path:line` references and the
-   offending code quoted.
-3. **Reproduction** — whether `repro_saage.py` verifiably fails for the
-   issue's reason (run it if you need the current output). If the repro loop
-   gave up, say "unreproduced" and present the root cause as hypothesis.
-4. **Suggested fix** — a unified diff in a ```diff block. Do NOT apply it;
-   the diff in the report is the deliverable. Note how the fix makes
-   `repro_saage.py` pass.
-5. **Risks / notes** — affected callers ({{ test_cmd }} scope), edge cases,
-   anything you could not verify.
+   offending code quoted (from the notes and your reads).
+3. **Reproduction** — verified (the repro loop passed) or explicitly
+   "unreproduced" (the loop exhausted its attempts — then present the root
+   cause as hypothesis and say what blocked reproduction).
+4. **Suggested fix** — a unified diff in a ```diff block, marked as
+   UNVALIDATED — proposed from analysis, not executed. Do NOT apply it.
+5. **Risks / notes** — affected callers, edge cases, anything unverified.
 
 Be explicit about verified vs hypothesized throughout. You write only
-`triage_report.md` — never project files.
+`triage_report.md` — never project files. If feedback from a previous
+attempt is provided, your first action is `write_file` of the complete
+report; only refine after the file exists.
