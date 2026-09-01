@@ -6,9 +6,13 @@ from scratch; drop into the source only when you need an internal detail.
 
 > Building a flow from a user request? Follow the step-by-step recipe in
 > [`.claude/skills/building-saage-flows/SKILL.md`](.claude/skills/building-saage-flows/SKILL.md).
-> Despite the directory name it is harness-agnostic — plain markdown any agent
+> The request still vague? Interview the user first with
+> [`.claude/skills/designing-saage-flows/SKILL.md`](.claude/skills/designing-saage-flows/SKILL.md).
+> Despite the directory name both are harness-agnostic — plain markdown any agent
 > (Codex, Gemini, Copilot, …) can follow; the frontmatter is just discovery
-> metadata for harnesses with skill support.
+> metadata for harnesses with skill support. To *run* flows as native tool
+> calls instead of shelling out, connect to the `saage mcp` server
+> ([docs/agents.md](docs/agents.md)).
 
 ## Mental model (read this first)
 
@@ -61,7 +65,7 @@ Docs: See the "Web UI: `saage serve`" section in the main README.
 ## `flow.yaml` reference
 
 ```yaml
-provider: { type: openrouter, model: "deepseek/deepseek-v4-flash" }   # required
+provider: { type: openrouter, model: "deepseek/deepseek-v4-flash" }   # optional pin
 workspace: /tmp/saage_run        # optional: tool/command cwd. default = the flow dir
 venv: .venv                    # optional: auto-activated for commands once it exists
 artifacts: [experiments.jsonl, "report*.html"]   # optional: workspace files/globs
@@ -74,9 +78,12 @@ workflow:                      # required: an ordered list of steps
   - <step>
 ```
 
-- `provider.type` ∈ `anthropic | openai | openrouter | nvidia | local`; optional
-  `retry: { max_attempts, base_delay }` sub-block. Override at run time with
-  `--provider/--model/--base-url`.
+- `provider:` is optional. Omit it (the norm) and the flow runs with the user's
+  `saage setup` defaults; include it only to pin the flow to a provider+model it
+  genuinely needs (a pin beats the defaults, and must carry both `type` and
+  `model`). `provider.type` ∈ `anthropic | openai | openrouter | nvidia |
+  local`; optional `retry: { max_attempts, base_delay }` sub-block. CLI
+  `--provider/--model/--base-url` beats both at run time.
 - `workspace`, `venv`, `flow_dir`, and `python` are auto-seeded into the shared
   store, so `{{ workspace }}` / `{{ flow_dir }}` / `{{ venv }}` / `{{ python }}`
   are available in templates. `python` is the interpreter launcher for helper

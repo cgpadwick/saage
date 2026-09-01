@@ -1,7 +1,6 @@
 # Story writer: two authors alternate (write a scene, add a twist), looping 3
 # times, then a critic reviews the finished story. Demonstrates counting_loop
 # with a multi-node body followed by a terminal node.
-provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 
 workflow:
   - id: draft

@@ -1,3 +1,4 @@
+import os
 import subprocess
 
 import pytest
@@ -69,3 +70,21 @@ def test_default_tools_count(tmp_path):
         "read_file", "write_file", "append_file", "edit_file", "delete_file",
         "run_command", "git_status", "git_diff", "git_add", "git_commit",
         "git_branch", "git_checkout", "git_log", "web_search"]   # ask_user is opt-in
+
+
+@pytest.mark.usefixtures("blocked_stdin")
+def test_git_tools_never_prompt_on_the_console(tmp_path, monkeypatch):
+    # A fake `git` first on PATH: reports whether git would be allowed to
+    # prompt, and whether stdin is EOF (engine gave /dev/null) or a live
+    # console (it would block — `timeout` caps the probe so RED is 3s, not 60).
+    fake = tmp_path / "bin"; fake.mkdir()
+    (fake / "git").write_text(
+        "#!/bin/sh\n"
+        'echo "prompt=${GIT_TERMINAL_PROMPT:-unset}"\n'
+        "if timeout 3 cat >/dev/null; then echo stdin=eof; else echo stdin=blocked; fi\n")
+    (fake / "git").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake}{os.pathsep}{os.environ['PATH']}")
+    tools = {t.name: t for t in git_tools(tmp_path)}
+    out = tools["git_status"].fn()
+    assert "stdin=eof" in out
+    assert "prompt=0" in out

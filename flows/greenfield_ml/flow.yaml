@@ -12,7 +12,6 @@
 #
 # Run:  OPENROUTER_API_KEY=... saage run flows/greenfield_ml/flow.yaml \
 #         --workspace /tmp/saage_mnist --set target_accuracy=0.97
-provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 workspace: /tmp/saage_mnist
 # what the remote sidecar collects from the workspace (local runs ignore this)
 artifacts: [experiments.jsonl, research_log.md, eval_results.json, report.html]

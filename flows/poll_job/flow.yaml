@@ -1,7 +1,6 @@
 # Submit a (simulated) batch job, capture its id, then poll the scheduler until
 # the job completes — synchronously, with a hard wall-clock cap so it can never
 # hang. Demonstrates command capture (job_id) + polling_loop + templated poll.
-provider: { type: openrouter, model: deepseek/deepseek-v4-flash }
 
 workflow:
   - id: submit
