@@ -225,7 +225,9 @@ def create_app(config: ServerConfig, provider=None) -> FastAPI:
         from saage.llm import ProviderKeyError
         try:
             _provider_box["provider"] = make_provider(config.parser_provider)
-        except ProviderKeyError as e:
+        except (ProviderKeyError, ValueError) as e:
+            # ValueError: e.g. a malformed request_timeout in server.yaml —
+            # a config problem must answer 503, not 500 on every request
             raise HTTPException(status_code=503, detail=str(e))
         return _provider_box["provider"]
 

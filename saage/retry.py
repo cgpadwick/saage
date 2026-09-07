@@ -23,7 +23,12 @@ log = logging.getLogger(__name__)
 # HTTP statuses worth retrying: request timeout, conflict, too-early, rate limit,
 # and the 5xx server-side failures. Everything else (400/401/403/404/422…) is a
 # permanent client error that a retry cannot fix.
-RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+# 529 is Anthropic's overloaded_error; 520-524 are Cloudflare origin/edge
+# failures commonly surfaced via OpenRouter. Both are capacity blips, not
+# client errors — with SDK-internal retries disabled (request_timeout set),
+# saage's layer is the only one that can absorb them.
+RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504,
+                              520, 521, 522, 523, 524, 529})
 
 
 @dataclass
@@ -70,6 +75,20 @@ def is_retryable_error(exc: BaseException) -> bool:
     return status in RETRYABLE_STATUS
 
 
+def _retry_after_seconds(exc: BaseException) -> "float | None":
+    """Numeric Retry-After (seconds) from the exception's HTTP response, or
+    None. The HTTP-date form is ignored (rare from LLM APIs, clock-skew
+    prone); negative or unparsable values are ignored."""
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    if headers is None or not hasattr(headers, "get"):
+        return None
+    try:
+        v = float(headers.get("retry-after"))
+    except (TypeError, ValueError):
+        return None
+    return v if v >= 0 else None
+
+
 def call_with_retry(fn: Callable[[], object], *,
                     policy: RetryPolicy | None = None,
                     retryable: Callable[[BaseException], bool] = is_retryable_error,
@@ -91,6 +110,12 @@ def call_with_retry(fn: Callable[[], object], *,
                                 what, attempt, exc)
                 raise
             delay = policy.delay_for(attempt, rng)
+            ra = _retry_after_seconds(exc)
+            if ra is not None:
+                # honor server pacing (a 429's Retry-After: 30 must not be
+                # burned through in <10s of blind backoff), bounded so a
+                # bogus header cannot stall the run
+                delay = max(delay, min(ra, 120.0))
             log.warning("%s failed (attempt %d/%d): %s — retrying in %.2fs",
                         what, attempt, attempts, exc, delay)
             sleep(delay)

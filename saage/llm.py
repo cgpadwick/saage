@@ -11,6 +11,7 @@ Neutral history items the loop appends:
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -146,14 +147,67 @@ class LLMProvider(Protocol):
                  tools: list[Tool]) -> LLMResponse: ...
 
 
+def _validated_timeout(rt: "float | None") -> "float | None":
+    """Validate request_timeout HERE (not only in make_provider) so direct
+    construction gets the same build-time error. None = SDK default."""
+    if rt is None:
+        return None
+    if (isinstance(rt, bool) or not isinstance(rt, (int, float))
+            or not math.isfinite(rt) or rt <= 0):
+        raise ValueError(f"request_timeout must be a positive number of "
+                         f"seconds, got {rt!r}")
+    return float(rt)
+
+
+def _sdk_client_kwargs(request_timeout: "float | None", sdk) -> dict:
+    """SDK constructor kwargs for a validated request_timeout.
+
+    When set: cap read/write/pool at the budget but keep a fast 5s TCP
+    connect (a bare float would make an unreachable host burn the whole
+    budget per attempt — and connect errors are retryable, so x attempts),
+    and take max_retries=0 so saage's call_with_retry is the ONLY retry
+    layer (the SDK's silent internal retries multiply with ours — a hung
+    server stalled a live run 3x timeout before our layer saw one failure).
+
+    When None: {} — SDK defaults, including its own retries, stay in
+    charge, so existing flows keep their current resilience semantics.
+
+    NOTE the budget is PER ATTEMPT: call_with_retry still classifies
+    timeouts as retryable, so a genuinely hung server can cost up to
+    max_attempts x request_timeout. Size the budget for one long
+    legitimate turn, not as a total deadline.
+
+    `sdk` is the imported SDK module (openai / anthropic): the granular
+    timeout is built from the SDK's own `Timeout` re-export, NOT from a
+    direct httpx import — the SDKs' current majors (openai>=3,
+    anthropic>=1) sit on httpx2, so classic httpx may not be installed
+    at all. If the re-export is missing or its signature drifts, fall
+    back to the bare budget (every phase capped, connect included)."""
+    if request_timeout is None:
+        return {}
+    timeout = request_timeout
+    timeout_cls = getattr(sdk, "Timeout", None)
+    if timeout_cls is not None:
+        try:
+            timeout = timeout_cls(request_timeout, connect=5.0)
+        except TypeError:
+            timeout = request_timeout
+    return {"timeout": timeout, "max_retries": 0}
+
+
 # --------------------------------------------------------------------------- #
 # Anthropic
 # --------------------------------------------------------------------------- #
 class AnthropicProvider:
     def __init__(self, model: str, max_tokens: int = 4096,
-                 retry_policy: RetryPolicy | None = None):
+                 retry_policy: RetryPolicy | None = None,
+                 request_timeout: float | None = None):
         import anthropic  # lazy: only needed when actually used
-        self.client = anthropic.Anthropic()
+        # timeout/retry wiring: see _sdk_client_kwargs (per-attempt budget,
+        # fast connect, saage-owned retries when a timeout is configured)
+        self.request_timeout = _validated_timeout(request_timeout)
+        self.client = anthropic.Anthropic(
+            **_sdk_client_kwargs(self.request_timeout, anthropic))
         self.model = model
         self.max_tokens = max_tokens
         self.retry_policy = retry_policy or RetryPolicy()
@@ -201,10 +255,16 @@ class AnthropicProvider:
 class OpenAIProvider:
     def __init__(self, model: str, base_url: str | None = None,
                  api_key_env: str = "OPENAI_API_KEY",
-                 retry_policy: RetryPolicy | None = None):
+                 retry_policy: RetryPolicy | None = None,
+                 request_timeout: float | None = None):
         import openai  # lazy
+        # timeout/retry wiring: see _sdk_client_kwargs. request_timeout
+        # matters for `local` servers: a 27B on consumer hardware can
+        # legitimately think for >10 min (the SDK default read as a hang).
+        self.request_timeout = _validated_timeout(request_timeout)
         self.client = openai.OpenAI(
             base_url=base_url,
+            **_sdk_client_kwargs(self.request_timeout, openai),
             api_key=os.environ.get(api_key_env, "not-needed"))  # local needs no real key
         self.model = model
         # Resolved wiring kept as our own attrs so callers/tests assert on saage's
@@ -248,6 +308,13 @@ class OpenAIProvider:
             if not getattr(r, "choices", None):
                 raise EmptyResponseError(
                     f"no choices in response: {getattr(r, 'error', None) or r!r}")
+            # A present-but-empty message (no content AND no tool calls) is the
+            # same proxy failure in a different coat — stealth/ox-alpha served
+            # these for ~75% of tool-bearing requests once. run_agent would
+            # take "" as the agent's final answer, so retry it here instead.
+            msg = r.choices[0].message
+            if not (msg.content or msg.tool_calls):
+                raise EmptyResponseError("empty message: no content or tool calls")
             return r
         r = call_with_retry(_do, policy=self.retry_policy,
                             what="openai.chat.completions.create")
