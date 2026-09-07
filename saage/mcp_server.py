@@ -172,7 +172,8 @@ def build_server(config_path=None, flow_paths=None):
             # context-managed: this server is long-lived, so a leaked dir per
             # validate call (unlike the one-shot CLI) would pile up in /tmp
             with tempfile.TemporaryDirectory(prefix="saage-validate-") as ws:
-                build_flow(path, provider=object(), workspace=ws)
+                build_flow(path, provider=object(), workspace=ws,
+                           connect_mcp=False)
         except Exception as e:  # noqa: BLE001 — the message IS the result
             return {"ok": False, "error": str(e)}
         return {"ok": True}

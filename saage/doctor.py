@@ -123,7 +123,8 @@ def run_doctor() -> int:
         for fy in flow_files:
             try:
                 build_flow(fy, provider=object(),
-                           workspace=tempfile.mkdtemp(prefix="saage-doctor-"))
+                           workspace=tempfile.mkdtemp(prefix="saage-doctor-"),
+                           connect_mcp=False)
                 _ok(f"{fy.parent.name}: hydrates")
             except Exception as e:  # noqa: BLE001 — report, keep checking the rest
                 _bad(f"{fy.parent.name}: {e}")

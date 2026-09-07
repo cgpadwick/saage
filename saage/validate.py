@@ -8,7 +8,12 @@ position and id.
 """
 from __future__ import annotations
 
+import re
+
 STEP_TYPES = ("agent", "command", "retry_loop", "polling_loop", "counting_loop")
+
+_MCP_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+_MCP_KEYS = {"command", "args", "env"}
 
 
 class FlowSpecError(ValueError):
@@ -62,6 +67,31 @@ def _check_step(spec, path: str, errors: list[str]) -> None:
                 _check_step(s, f"{w}.body[{i}]", errors)
 
 
+def _check_mcp_server(name, entry, errors: list[str]) -> None:
+    w = f"mcp.{name}"
+    if not isinstance(name, str) or not _MCP_NAME.match(str(name)):
+        errors.append(f"{w}: server name must match [A-Za-z0-9_-]+ "
+                      f"(it prefixes tool names)")
+    if not isinstance(entry, dict):
+        errors.append(f"{w}: must be a mapping with 'command' (and optional "
+                      f"'args', 'env')")
+        return
+    for k in entry:
+        if k not in _MCP_KEYS:
+            errors.append(f"{w}: unknown key {k!r} (allowed: command, args, env)")
+    if not entry.get("command") or not isinstance(entry.get("command"), str):
+        errors.append(f"{w}: needs 'command' (the executable, e.g. uvx)")
+    args = entry.get("args")
+    if args is not None and (not isinstance(args, list)
+                             or not all(isinstance(a, str) for a in args)):
+        errors.append(f"{w}: 'args' must be a list of strings")
+    env = entry.get("env")
+    if env is not None and (not isinstance(env, list)
+                            or not all(isinstance(e, str) for e in env)):
+        errors.append(f"{w}: 'env' must be a list of env-var NAMES (values "
+                      f"come from the environment or `saage mcp add`)")
+
+
 def validate_spec(spec, require_provider: bool = True) -> None:
     """Raise FlowSpecError listing every structural problem in *spec*.
 
@@ -85,6 +115,13 @@ def validate_spec(spec, require_provider: bool = True) -> None:
                               "openrouter | nvidia | local)")
             if not prov.get("model"):
                 errors.append("provider: missing 'model'")
+    mcp = spec.get("mcp")
+    if mcp is not None and not isinstance(mcp, dict):
+        errors.append("'mcp:' must be a mapping of server-name -> "
+                      "{command, args, env}")
+    elif mcp:
+        for name, entry in mcp.items():
+            _check_mcp_server(name, entry, errors)
     wf = spec.get("workflow")
     if wf is None:
         errors.append("missing top-level 'workflow:' list of steps")

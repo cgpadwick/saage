@@ -74,24 +74,31 @@ def save_key(env_var: str, value: str) -> Path:
     """Insert or replace `env_var = "..."` in the [keys] section by text
     splice (same convention as remote.creds targets: a TOML re-emit would
     strip comments and reorder the whole file). chmod 600 like every write."""
+    return _splice_entry("keys", env_var, value)
+
+
+def _splice_entry(section: str, key: str, value: str) -> Path:
+    """Insert or replace `key = "value"` in `[section]` of credentials.toml
+    by text splice; creates the file/section as needed. chmod 600 always."""
     if '"' in value or "\\" in value or "\n" in value:
-        raise CredsError("API key contains characters that can't be stored "
+        raise CredsError("value contains characters that can't be stored "
                          '(quote/backslash/newline)')
     path = cred_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    entry = f'{env_var} = "{value}"'
+    entry = f'{key} = "{value}"'
+    header = f"[{section}]"
     try:
-        start = next(i for i, ln in enumerate(lines) if ln.strip() == "[keys]")
-    except StopIteration:                       # no [keys] section yet — append one
+        start = next(i for i, ln in enumerate(lines) if ln.strip() == header)
+    except StopIteration:                       # no such section yet — append one
         if lines and lines[-1].strip():
             lines.append("")
-        lines += ["[keys]", entry]
+        lines += [header, entry]
     else:
         end = next((i for i in range(start + 1, len(lines))
                     if lines[i].lstrip().startswith("[")), len(lines))
         for i in range(start + 1, end):
-            if lines[i].split("=", 1)[0].strip() == env_var:
+            if lines[i].split("=", 1)[0].strip() == key:
                 lines[i] = entry                # replace in place
                 break
         else:
@@ -99,3 +106,51 @@ def save_key(env_var: str, value: str) -> Path:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     path.chmod(0o600)
     return path
+
+
+# --- MCP server secrets: [mcp.<server>] tables ------------------------------
+
+def stored_mcp_value(server: str, env_var: str) -> str | None:
+    """The value saved for *env_var* under [mcp.<server>], if any. Degrades
+    to None on a malformed/badly-permissioned file, like stored_key."""
+    try:
+        val = load_creds().get("mcp", {}).get(server, {}).get(env_var)
+    except Exception:  # noqa: BLE001 — see stored_key
+        return None
+    return val or None
+
+
+def save_mcp_value(server: str, env_var: str, value: str) -> Path:
+    """Save one env-var value for an MCP server (written by `saage mcp add`)."""
+    return _splice_entry(f"mcp.{server}", env_var, value)
+
+
+def list_mcp_servers() -> dict[str, list[str]]:
+    """Configured MCP servers → their stored env-var names (never values)."""
+    try:
+        mcp = load_creds().get("mcp", {})
+    except Exception:  # noqa: BLE001
+        return {}
+    return {name: sorted(vals) for name, vals in mcp.items()
+            if isinstance(vals, dict)}
+
+
+def remove_mcp_server(server: str) -> bool:
+    """Delete the whole [mcp.<server>] section. True if it existed."""
+    path = cred_path()
+    if not path.exists():
+        return False
+    lines = path.read_text(encoding="utf-8").splitlines()
+    header = f"[mcp.{server}]"
+    try:
+        start = next(i for i, ln in enumerate(lines) if ln.strip() == header)
+    except StopIteration:
+        return False
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].lstrip().startswith("[")), len(lines))
+    del lines[start:end]
+    while lines and not lines[-1].strip():      # trim trailing blank lines
+        lines.pop()
+    path.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
+    path.chmod(0o600)
+    return True

@@ -26,5 +26,7 @@ _FLOW_YAMLS = sorted(
 @pytest.mark.parametrize("flow_dir", _FLOW_YAMLS, ids=lambda p: p.name)
 def test_flow_hydrates(flow_dir, tmp_path):
     # provider=object() skips real provider construction; tmp workspace avoids
-    # touching the flow dir.
-    build_flow(flow_dir / "flow.yaml", provider=object(), workspace=str(tmp_path))
+    # touching the flow dir; connect_mcp=False checks a flow's `mcp:` schema
+    # without spawning servers or demanding their secrets.
+    build_flow(flow_dir / "flow.yaml", provider=object(), workspace=str(tmp_path),
+               connect_mcp=False)

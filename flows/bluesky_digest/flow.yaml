@@ -1,0 +1,37 @@
+# Digest recent Bluesky posts from accounts you follow closely: fetch each
+# account's feed via a Bluesky MCP server, rank against your interests, and
+# verify the digest cites only real posts.
+#
+# Needs a free Bluesky app password (https://bsky.app/settings/app-passwords):
+#   saage mcp add bluesky
+# (or export BLUESKY_IDENTIFIER + BLUESKY_APP_PASSWORD). See README.md.
+
+mcp:
+  bluesky:
+    command: uvx
+    args: ["--from", "git+https://github.com/gwbischof/bluesky-social-mcp@v0.1",
+           "bluesky-social-mcp"]
+    env: [BLUESKY_IDENTIFIER, BLUESKY_APP_PASSWORD]
+
+shared:
+  handles: "simonwillison.net, sebastianraschka.com"   # comma-separated
+  interests: "LLM research, ML engineering, python tooling"
+  posts_per_account: 20
+
+workflow:
+  - id: gather
+    type: agent
+    skill: gather
+    max_steps: 30
+
+  - id: digest_loop
+    type: retry_loop
+    max_iterations: 3
+    action:
+      id: write_digest
+      type: agent
+      skill: write_digest
+    check:
+      id: verify_digest
+      type: agent
+      skill: verify_digest
