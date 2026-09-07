@@ -176,6 +176,12 @@ saage speaks to coding agents on two surfaces — say `y` at `saage setup`'s
   author → validate → offline-test → run loop). Non-Claude agents get the same
   content via [`AGENTS.md`](AGENTS.md).
 
+Flows can reach outside the workspace too: a flow's `mcp:` block spawns
+external stdio MCP servers (Reddit, web search, Bluesky, …) and exposes their
+tools to agent steps — opt-in per skill, secrets via `saage mcp add`. So
+agent-built automation covers real-world data, not just local files. Demo
+flows: `flows/reddit_digest`, `flows/research_report`, `flows/bluesky_digest`.
+
 Details, tool reference, and manual client configs: [docs/agents.md](docs/agents.md).
 
 ### Server config (`~/.saage/server.yaml`)
