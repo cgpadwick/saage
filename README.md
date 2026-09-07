@@ -161,20 +161,67 @@ in [docs/server_api.md](docs/server_api.md).
 
 ## Coding agents (MCP + skills)
 
-saage speaks to coding agents on two surfaces — say `y` at `saage setup`'s
-"wire up coding agents?" step and both are configured:
+saage doubles as an **automation layer for your coding agent**: the agent
+designs and authors flows in conversation with you, then launches and
+monitors them as native tool calls — and the engine guarantees the resulting
+automation runs deterministically, on a schedule or unattended, long after
+the chat ends.
+
+### Install into your agents
+
+One command wires everything — run the setup wizard and say `y` at the
+"wire up coding agents?" step:
+
+```text
+$ saage setup
+...
+wire up coding agents (flow skills + the `saage mcp` server)? (y/N) y
+
+  1) Claude Code  detected   skills + MCP (claude CLI / ~/.claude.json)
+  2) Cursor       detected   ~/.cursor/mcp.json
+  3) Codex        -          ~/.codex/config.toml
+  4) Windsurf     -          ~/.codeium/windsurf/mcp_config.json
+  5) Gemini CLI   -          ~/.gemini/settings.json
+configure which? (numbers/names, 'all', 'none') [detected: claude-code, cursor]:
+```
+
+That installs two surfaces:
 
 - **`saage mcp`** — an MCP server (stdio) over the same job manager as the web
   UI: `list_flows`, `launch_flow`, `wait_for_job`, `job_status`, `job_logs`,
-  `cancel_job`, `validate_flow`. Claude Code, Cursor, or any MCP client can
-  launch and monitor flows as native tool calls — and the server steers agents
-  away from token-burning poll loops (one blocking `wait_for_job`, only after
-  asking the user).
+  `cancel_job`, `validate_flow`. The agent launches and monitors flows as
+  native tool calls — and the server steers it away from token-burning poll
+  loops (one blocking `wait_for_job`, only after asking you).
 - **Two skills**, installed to `~/.claude/skills/` so they work in every
   project: `designing-saage-flows` (a guided interview that turns "help me
   automate X" into a concrete flow design) and `building-saage-flows` (the
   author → validate → offline-test → run loop). Non-Claude agents get the same
   content via [`AGENTS.md`](AGENTS.md).
+
+Already-open agent sessions must restart to pick up new skills/servers.
+
+### Using saage from inside an agent
+
+The intended loop, in your agent's chat:
+
+1. **Describe the automation** — *"I want a weekly digest of the subreddits I
+   care about"* or *"walk me through automating my model-training retries"*.
+   The vague form triggers `designing-saage-flows`: the agent interviews you
+   (goal, loop shape, what's deterministic, knobs, bounds) and plays back a
+   design.
+2. **Let it build** — `building-saage-flows` takes over: it writes
+   `flows/<name>/flow.yaml` + skill directories, hydrate-checks them with
+   `validate_flow` (free, no tokens), and writes an offline integration test
+   before anything runs live. Ask for it directly with *"build me a flow
+   that…"* when you already know what you want.
+3. **Run it as tool calls** — *"launch it"* → `launch_flow` returns a job id
+   immediately; the agent asks whether you want to wait (one blocking
+   `wait_for_job` — zero tokens while blocked) or check back later with
+   `job_status` / `job_logs`.
+4. **Keep it** — the flow is a directory in your repo: versioned, testable
+   offline, runnable without any agent via `saage run` or cron, and visible
+   in the web UI. The agent built the automation; the engine owns its
+   determinism from then on.
 
 Details, tool reference, and manual client configs: [docs/agents.md](docs/agents.md).
 
