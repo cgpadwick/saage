@@ -24,8 +24,7 @@ saage run flows/issue_triage/flow.yaml \
   --set issue=1234
 ```
 
-Knobs: `issue` (required), `test_cmd` (default `pytest -q`, used for risk
-notes in the report).
+Knobs: `issue` (required).
 
 ## Output
 
@@ -36,6 +35,7 @@ never modified:
 - `triage_notes.md` — located suspect code, `path:line`, hypothesis
 - `repro_saage.py` — self-contained repro; exits non-zero while the bug
   exists, would pass once fixed
+- `triage_repro_out.txt` — the engine-captured output of the repro run
 - `triage_report.html` — self-contained HTML: an executive summary table up
   front (the bug, reproduced ✅/❌, root cause, suggested fix, T-shirt effort
   estimate XS–XL, confidence — the 30-second read), then root cause,
@@ -45,11 +45,13 @@ never modified:
 
 `fetch_issue` (command: `gh issue view --json`) → `locate` (agent greps and
 reads the codebase, writes evidence) → `repro_loop` (retry_loop, max 3: an
-agent writes `repro_saage.py`; a checker *runs it* and passes only if it
-fails non-zero **for the issue's stated symptom** and asserts the expected
-behavior — so it would pass on a fixed tree) → `report_loop` (retry_loop:
-an agent writes the HTML report; a checker fails until the file exists with
-the executive summary table and every section).
+agent writes `repro_saage.py`, then the **engine executes it as a command
+step** — exit code and output captured mechanically into the shared store —
+and a read-only agent judges that evidence: non-zero exit, failing **for the
+issue's stated symptom**, asserting the expected behavior so it passes on a
+fixed tree) → `report_loop` (retry_loop: an agent writes the HTML report; a
+checker fails until the file exists with the executive summary table, every
+section, and a Reproduced row that agrees with the engine-recorded exit).
 
 The repro gate is the point: a triage report backed by an executing,
 symptom-matched reproduction, enforced by the engine's loop wiring rather

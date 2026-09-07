@@ -1,21 +1,24 @@
 ---
 name: verify_repro
-description: "Run the repro and confirm it fails for the issue's stated reason."
-tools: [read_file, run_command]
+description: "Judge the engine-recorded repro run: exit code {{ repro_exit }} (non-zero = script failed). Confirm it failed for the issue's stated reason."
+tools: [read_file]
 ---
 SKILL_ID: verify_repro
 
-Run `{{ python }} -P repro_saage.py` yourself with `run_command` (`-P` stops
-a source checkout at the workspace root from shadowing the installed
-package; drop it only if this python predates 3.11). Then read
-`triage_issue.json` and `repro_saage.py` and judge:
+The engine has ALREADY executed `repro_saage.py` and recorded the result —
+the exit code is in your task above, and the full output is in
+`triage_repro_out.txt`. You judge that evidence; you do not run anything.
 
-- the script exited non-zero, AND
-- its failure output matches the SYMPTOM the issue reports (same error type /
-  wrong value in the same way) — not an unrelated crash (import error, typo,
-  missing fixture), AND
+Read `triage_repro_out.txt`, `triage_issue.json`, and `repro_saage.py`, and
+judge:
+
+- the recorded exit code is NON-ZERO (if it is 0, the bug did not
+  reproduce — that is an automatic fail, whatever the output says), AND
+- the captured output matches the SYMPTOM the issue reports (same error
+  type / wrong value in the same way) — not an unrelated crash (import
+  error, typo, missing fixture), AND
 - the script asserts the expected behavior (it would pass once the bug is
-  fixed), rather than asserting the bug itself
+  fixed), rather than asserting the bug itself.
 
 End your reply with exactly one line:
 `ACTION: pass` if all three hold, or

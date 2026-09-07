@@ -9,7 +9,7 @@
 
 shared:
   issue: ""                       # REQUIRED: the issue number, via --set issue=N
-  test_cmd: "pytest -q"           # how this repo runs its tests
+  repro_exit: -1                  # engine-recorded exit of repro_saage.py (set by run_repro)
 
 workflow:
   - id: fetch_issue
@@ -26,14 +26,31 @@ workflow:
     skill: locate
     max_steps: 40
 
+  # Each attempt: an agent writes repro_saage.py, then the ENGINE executes it
+  # (a command step — the exit code and output are captured mechanically, not
+  # reported by a model), and a read-only agent judges that evidence. A
+  # fabricated "I ran it" can't happen: the run isn't the agent's to claim.
   - id: repro_loop
     type: retry_loop
     max_iterations: 3
     action:
-      id: write_repro
-      type: agent
-      skill: write_repro
-      max_steps: 40
+      id: repro_attempt
+      type: counting_loop
+      max_iterations: 1
+      body:
+        - id: write_repro
+          type: agent
+          skill: write_repro
+          max_steps: 40
+        - id: run_repro
+          type: command
+          run: >
+            PYTHONSAFEPATH=1 {{ python }} repro_saage.py
+            > triage_repro_out.txt 2>&1;
+            echo "REPRO_EXIT=$?"; head -c 2000 triage_repro_out.txt
+          set:
+            repro_exit: "REPRO_EXIT=(\\d+)"
+          timeout: 300
     check:
       id: verify_repro
       type: agent

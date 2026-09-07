@@ -1,8 +1,11 @@
 """issue_triage end to end: real engine, real commands, a tiny buggy project
 planted in the workspace; gh is swapped for a canned issue JSON and only the
-LLM turns are scripted. The final asserts prove the repro contract
-mechanically: fails on the buggy tree, passes once the bug is fixed."""
+LLM turns are scripted. The repro is executed BY THE ENGINE (run_repro
+command step) with the exact production invocation, and the final asserts
+prove the repro contract mechanically: fails on the buggy tree, passes once
+the bug is fixed."""
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,7 +26,10 @@ NOTES = """# Issue 7: add() returns wrong result
 - suspect: mathy.py:2 — `return a - b` should be `return a + b`
 """
 
-REPRO = """import sys
+# the not-installed-package pattern the write_repro skill prescribes: put the
+# script's own directory back on sys.path (PYTHONSAFEPATH removes it)
+REPRO = """import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mathy import add
 
 got = add(2, 3)
@@ -33,15 +39,24 @@ print("ok")
 
 REPORT = """<!doctype html><html><head><meta charset="utf-8">
 <title>Triage: issue 7</title><style>body{font-family:sans-serif}</style></head>
-<body><table><tr><th>Issue</th><td>#7 add() returns wrong result</td></tr>
-<tr><th>The bug</th><td>add(2, 3) returns -1</td></tr>
+<body>
+<table>
+<tr><th>Issue</th><td>#7 add() returns wrong result</td></tr>
+<tr><th>The bug</th><td>add(2, 3) returns -1 instead of 5</td></tr>
 <tr><th>Reproduced</th><td>✅ Verified</td></tr>
 <tr><th>Root cause</th><td>mathy.py:2 subtracts instead of adding</td></tr>
 <tr><th>Suggested fix</th><td>use + instead of -</td></tr>
 <tr><th>Effort</th><td>XS — one-line fix</td></tr>
-<tr><th>Confidence</th><td>High</td></tr></table>
+<tr><th>Confidence</th><td>High</td></tr>
+</table>
+<h2>Issue</h2><p>#7: add() returns wrong result — expected 5, got -1.</p>
+<h2>Root cause</h2><p>mathy.py:2 returns a - b.</p>
+<h2>Reproduction</h2><p>Verified: repro exited non-zero with the reported
+wrong value.</p>
+<h2>Suggested fix</h2><p>UNVALIDATED — proposed from analysis:</p>
 <pre>-    return a - b   # the bug
 +    return a + b</pre>
+<h2>Risks / notes</h2><p>None — trivial arithmetic fix.</p>
 </body></html>
 """
 
@@ -70,11 +85,11 @@ def test_issue_triage_flow(flow_copy):
         ],
         "write_repro": [
             resp(calls=[call("write_file", path="repro_saage.py", content=REPRO)]),
-            resp(calls=[call("run_command", command=f"'{PY}' repro_saage.py")]),
-            resp("repro fails as the issue reports"),
+            resp("repro written; the engine runs it next"),
         ],
+        # read-only judge: the engine already ran the repro (run_repro step)
         "verify_repro": [
-            resp(calls=[call("run_command", command=f"'{PY}' repro_saage.py")]),
+            resp(calls=[call("read_file", path="triage_repro_out.txt")]),
             resp("exits non-zero with the reported symptom\nACTION: pass"),
         ],
         "report": tool_turn("write_file", path="triage_report.html",
@@ -84,17 +99,29 @@ def test_issue_triage_flow(flow_copy):
     shared = run_flow(flow_yaml, provider=provider, shared={"issue": "7"})
 
     assert shared["_trace"] == ["fetch_issue", "locate", "write_repro",
-                                "verify_repro", "report", "check_report"]
+                                "run_repro", "verify_repro", "report",
+                                "check_report"]
+    # the ENGINE recorded the repro outcome — not a model's claim
+    assert shared["repro_exit"] == 1
+    out = (ws / "triage_repro_out.txt").read_text(encoding="utf-8")
+    assert "expected 5, got -1" in out
     assert json.loads((ws / "triage_issue.json").read_text())["number"] == 7
-    assert (ws / "triage_report.html").read_text(encoding="utf-8") == REPORT
+    html = (ws / "triage_report.html").read_text(encoding="utf-8")
+    assert html == REPORT
+    # the report fixture satisfies the gate's contract it is approved against
+    for required in ("Reproduced", "Effort", "Confidence", "Root cause",
+                     "UNVALIDATED", "✅"):
+        assert required in html
     assert (ws / "mathy.py").read_text(encoding="utf-8") == BUGGY  # untouched
 
-    # the repro contract, checked mechanically: non-zero on the buggy tree...
+    # the repro contract, checked with the PRODUCTION invocation
+    # (PYTHONSAFEPATH=1, like the run_repro step): non-zero on the buggy tree…
+    env = {**os.environ, "PYTHONSAFEPATH": "1"}
     r = subprocess.run([PY, "repro_saage.py"], cwd=ws, capture_output=True,
-                       text=True)
+                       text=True, env=env)
     assert r.returncode != 0 and "expected 5, got -1" in r.stderr
-    # ...and zero once the suggested fix is applied
+    # …and zero once the suggested fix is applied
     (ws / "mathy.py").write_text(FIXED, encoding="utf-8")
     r = subprocess.run([PY, "repro_saage.py"], cwd=ws, capture_output=True,
-                       text=True)
+                       text=True, env=env)
     assert r.returncode == 0

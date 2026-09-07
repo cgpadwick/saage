@@ -1,6 +1,6 @@
 ---
 name: report
-description: "Write the triage report as self-contained HTML: executive summary table first, then root cause, repro status, suggested fix."
+description: "Write the triage report as self-contained HTML: executive summary table first, then root cause, repro status, suggested fix. Engine-recorded repro exit code: {{ repro_exit }} (non-zero = reproduced; 0 or -1 = NOT reproduced — the summary's Reproduced row must match this fact)."
 tools: [read_file, write_file]
 ---
 SKILL_ID: report
@@ -8,8 +8,9 @@ SKILL_ID: report
 Your ONLY deliverable is `triage_report.html`. Verification already happened
 upstream (the repro loop ran the repro; its verdict is in the record) — your
 job is synthesis, not further investigation. Read `triage_notes.md`,
-`triage_issue.json`, `repro_saage.py`, and at most the one or two source
-files the notes point at. Then write `triage_report.html`: a single
+`triage_issue.json`, `repro_saage.py`, `triage_repro_out.txt` (the engine-
+captured output of the repro run), and at most the one or two source files
+the notes point at. Then write `triage_report.html`: a single
 self-contained HTML file (inline `<style>`, no external assets; system font,
 readable line length, bordered tables, monospace `<pre>` blocks for code).
 
@@ -20,7 +21,7 @@ the whole picture in 30 seconds without scrolling:
 |---|---|
 | Issue | number + title, one line |
 | The bug | one plain-English sentence — symptom, when it bites |
-| Reproduced | ✅ Verified (repro runs and fails for the issue's reason) or ❌ Unreproduced (loop exhausted; say what blocked it) |
+| Reproduced | ✅ Verified or ❌ Unreproduced — MUST agree with the engine-recorded exit code in your task (non-zero = verified; 0 or -1 = unreproduced, say what blocked it) |
 | Root cause | one sentence + the primary `path:line` |
 | Suggested fix | one line describing the change (details below) |
 | Effort | T-shirt size **XS / S / M / L / XL** + a clause of justification |

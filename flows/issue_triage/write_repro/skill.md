@@ -16,10 +16,14 @@ Contract for the script:
   the buggy one
 - no network, no project files modified
 
-Run it with `{{ python }} -P repro_saage.py` (`-P` keeps a source checkout at
-the workspace root from shadowing the installed package; drop it only if this
-python predates 3.11) and iterate until its failure matches the issue's
-reported symptom. If feedback from a previous attempt is
+Run it with `PYTHONSAFEPATH=1 {{ python }} repro_saage.py` and iterate until
+its failure matches the issue's reported symptom — the engine will afterwards
+execute exactly that invocation itself and record the exit code, so make sure
+it behaves under it. `PYTHONSAFEPATH` keeps a source checkout at the
+workspace root from shadowing the installed package (python 3.11+; a no-op
+before that). If the project is NOT installed into the venv (no editable
+install), start the script with `sys.path.insert(0, os.path.dirname(
+os.path.abspath(__file__)))` so its imports still resolve. If feedback from a previous attempt is
 provided, fix exactly what it names. If the issue genuinely cannot be
 reproduced this way (needs external services, hardware, races), say so
 explicitly in your final message and leave your best attempt in place.
