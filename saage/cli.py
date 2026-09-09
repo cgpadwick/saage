@@ -199,13 +199,21 @@ def _print_summary(result: dict, before: dict, after: dict, root: Path,
     if USAGE.calls:
         print(f"  tokens: {USAGE.total_tokens:,} ({USAGE.prompt_tokens:,} in + "
               f"{USAGE.completion_tokens:,} out) over {USAGE.calls:,} model call(s)")
-        c = USAGE.cost
-        if c is not None:
-            print(f"  cost:   ~${c:,.4f} (estimated)")
+        if USAGE.cached_tokens:
+            print(f"          {USAGE.cached_tokens:,} of the input tokens were served from the provider's cache")
+        b = USAGE.billed
+        if b is not None:                          # what the account was actually charged
+            part = (f"; {USAGE.unbilled_calls} call(s) reported no cost"
+                    if USAGE.unbilled_calls else "")
+            print(f"  cost:   ${b:,.4f} (billed by provider{part})")
+        elif USAGE.cost is not None:               # only with user-configured rates
+            print(f"  cost:   ~${USAGE.cost:,.4f} (estimated from SAAGE_PRICES)")
         if len(USAGE.by_model) > 1:                # per-model breakdown
             for m, u in USAGE.by_model.items():
-                mc = _cost(m, u.prompt_tokens, u.completion_tokens)
-                cs = f" ~${mc:,.4f}" if mc is not None else ""
+                mc = u.billed_usd if u.billed_usd is not None else \
+                    _cost(m, u.prompt_tokens, u.completion_tokens)
+                cs = (f" ${mc:,.4f}" if u.billed_usd is not None else f" ~${mc:,.4f}") \
+                    if mc is not None else ""
                 print(f"            {m}: {u.prompt_tokens + u.completion_tokens:,} tok"
                       f" / {u.calls} call(s){cs}")
     if run_dir is not None:
