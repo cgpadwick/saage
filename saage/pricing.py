@@ -1,37 +1,26 @@
-"""Best-effort USD cost estimates for LLM token usage.
+"""USD cost estimates for LLM token usage from USER-SUPPLIED rates.
 
-Prices change often and vary by provider/tier — these are rough public list
-prices for common models, matched by substring against the model id. `cost()`
-returns None for an unknown model rather than guessing, so a cost is only ever
-shown when it's grounded in a known rate.
+There is deliberately no built-in price table: the one saage used to ship went
+stale within weeks and mis-priced a run by 3x (and a list price is not what a
+router bills anyway — routed provider and cache discounts change it either
+way). The authoritative number is the provider-reported cost recorded in
+`TokenUsage.billed` (OpenRouter returns it per call); this module only exists
+for providers that report nothing.
 
-Override or extend via the `SAAGE_PRICES` env var: a path to a JSON file
-`{"<model substring>": [<usd_per_1M_input>, <usd_per_1M_output>], ...}`. Overrides
-merge over (and win ties against) the built-in table.
+Configure rates via the `SAAGE_PRICES` env var: a path to a JSON file
+`{"<model substring>": [<usd_per_1M_input>, <usd_per_1M_output>], ...}`. The
+longest matching substring wins. `cost()` returns None for any model without a
+configured rate rather than guessing, so an estimate is only ever shown when
+it's grounded in a rate the user set.
 """
 from __future__ import annotations
 
 import json
 import os
 
-# USD per 1,000,000 tokens: (input, output). Substring-matched (case-insensitive)
-# against the model id; the LONGEST matching key wins (so "gpt-4o-mini" beats
-# "gpt-4o"). Rough public list prices as of mid-2026 — update as they change.
-_PRICES: dict[str, tuple[float, float]] = {
-    "deepseek": (0.27, 1.10),
-    "claude-opus": (15.0, 75.0),
-    "claude-sonnet": (3.0, 15.0),
-    "claude-haiku": (0.80, 4.0),
-    "gpt-4o-mini": (0.15, 0.60),
-    "gpt-4o": (2.50, 10.0),
-    "gpt-4.1-mini": (0.40, 1.60),
-    "gpt-4.1": (2.0, 8.0),
-    "o3-mini": (1.10, 4.40),
-    "o3": (2.0, 8.0),
-    "gemini-2.0-flash": (0.10, 0.40),
-    "gemini-1.5-flash": (0.075, 0.30),
-    "gemini-1.5-pro": (1.25, 5.0),
-}
+# Built-in rates: none (see module docstring). Kept as a dict so SAAGE_PRICES
+# merges over it unchanged.
+_PRICES: dict[str, tuple[float, float]] = {}
 
 
 def _overrides() -> dict[str, tuple[float, float]]:
@@ -60,8 +49,7 @@ def _overrides() -> dict[str, tuple[float, float]]:
 def rates(model: str) -> tuple[float, float] | None:
     """(usd_per_1M_input, usd_per_1M_output) for a model id, or None if unknown.
     The longest matching substring key wins; on a length tie the later key in the
-    merged table wins — overrides are merged last, so a SAAGE_PRICES entry wins a
-    tie against a built-in (the documented 'overrides win ties')."""
+    merged table wins."""
     table = {**_PRICES, **_overrides()}
     m = (model or "").lower()
     best_key = None

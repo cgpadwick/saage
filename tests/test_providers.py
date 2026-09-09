@@ -168,3 +168,12 @@ def test_empty_message_is_retried_not_swallowed(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda s: None)   # no real backoff waits
     out = p.complete("sys", [{"role": "user", "text": "hi"}], [])
     assert out.text == "done" and out.tool_calls == []  # survived 2 empties
+
+
+def test_openrouter_provider_asks_for_billed_cost(monkeypatch):
+    # only OpenRouter understands the `usage: {include: true}` request field;
+    # other OpenAI-wire servers would reject it
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k"); monkeypatch.setenv("NVIDIA_API_KEY", "k")
+    assert make_provider({"type": "openrouter", "model": "m"}).reports_cost is True
+    assert make_provider({"type": "nvidia", "model": "m"}).reports_cost is False
+    assert make_provider({"type": "local", "model": "m"}).reports_cost is False

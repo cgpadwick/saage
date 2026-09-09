@@ -190,8 +190,10 @@ def test_token_usage_accumulates_from_provider():
     assert u.total_tokens == 180
 
 
-def test_token_usage_per_model_and_cost():
-    """Usage is broken down per model and given a grounded USD cost estimate."""
+def test_token_usage_per_model_and_configured_estimate(tmp_path, monkeypatch):
+    """Usage is broken down per model; a USD estimate appears only for models
+    with a user-configured SAAGE_PRICES rate (there is no built-in table)."""
+    import json
     from types import SimpleNamespace
     from saage.llm import TokenUsage
 
@@ -202,19 +204,47 @@ def test_token_usage_per_model_and_cost():
           "deepseek/deepseek-v4-flash")
     assert u.calls == 2
     assert u.by_model["deepseek/deepseek-v4-flash"].prompt_tokens == 1_500_000
-    assert u.cost is not None and u.cost > 0          # deepseek is priced
+    assert u.cost is None and u.billed is None       # unpriced, unbilled: nothing guessed
     d = u.as_dict()
-    assert d["estimated_cost_usd"] == u.cost
-    assert d["by_model"]["deepseek/deepseek-v4-flash"]["estimated_cost_usd"] is not None
+    assert d["estimated_cost_usd"] is None and d["billed_cost_usd"] is None
+
+    p = tmp_path / "prices.json"
+    p.write_text(json.dumps({"deepseek": [0.10, 0.20]}))
+    monkeypatch.setenv("SAAGE_PRICES", str(p))
+    assert abs(u.cost - (1.5 * 0.10 + 1.0 * 0.20)) < 1e-9
+    assert u.as_dict()["by_model"]["deepseek/deepseek-v4-flash"]["estimated_cost_usd"] == u.cost
 
 
-def test_token_usage_cost_none_for_unknown_model():
+def test_token_usage_records_provider_billed_cost():
+    """OpenRouter returns `usage.cost` and cached-token counts per call; the
+    sum is the real charge and is reported separately from any estimate."""
+    from types import SimpleNamespace
+    from saage.llm import TokenUsage
+
+    u = TokenUsage()
+    u.add(SimpleNamespace(prompt_tokens=1000, completion_tokens=100, cost=0.0012,
+                          prompt_tokens_details=SimpleNamespace(cached_tokens=600)), "m")
+    u.add({"prompt_tokens": 500, "completion_tokens": 50, "cost": 0.0003,   # dict-shaped usage
+           "prompt_tokens_details": {"cached_tokens": 100}}, "m")
+    u.add(SimpleNamespace(prompt_tokens=10, completion_tokens=1), "m")      # no cost field
+    assert u.calls == 3 and u.billed_calls == 2 and u.unbilled_calls == 1
+    assert abs(u.billed - 0.0015) < 1e-12
+    assert u.cached_tokens == 700
+    d = u.as_dict()
+    assert abs(d["billed_cost_usd"] - 0.0015) < 1e-12 and d["cached_tokens"] == 700
+    assert d["by_model"]["m"]["billed_calls"] == 2
+    assert d["estimated_cost_usd"] is None          # no configured rate -> no estimate
+
+
+def test_token_usage_cost_none_for_unknown_model(monkeypatch):
+    monkeypatch.delenv("SAAGE_PRICES", raising=False)
     from types import SimpleNamespace
     from saage.llm import TokenUsage
 
     u = TokenUsage()
     u.add(SimpleNamespace(prompt_tokens=100, completion_tokens=100), "local/unknown")
     assert u.cost is None                             # no rate -> no guessed cost
+    assert u.billed is None
     assert u.as_dict()["estimated_cost_usd"] is None
 
 
