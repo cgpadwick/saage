@@ -45,6 +45,7 @@ HEARTBEAT_EVERY = 0.5                # engine touches <mailbox>/heartbeat this o
 STALE_AFTER = 5.0                    # …and is presumed dead this long after the last
                                      # (the window in which a SIGKILLed run still
                                      # looks alive; a clean exit removes the beat)
+STARTUP_GRACE = 60.0                 # a run that never beat yet may still be starting
 _POLL = 0.2
 
 
@@ -67,6 +68,19 @@ def validated_timeout(value) -> float:
     return float(value)
 
 
+def _retry(fn, attempts: int = 20):
+    """Windows: replacing/unlinking a file another process has open (the host
+    polls pending.json) raises PermissionError for a moment — retry briefly
+    instead of failing the run over a read that's already finishing."""
+    for i in range(attempts):
+        try:
+            return fn()
+        except PermissionError:
+            if i == attempts - 1:
+                raise
+            time.sleep(0.05)
+
+
 def _write_tmp(dirpath: Path, obj: dict) -> str:
     fd, tmp = tempfile.mkstemp(dir=dirpath, prefix=".tmp-", suffix=".json")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -75,7 +89,12 @@ def _write_tmp(dirpath: Path, obj: dict) -> str:
 
 
 def _write_json(path: Path, obj: dict) -> None:
-    os.replace(_write_tmp(path.parent, obj), path)
+    tmp = _write_tmp(path.parent, obj)
+    _retry(lambda: os.replace(tmp, path))
+
+
+def _unlink(path: Path) -> None:
+    _retry(lambda: path.unlink(missing_ok=True))
 
 
 # --------------------------------------------------------------------------- #
@@ -94,20 +113,22 @@ def run_status(run_dir: "str | Path") -> str:
     A fresh heartbeat means the engine is alive (this beats the checkpoint,
     which still says `failed` early in a resumed run). Without one, the
     checkpoint decides; `running` there with no live engine is a crash. A
-    run that never beat yet is given STALE_AFTER of grace to start up."""
+    run that never beat yet is given STARTUP_GRACE to start up. The beat is
+    checked first, so a live run's checkpoint is never even opened by a host
+    (no read/replace collisions with the engine's checkpoint writes)."""
     run_dir = Path(run_dir)
     beat = _age(mailbox_dir(run_dir) / "heartbeat")
     if beat is not None and beat < STALE_AFTER:
         return "running"
     try:
         st = json.loads((run_dir / "checkpoint.json").read_text(encoding="utf-8"))["status"]
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+    except (OSError, json.JSONDecodeError, KeyError):   # absent, mid-replace (Windows)
         st = None
     if st in (None, "running"):
         if beat is None:                          # never beat: still starting?
             young = min(a for a in (_age(run_dir / "checkpoint.json"), _age(run_dir), 1e9)
                         if a is not None)
-            if young < STALE_AFTER:
+            if young < STARTUP_GRACE:
                 return "running"
         return "crashed" if st == "running" else "unknown"
     return st
@@ -154,7 +175,7 @@ def read_pending(mailbox: "str | Path") -> dict | None:
     p = Path(mailbox) / "pending.json"
     try:
         pending = json.loads(p.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):    # absent, or mid-replace on Windows
         return None
     if (Path(mailbox) / f"result-{pending['seq']}.json").exists():
         return None
@@ -187,13 +208,23 @@ def wait_next(run_dir: "str | Path", timeout: float) -> tuple[str, object]:
     hosts (MCP next_task, `saage host next`) share. Returns ("task", pending)
     | ("done", status) | ("waiting", status) after `timeout` while the engine
     is busy (e.g. a long command step). A dead run's leftover pending.json is
-    never handed out: liveness is checked first."""
+    never handed out: liveness is checked first. completed/failed are final
+    at once (the engine wrote them); crashed/unknown must hold for
+    STALE_AFTER before they are — a suspended laptop or a stalled disk must
+    not end a host's loop while the engine is about to beat again."""
     deadline = time.monotonic() + timeout
+    dead_since = None
     while True:
         st = run_status(run_dir)
-        if st != "running":
+        if st in ("crashed", "unknown"):
+            dead_since = dead_since or time.monotonic()
+            if time.monotonic() - dead_since >= STALE_AFTER:
+                return "done", st
+        elif st != "running":
             return "done", st
-        pending = read_pending(mailbox_dir(run_dir))
+        else:
+            dead_since = None
+        pending = read_pending(mailbox_dir(run_dir)) if st == "running" else None
         if pending is not None:
             return "task", pending
         if time.monotonic() >= deadline:
@@ -226,6 +257,14 @@ class HostProvider:
         self.mailbox = Path(mailbox)
         self.timeout = validated_timeout(timeout)
         self.mailbox.mkdir(parents=True, exist_ok=True)
+        # one engine per mailbox: a second one (e.g. a bare `saage resume` in
+        # another terminal, which picks the newest unfinished run — the live
+        # one) would withdraw the first's step and the two would share seqs
+        beat_age = _age(self.mailbox / "heartbeat")
+        if beat_age is not None and beat_age < STALE_AFTER:
+            raise ValueError(
+                f"another engine is live on this run's mailbox ({self.mailbox}) "
+                f"— wait for it to finish, or stop it first")
         # resume-safe numbering: continue past every seq this mailbox has
         # seen — answered results AND a dead engine's leftover pending step,
         # which is dropped so a late answer to it can never satisfy a new step
@@ -233,19 +272,22 @@ class HostProvider:
         stale = read_pending(self.mailbox) or {}
         if stale:
             seen.append(stale["seq"])
-        (self.mailbox / "pending.json").unlink(missing_ok=True)
+        _unlink(self.mailbox / "pending.json")
         self._seq = max(seen, default=0)
         self._stop = threading.Event()
         beat = self.mailbox / "heartbeat"
-        threading.Thread(target=_beat, args=(beat, self._stop), daemon=True,
-                         name="saage-host-heartbeat").start()
+        beat.touch()                     # live from now: claims the mailbox at once
+        self._beater = threading.Thread(target=_beat, args=(beat, self._stop),
+                                        daemon=True, name="saage-host-heartbeat")
+        self._beater.start()
         atexit.register(self.close)
 
     def close(self) -> None:
         """Stop beating and say so at once (a clean exit shouldn't make hosts
         wait out STALE_AFTER); a killed engine simply goes stale."""
         self._stop.set()
-        (self.mailbox / "heartbeat").unlink(missing_ok=True)
+        self._beater.join(timeout=5)     # else a last touch() can resurrect it
+        _unlink(self.mailbox / "heartbeat")
 
     def run_step(self, step_id: str, skill: str, system: str, task: str,
                  tools: list[str], workspace: str | None = None) -> str:
@@ -261,13 +303,15 @@ class HostProvider:
         deadline = time.monotonic() + self.timeout
         while not result.exists():
             if time.monotonic() >= deadline:
-                (self.mailbox / "pending.json").unlink(missing_ok=True)
+                _unlink(self.mailbox / "pending.json")
+                if result.exists():      # answered just as the deadline hit
+                    break
                 raise HostTimeout(
                     f"host agent did not answer step {step_id!r} within "
                     f"{self.timeout:.0f}s")
             time.sleep(_POLL)
         out = json.loads(result.read_text(encoding="utf-8"))["output"]
-        (self.mailbox / "pending.json").unlink(missing_ok=True)
+        _unlink(self.mailbox / "pending.json")
         return out
 
     def complete(self, system, messages, tools):

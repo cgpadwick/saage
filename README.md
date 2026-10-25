@@ -334,7 +334,9 @@ The same `flow.yaml` runs headless with an API provider later (`saage run`,
 cron). Under the hood the run is an ordinary `saage run` job; agent steps go
 through a file mailbox in its run dir (`saage/host.py`), and each wait is
 bounded (`provider: { type: host, timeout: 3600 }`, seconds) so a vanished
-agent can't hang a run forever. Local only: `saage remote` refuses host mode —
+agent can't hang a run forever. (The reverse isn't bounded by host mode: a
+command step with no `timeout:` that hangs keeps the run alive, and `next`
+reports busy until it ends — give long commands a `timeout:`.) Local only: `saage remote` refuses host mode —
 the agent's tools edit your local files, not the node's workspace.
 
 ### Transient-failure retries

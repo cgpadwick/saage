@@ -148,14 +148,56 @@ def test_resume_drops_dead_engines_pending_step(tmp_path):
     hp.close()
 
 
-def test_dead_run_steps_are_not_handed_out(tmp_path):
+def test_dead_run_steps_are_not_handed_out(tmp_path, monkeypatch):
+    monkeypatch.setattr(host, "STALE_AFTER", 0.2)  # crashed must hold this long
     d = _run_dir(tmp_path)
     _post(d, 1)
-    _age(mailbox_dir(d) / "heartbeat", host.STALE_AFTER + 5)   # engine was killed
+    _age(mailbox_dir(d) / "heartbeat", 10)        # engine was killed
     assert run_status(d) == "crashed"
     assert wait_next(d, timeout=1) == ("done", "crashed")      # not the stale step
     with pytest.raises(ValueError, match="not running"):
         submit(d, 1, "x")                             # no accepted-then-ignored work
+
+
+def test_a_brief_stall_does_not_end_the_hosts_loop(tmp_path, monkeypatch):
+    # laptop suspend / SIGSTOP: the beat goes stale for a moment, then resumes —
+    # the host must keep waiting rather than declare the run crashed
+    monkeypatch.setattr(host, "STALE_AFTER", 0.3)
+    d = _run_dir(tmp_path)
+    beat = mailbox_dir(d) / "heartbeat"
+    _age(beat, 10)
+    def revive():
+        time.sleep(0.1)
+        beat.touch()
+        _post(d, 1)
+    threading.Thread(target=revive).start()
+    kind, val = wait_next(d, timeout=5)
+    assert kind == "task" and val["seq"] == 1
+
+
+def test_second_engine_cannot_hijack_a_live_mailbox(tmp_path):
+    # e.g. a bare `saage resume` in another terminal picks the live run
+    a = HostProvider(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="another engine is live"):
+            HostProvider(tmp_path)
+    finally:
+        a.close()
+    HostProvider(tmp_path).close()                    # free once the first is gone
+
+
+def test_answer_landing_at_the_deadline_is_kept(tmp_path, monkeypatch):
+    hp = HostProvider(tmp_path, timeout=0.05)
+    real_unlink = host._unlink
+    def unlink_then_answer(path):                     # host answers in the gap
+        if path.name == "pending.json" and not (tmp_path / "result-1.json").exists():
+            (tmp_path / "result-1.json").write_text('{"seq": 1, "output": "just in time"}')
+        real_unlink(path)
+    monkeypatch.setattr(host, "_unlink", unlink_then_answer)
+    try:
+        assert hp.run_step("s1", "sk", "sys", "t", []) == "just in time"
+    finally:
+        hp.close()
 
 
 def test_status_comes_from_the_run_itself(tmp_path):
@@ -164,8 +206,8 @@ def test_status_comes_from_the_run_itself(tmp_path):
     assert run_status(_run_dir(tmp_path, "done", status="completed", beat=False)) == "completed"
     starting = _run_dir(tmp_path, "starting", beat=False)      # engine not up yet
     assert run_status(starting) == "running"
-    _age(starting / "checkpoint.json", host.STALE_AFTER + 5)
-    _age(starting, host.STALE_AFTER + 5)
+    _age(starting / "checkpoint.json", host.STARTUP_GRACE + 5)
+    _age(starting, host.STARTUP_GRACE + 5)
     assert run_status(starting) == "crashed"                   # …and never came up
 
 
