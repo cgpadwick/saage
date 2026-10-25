@@ -312,7 +312,10 @@ next_task(job_id)                 → next step … or {done: true, status}
 ```
 
 No MCP? The same loop is a CLI any shell-capable agent (or you) can drive —
-`RUN` defaults to the latest hosted run, and `next`'s exit code is the
+`RUN` (an id or unique prefix) defaults to the one live hosted run — with
+several live it must be named, so an answer can't land in the wrong run — and
+it finds any host-mode run, however started (`saage host start`, `saage run
+--provider host` in another terminal, MCP, `saage resume`). `next`'s exit code is the
 protocol (0 step printed, 3 run finished, 4 still busy — call again):
 
 ```bash

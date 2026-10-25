@@ -76,14 +76,9 @@ def build_server(config_path=None, flow_paths=None):
                  "knobs": f.knobs, "error": f.error}
                 for f in catalog.flows.values()]
 
-    @server.tool(description="Launch a flow as a background job; returns a "
-                             "job_id immediately. `overrides` sets knob "
-                             "values (see list_flows). Then ASK THE USER "
-                             "whether to wait: one wait_for_job call if yes, "
-                             "otherwise just report the job_id. Never poll "
-                             "job_status in a loop — it wastes the user's "
-                             "tokens while the flow runs by itself.")
-    def launch_flow(flow: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _launch(flow: str, overrides: dict[str, Any] | None,
+                provider: str | None = None):
+        """The Job, or an {error} dict for the agent."""
         catalog.refresh()
         info = catalog.get(flow)
         if info is None:
@@ -95,11 +90,23 @@ def build_server(config_path=None, flow_paths=None):
             # JSON-encode non-string values (True -> "true", None -> "null",
             # lists/dicts -> JSON) so the CLI's --set parser reconstructs the
             # original type; str(True) would arrive as the string "True"
-            job = registry.launch(info, {
+            return registry.launch(info, {
                 k: v if isinstance(v, str) else json.dumps(v)
-                for k, v in (overrides or {}).items()})
+                for k, v in (overrides or {}).items()}, provider=provider)
         except ValueError as e:         # unknown knob — agent picked a bad override
             return {"error": str(e)}
+
+    @server.tool(description="Launch a flow as a background job; returns a "
+                             "job_id immediately. `overrides` sets knob "
+                             "values (see list_flows). Then ASK THE USER "
+                             "whether to wait: one wait_for_job call if yes, "
+                             "otherwise just report the job_id. Never poll "
+                             "job_status in a loop — it wastes the user's "
+                             "tokens while the flow runs by itself.")
+    def launch_flow(flow: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+        job = _launch(flow, overrides)
+        if isinstance(job, dict):
+            return job
         return {"job_id": job.job_id, "flow": job.flow_name,
                 "hint": "running in the background — ask the user whether to "
                         "wait (one wait_for_job call) or report the job_id "
@@ -164,27 +171,32 @@ def build_server(config_path=None, flow_paths=None):
             return {"error": f"unknown job {job_id!r}"}
         return {"cancelled": registry.cancel(job_id)}
 
-    def _mailbox(job_id: str) -> Path:     # `saage run` points host mode here
-        return registry.home / "runs" / job_id / "host"
+    def _hosted(job_id: str) -> Path | None:
+        """The run dir of a host-mode run — however it was started (this
+        server, `saage host start`, `saage run --provider host`, resume)."""
+        from .host import mailbox_dir
+        if not job_id or Path(job_id).name != job_id or job_id in (".", ".."):
+            return None                     # an id, never a path out of runs/
+        run_dir = registry.home / "runs" / job_id
+        known = mailbox_dir(run_dir).is_dir() or registry.get(job_id) is not None
+        return run_dir if known else None
+
+    def _cancelled(job_id: str) -> bool:
+        # authoritative at once — the killed engine's heartbeat only goes
+        # stale after host.STALE_AFTER, and its pending step must not be served
+        return bool((registry.get(job_id) or {}).get("cancelled"))
 
     @server.tool(description="Start a flow in HOST MODE: no API key; every "
                              "agent step is handed to you via next_task. "
                              "Returns a job_id; then loop next_task → do the "
                              "step → submit_result until next_task says done.")
     def start_hosted_run(flow: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
-        catalog.refresh()
-        info = catalog.get(flow)
-        if info is None:
-            known = ", ".join(sorted(catalog.flows)) or "(none found)"
-            return {"error": f"unknown flow {flow!r} — known flows: {known}"}
-        if info.error:
-            return {"error": f"flow {flow!r} is broken: {info.error}"}
-        try:
-            job = registry.launch(info, {
-                k: v if isinstance(v, str) else json.dumps(v)
-                for k, v in (overrides or {}).items()}, provider="host")
-        except ValueError as e:
-            return {"error": str(e)}
+        from .host import mailbox_dir
+        job = _launch(flow, overrides, provider="host")
+        if isinstance(job, dict):
+            return job
+        # findable by `saage host` at once, before the child has hydrated
+        mailbox_dir(registry.home / "runs" / job.job_id).mkdir(parents=True, exist_ok=True)
         return {"job_id": job.job_id, "flow": job.flow_name,
                 "hint": "call next_task to get the first agent step"}
 
@@ -199,15 +211,18 @@ def build_server(config_path=None, flow_paths=None):
                              "(e.g. a long command step) — call again.")
     def next_task(job_id: str, timeout_seconds: int = 300) -> dict[str, Any]:
         from .host import wait_next
-        if registry.get(job_id) is None:
+        run_dir = _hosted(job_id)
+        if run_dir is None:
             return {"error": f"unknown job {job_id!r}"}
-        kind, val = wait_next(_mailbox(job_id), lambda: registry.status(job_id),
-                              max(1, min(int(timeout_seconds), 3600)))
+        if _cancelled(job_id):
+            return {"done": True, "status": "cancelled", "log_tail": ""}
+        kind, val = wait_next(run_dir, max(1, min(int(timeout_seconds), 3600)))
         if kind == "task":
             return {**val, "hint": "do this step, then submit_result "
                     "with its seq and ONLY the final answer the task asks for"}
         if kind == "done":
-            run_dir = registry.home / "runs" / job_id
+            if _cancelled(job_id):
+                val = "cancelled"           # the registry knows why it died
             return {"done": True, "status": val,
                     "log_tail": _tail(run_dir / "run.log", 20)
                     or _tail(run_dir / "server_launch.log", 20) or ""}
@@ -220,11 +235,14 @@ def build_server(config_path=None, flow_paths=None):
                              "on; call next_task for the next step.")
     def submit_result(job_id: str, seq: int, output: str) -> dict[str, Any]:
         from .host import submit
-        if registry.get(job_id) is None:
+        run_dir = _hosted(job_id)
+        if run_dir is None:
             return {"error": f"unknown job {job_id!r}"}
+        if _cancelled(job_id):
+            return {"error": "run is not running (status: cancelled)"}
         try:
-            submit(_mailbox(job_id), int(seq), output)
-        except ValueError as e:     # stale/duplicate seq — never misapplied
+            submit(run_dir, int(seq), output)
+        except ValueError as e:     # stale/duplicate/dead-run — never misapplied
             return {"error": str(e)}
         return {"ok": True, "hint": "call next_task for the next step"}
 

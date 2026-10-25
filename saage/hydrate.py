@@ -66,7 +66,7 @@ def make_provider(spec: dict, require_key: bool = True):
     if t == "host":
         # the driving coding agent is the LLM: no model, no key (saage.host)
         from .host import DEFAULT_TIMEOUT, MAILBOX_ENV, HostProvider
-        mailbox = spec.get("mailbox") or os.environ.get(MAILBOX_ENV)
+        mailbox = os.environ.get(MAILBOX_ENV)    # always the run's own dir
         if not mailbox:
             raise ValueError(
                 "provider 'host' needs a mailbox: run it via `saage run` "

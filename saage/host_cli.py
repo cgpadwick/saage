@@ -8,8 +8,11 @@ for agents without MCP (or with it unregistered), scripts, and humans:
     saage host submit [RUN] SEQ < answer     → answers it
     saage host status [RUN]
 
-Runs are ordinary JobRegistry jobs (same as the web UI and MCP), so all three
-surfaces see them. RUN defaults to the latest hosted run.
+Runs are found in the run store (~/.saage/runs), so any host-mode run is
+drivable here — started by `saage host start`, `saage run --provider host`,
+MCP, the web UI, or resumed. RUN is an id or unique prefix; omitted, it is
+the one live hosted run (several live → name one, so an answer can never
+land in the wrong run by omission).
 
 `next` exit codes are the protocol, so a shell loop can drive a run:
     0 a step was printed · 3 the run is finished · 4 still busy (call again) · 1 error
@@ -55,33 +58,20 @@ def _err(msg: str) -> int:
     return EXIT_ERROR
 
 
-def _resolve(registry, ref: str | None) -> str | None:
-    """Exact id, unique prefix, or (None) the latest hosted job."""
-    jobs = registry.list()                           # newest first
-    hosted = [j for j in jobs if j.get("provider") == "host"]
-    if ref is None:
-        return hosted[0]["job_id"] if hosted else None
-    hits = [j["job_id"] for j in jobs if j["job_id"].startswith(ref)]
-    return hits[0] if len(hits) == 1 else None
-
-
-def _mailbox(registry, job_id: str) -> Path:
-    return registry.home / "runs" / job_id / "host"
-
-
-def _print_step(job_id: str, p: dict) -> None:
-    print(f"run {job_id} · step {p['seq']}: {p['step_id']} (skill: {p['skill']})")
+def _print_step(run_id: str, p: dict) -> None:
+    print(f"run {run_id} · step {p['seq']}: {p['step_id']} (skill: {p['skill']})")
     print(f"tools: {', '.join(p['tools']) or '(none)'}  — use your own equivalents")
     if p.get("workspace"):
         print(f"workspace: {p['workspace']}  — relative paths in the task mean files here")
     print("\n--- instructions (system) ---\n" + p["system"].rstrip())
     print("\n--- task ---\n" + p["task"].rstrip())
     print("\n--- answer with ONLY the final output the task asks for: ---")
-    print(f"saage host submit {job_id} {p['seq']} <<'EOF'\n<answer>\nEOF")
+    print(f"saage host submit {run_id} {p['seq']} <<'EOF'\n<answer>\nEOF")
 
 
-def _cmd_start(registry, args) -> int:
+def _cmd_start(args) -> int:
     from .server.catalog import load_flow_info
+    from .server.jobs import JobRegistry
     fy = Path(args.flow).resolve()
     if not fy.is_file():
         return _err(f"flow file not found: {args.flow}")
@@ -94,78 +84,88 @@ def _cmd_start(registry, args) -> int:
         if not sep:
             return _err(f"--set expects KEY=VALUE, got {kv!r}")
         overrides[k] = v
+    # the child runs with cwd = the flow's dir: resolve against OUR cwd, the
+    # way `saage run --workspace` does
+    ws = str(Path(args.workspace).resolve()) if args.workspace else None
     try:
-        job = registry.launch(info, overrides, workspace=args.workspace,
-                              provider="host")
+        job = JobRegistry().launch(info, overrides, workspace=ws, provider="host")
     except ValueError as e:                          # unknown knob
         return _err(str(e))
+    # make the run findable NOW: the child creates its mailbox only once it
+    # has hydrated the flow, and an immediate `saage host next` must not miss it
+    from .host import mailbox_dir
+    from .paths import runs_dir
+    mailbox_dir(runs_dir() / job.job_id).mkdir(parents=True, exist_ok=True)
     print(job.job_id)
     print(f"started; next: saage host next {job.job_id}", file=sys.stderr)
     return 0
 
 
-def _cmd_next(registry, job_id: str, args) -> int:
+def _cmd_next(run_dir: Path, args) -> int:
     from .host import wait_next
-    kind, val = wait_next(_mailbox(registry, job_id),
-                          lambda: registry.status(job_id), max(0.0, args.timeout))
+    kind, val = wait_next(run_dir, max(0.0, args.timeout))
     if kind == "task":
         if args.json:
             print(json.dumps(val))
         else:
-            _print_step(job_id, val)
+            _print_step(run_dir.name, val)
         return EXIT_STEP
     if kind == "done":
         print(json.dumps({"done": True, "status": val}) if args.json
-              else f"run {job_id} finished: {val}")
+              else f"run {run_dir.name} finished: {val}")
         return EXIT_DONE
     print(json.dumps({"waiting": True, "status": val}) if args.json
-          else f"run {job_id} is busy (a command step?) — run `saage host next` again",
-          file=sys.stderr)
+          else f"run {run_dir.name} is busy (a command step?) — run "
+               f"`saage host next {run_dir.name}` again", file=sys.stderr)
     return EXIT_BUSY
 
 
-def _cmd_submit(registry, args) -> int:
-    from .host import submit
+def _cmd_submit(runs: Path, args) -> int:
+    from .host import resolve_run, submit
     if len(args.args) > 2:
         return _err("usage: saage host submit [RUN] SEQ")
     ref, seq = (None, args.args[0]) if len(args.args) == 1 else args.args
-    job_id = _resolve(registry, ref)
-    if job_id is None:
-        return _err(f"no hosted run matches {ref!r}" if ref else "no hosted run found")
     try:
         seq_n = int(seq)
     except ValueError:
         return _err(f"SEQ must be an integer, got {seq!r}")
-    text = Path(args.file).read_text(encoding="utf-8") if args.file else sys.stdin.read()
+    if args.file:
+        try:
+            text = Path(args.file).read_text(encoding="utf-8")
+        except OSError as e:
+            return _err(f"can't read --file: {e}")
+    else:
+        text = sys.stdin.read()
     try:
-        submit(_mailbox(registry, job_id), seq_n, text.rstrip("\n"))
-    except ValueError as e:                          # stale/duplicate seq
+        run_dir = resolve_run(runs, ref)
+        submit(run_dir, seq_n, text.rstrip("\n"))
+    except ValueError as e:              # ambiguous run / stale / duplicate / dead
         return _err(str(e))
-    print(f"ok; next: saage host next {job_id}", file=sys.stderr)
+    print(f"ok; next: saage host next {run_dir.name}", file=sys.stderr)
     return 0
 
 
-def _cmd_status(registry, job_id: str) -> int:
-    from .host import read_pending
-    rec = registry.get(job_id)
-    p = read_pending(_mailbox(registry, job_id))
-    print(f"run {job_id} ({rec['flow_name']}): {rec['status']}")
+def _cmd_status(run_dir: Path) -> int:
+    from .host import mailbox_dir, read_pending, run_status
+    st = run_status(run_dir)
+    print(f"run {run_dir.name}: {st}")
+    p = read_pending(mailbox_dir(run_dir)) if st == "running" else None
     if p is not None:
         print(f"waiting on step {p['seq']}: {p['step_id']} (skill: {p['skill']})")
     return 0
 
 
 def dispatch(args) -> int:
-    from .server.jobs import JobRegistry
-    registry = JobRegistry()
+    from .host import resolve_run
+    from .paths import runs_dir
     if args.host_cmd == "start":
-        return _cmd_start(registry, args)
+        return _cmd_start(args)
     if args.host_cmd == "submit":
-        return _cmd_submit(registry, args)
-    job_id = _resolve(registry, args.run_id)
-    if job_id is None:
-        return _err(f"no hosted run matches {args.run_id!r}" if args.run_id
-                    else "no hosted run found — start one with `saage host start`")
+        return _cmd_submit(runs_dir(), args)
+    try:
+        run_dir = resolve_run(runs_dir(), args.run_id)
+    except ValueError as e:
+        return _err(str(e))
     if args.host_cmd == "next":
-        return _cmd_next(registry, job_id, args)
-    return _cmd_status(registry, job_id)
+        return _cmd_next(run_dir, args)
+    return _cmd_status(run_dir)
