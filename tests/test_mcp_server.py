@@ -211,3 +211,18 @@ def test_cancelled_hosted_run_hands_out_nothing(tmp_path):
     assert "not running" in late["error"]
     bad, _ = _call(server, "next_task", {"job_id": "../../etc", "timeout_seconds": 1})
     assert "unknown job" in bad["error"]                 # ids, never paths
+
+    # resuming the cancelled job: the registry's cancelled flag must not
+    # shadow the new engine — liveness is its lock
+    import subprocess
+    import sys
+    proc = subprocess.Popen([sys.executable, "-m", "saage.cli", "resume", job_id],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        task, _ = _call(server, "next_task", {"job_id": job_id, "timeout_seconds": 30})
+        assert task.get("step_id") == "propose" and task["seq"] == 2, task  # past seq 1
+        ok, _ = _call(server, "submit_result", {"job_id": job_id, "seq": 2, "output": "0.62"})
+        assert ok.get("ok"), ok
+    finally:
+        proc.kill()
+        proc.wait(timeout=10)

@@ -182,8 +182,6 @@ def build_server(config_path=None, flow_paths=None):
         return run_dir if known else None
 
     def _cancelled(job_id: str) -> bool:
-        # authoritative at once — the killed engine's heartbeat only goes
-        # stale after host.STALE_AFTER, and its pending step must not be served
         return bool((registry.get(job_id) or {}).get("cancelled"))
 
     @server.tool(description="Start a flow in HOST MODE: no API key; every "
@@ -214,15 +212,16 @@ def build_server(config_path=None, flow_paths=None):
         run_dir = _hosted(job_id)
         if run_dir is None:
             return {"error": f"unknown job {job_id!r}"}
-        if _cancelled(job_id):
-            return {"done": True, "status": "cancelled", "log_tail": ""}
         kind, val = wait_next(run_dir, max(1, min(int(timeout_seconds), 3600)))
         if kind == "task":
             return {**val, "hint": "do this step, then submit_result "
                     "with its seq and ONLY the final answer the task asks for"}
         if kind == "done":
-            if _cancelled(job_id):
-                val = "cancelled"           # the registry knows why it died
+            if val == "crashed" and _cancelled(job_id):
+                val = "cancelled"           # the registry knows why it died —
+                                            # only a label: liveness is the
+                                            # engine lock, so a resumed run of
+                                            # a cancelled job drives normally
             return {"done": True, "status": val,
                     "log_tail": _tail(run_dir / "run.log", 20)
                     or _tail(run_dir / "server_launch.log", 20) or ""}
@@ -238,8 +237,6 @@ def build_server(config_path=None, flow_paths=None):
         run_dir = _hosted(job_id)
         if run_dir is None:
             return {"error": f"unknown job {job_id!r}"}
-        if _cancelled(job_id):
-            return {"error": "run is not running (status: cancelled)"}
         try:
             submit(run_dir, int(seq), output)
         except ValueError as e:     # stale/duplicate/dead-run — never misapplied

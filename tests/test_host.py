@@ -23,19 +23,31 @@ posix_only = pytest.mark.skipif(os.name != "posix",
 GG = Path(__file__).resolve().parents[1] / "flows" / "guessing_game"
 
 
+_HELD: dict[Path, object] = {}       # fake engines' locks, by run dir
+
+
 @pytest.fixture(autouse=True)
 def _fast(monkeypatch):
     monkeypatch.setattr(host, "_POLL", 0.01)
+    yield
+    for fh in _HELD.values():
+        host._unlock(fh)
+    _HELD.clear()
 
 
-def _run_dir(root: Path, name="r1", status="running", beat=True) -> Path:
-    """A fake run dir: checkpoint status + (optionally) a live engine's beat."""
+def _run_dir(root: Path, name="r1", status="running", live=True) -> Path:
+    """A fake run dir: checkpoint status + (optionally) a live engine, i.e.
+    something holding the engine lock."""
     d = root / name
     mailbox_dir(d).mkdir(parents=True)
     (d / "checkpoint.json").write_text(json.dumps({"status": status}))
-    if beat:
-        (mailbox_dir(d) / "heartbeat").touch()
+    if live:
+        _HELD[d] = host._try_lock(mailbox_dir(d) / "engine.lock")
     return d
+
+
+def _kill(d: Path) -> None:
+    host._unlock(_HELD.pop(d))           # the OS does this when an engine dies
 
 
 def _age(path: Path, seconds: float) -> None:
@@ -63,7 +75,7 @@ def _fake_host(run_dir, answers: dict[str, list[str]], seen: list, stop):
 def test_guessing_game_hosted(flow_copy, tmp_path):
     flow_yaml = flow_copy("guessing_game")
     run_dir = tmp_path / "run"
-    hp = HostProvider(mailbox_dir(run_dir), timeout=10)   # starts the heartbeat
+    hp = HostProvider(mailbox_dir(run_dir), timeout=10)   # takes the engine lock
     stop, seen = threading.Event(), []
     answers = {"propose": ["0.5", "0.75", "0.62"], "judge": ["higher", "lower", "correct"]}
     threading.Thread(target=_fake_host, args=(run_dir, answers, seen, stop),
@@ -91,7 +103,7 @@ def test_guessing_game_hosted(flow_copy, tmp_path):
     assert seen[0]["tools"] == ["read_file"]          # skill allow-list passed on
     assert seen[0]["workspace"] == str(flow_yaml.parent.resolve())  # where history.txt is
     assert read_pending(mailbox_dir(run_dir)) is None   # nothing left outstanding
-    assert not (mailbox_dir(run_dir) / "heartbeat").exists()   # close() says "gone"
+    assert host.engine_alive(mailbox_dir(run_dir)) is False   # close() released it
 
 
 def test_unanswered_step_times_out(tmp_path):
@@ -149,30 +161,85 @@ def test_resume_drops_dead_engines_pending_step(tmp_path):
 
 
 def test_dead_run_steps_are_not_handed_out(tmp_path, monkeypatch):
-    monkeypatch.setattr(host, "STALE_AFTER", 0.2)  # crashed must hold this long
+    monkeypatch.setattr(host, "CRASH_SETTLE", 0.1)
     d = _run_dir(tmp_path)
     _post(d, 1)
-    _age(mailbox_dir(d) / "heartbeat", 10)        # engine was killed
-    assert run_status(d) == "crashed"
+    _kill(d)
+    assert run_status(d) == "crashed"                         # at once: no stale window
     assert wait_next(d, timeout=1) == ("done", "crashed")      # not the stale step
     with pytest.raises(ValueError, match="not running"):
         submit(d, 1, "x")                             # no accepted-then-ignored work
 
 
-def test_a_brief_stall_does_not_end_the_hosts_loop(tmp_path, monkeypatch):
-    # laptop suspend / SIGSTOP: the beat goes stale for a moment, then resumes —
-    # the host must keep waiting rather than declare the run crashed
-    monkeypatch.setattr(host, "STALE_AFTER", 0.3)
+@pytest.mark.skipif(not hasattr(__import__("signal"), "SIGKILL"), reason="needs SIGKILL")
+def test_sigkilled_engine_is_seen_dead_immediately(tmp_path):
+    # the OS drops the lock with the process — no grace period to wait out,
+    # and a stopped (SIGSTOP/suspended) engine still holds it, so stays alive
+    import signal
+    mb = tmp_path / "host"
+    mb.mkdir()
+    code = ("import sys,time; sys.path.insert(0, %r); from saage import host; "
+            "fh = host._try_lock(host.Path(%r) / 'engine.lock'); "
+            "print('locked', flush=True); time.sleep(60)"
+            % (str(Path(host.__file__).parents[1]), str(mb)))
+    proc = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+    try:
+        assert proc.stdout.readline().strip() == "locked"
+        assert host.engine_alive(mb) is True
+        proc.send_signal(signal.SIGSTOP)
+        assert host.engine_alive(mb) is True              # stalled ≠ dead
+        proc.send_signal(signal.SIGKILL)
+        proc.wait(timeout=10)
+        assert host.engine_alive(mb) is False             # dead the moment it dies
+    finally:
+        proc.kill()
+
+
+def test_a_resume_starting_up_does_not_end_the_hosts_loop(tmp_path, monkeypatch):
+    # the old engine is dead and the new one hasn't locked yet (hydrating):
+    # the host must keep waiting, not report "crashed" and stop
+    monkeypatch.setattr(host, "CRASH_SETTLE", 2.0)
     d = _run_dir(tmp_path)
-    beat = mailbox_dir(d) / "heartbeat"
-    _age(beat, 10)
-    def revive():
-        time.sleep(0.1)
-        beat.touch()
-        _post(d, 1)
-    threading.Thread(target=revive).start()
+    _kill(d)
+    def resume():
+        time.sleep(0.3)
+        _HELD[d] = host._try_lock(mailbox_dir(d) / "engine.lock")
+        _post(d, 2)
+    threading.Thread(target=resume).start()
     kind, val = wait_next(d, timeout=5)
-    assert kind == "task" and val["seq"] == 1
+    assert kind == "task" and val["seq"] == 2
+
+
+def test_racing_engines_exactly_one_owns_the_mailbox(tmp_path):
+    # two `saage resume`s at once: both must not pass a check and share seqs
+    for trial in range(3):
+        mb = tmp_path / f"m{trial}"
+        ok, refused, go = [], [], threading.Barrier(2)
+        def start():
+            go.wait()
+            try:
+                ok.append(HostProvider(mb))
+            except ValueError:
+                refused.append(1)
+        ts = [threading.Thread(target=start) for _ in range(2)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        assert len(ok) == 1 and len(refused) == 1, (ok, refused)
+        ok[0].close()
+
+
+def test_timed_out_seq_is_never_reused(tmp_path):
+    # the step times out (its pending is cleaned up, no result exists); the
+    # resumed engine must still number past it, or a late answer to the old
+    # step would satisfy a different one
+    a = HostProvider(tmp_path, timeout=0.05)
+    with pytest.raises(HostTimeout):
+        a.run_step("judge", "judge", "", "", [])
+    a.close()
+    assert not list(tmp_path.glob("result-*.json")) and read_pending(tmp_path) is None
+    b = HostProvider(tmp_path)
+    assert b._seq == 1                                # next post is seq 2
+    b.close()
 
 
 def test_second_engine_cannot_hijack_a_live_mailbox(tmp_path):
@@ -201,10 +268,10 @@ def test_answer_landing_at_the_deadline_is_kept(tmp_path, monkeypatch):
 
 
 def test_status_comes_from_the_run_itself(tmp_path):
-    # a resumed run: checkpoint still says failed, but the engine is beating
+    # a resumed run: checkpoint still says failed, but an engine holds the lock
     assert run_status(_run_dir(tmp_path, "resumed", status="failed")) == "running"
-    assert run_status(_run_dir(tmp_path, "done", status="completed", beat=False)) == "completed"
-    starting = _run_dir(tmp_path, "starting", beat=False)      # engine not up yet
+    assert run_status(_run_dir(tmp_path, "done", status="completed", live=False)) == "completed"
+    starting = _run_dir(tmp_path, "starting", live=False)      # engine not up yet
     assert run_status(starting) == "running"
     _age(starting / "checkpoint.json", host.STARTUP_GRACE + 5)
     _age(starting, host.STARTUP_GRACE + 5)

@@ -8,17 +8,22 @@ dir. The host does the step with its own model and tools and hands back the
 final text; captures/routing then proceed exactly as for any provider.
 
 Mailbox protocol (`<run_dir>/host/`), one step outstanding at a time:
-    engine → heartbeat           touched every HEARTBEAT_EVERY s while the engine lives
+    engine → engine.lock         exclusively OS-locked for the engine's lifetime
+    engine → seq.json            {seq} high-water mark, written BEFORE each post
     engine → pending.json        {seq, step_id, skill, system, task, tools, workspace}
     host   → result-<seq>.json   {seq, output}
 Writes are atomic (unique tmp + rename/link), so no side reads a torn file,
 and a result is created exclusively, so of two racing submits exactly one wins.
 
-Liveness comes from the run itself — the heartbeat, then the run's checkpoint
-status — never from whoever launched it, so a run started by `saage run`,
-`saage host start`, MCP, the web UI, or resumed with `saage resume` is
-drivable the same way. The engine's wait is bounded by `timeout` (a vanished
-host must not hang a run forever).
+Ownership and liveness are one OS lock (flock / msvcrt.locking): an engine
+holds it for its lifetime, the OS drops it the instant the process dies
+(SIGKILL included), and probing it is exact — no heartbeat, no stale window.
+It also means at most one engine per mailbox, however many starts or resumes
+race. Liveness comes from the run itself (lock, then checkpoint status),
+never from whoever launched it, so a run started by `saage run`, `saage host
+start`, MCP, the web UI, or resumed with `saage resume` is drivable the same
+way. The engine's wait is bounded by `timeout` (a vanished host must not hang
+a run forever).
 
 Host mode is local-only: the host's tools act on the host's filesystem, so a
 remote handoff (whose workspace lives on another box) refuses it.
@@ -31,7 +36,6 @@ import logging
 import math
 import os
 import tempfile
-import threading
 import time
 from pathlib import Path
 
@@ -41,11 +45,11 @@ log = logging.getLogger(__name__)
 
 MAILBOX_ENV = "SAAGE_HOST_MAILBOX"   # set by `saage run` to mailbox_dir(run_dir)
 DEFAULT_TIMEOUT = 3600.0             # max seconds to wait for one step's result
-HEARTBEAT_EVERY = 0.5                # engine touches <mailbox>/heartbeat this often
-STALE_AFTER = 5.0                    # …and is presumed dead this long after the last
-                                     # (the window in which a SIGKILLed run still
-                                     # looks alive; a clean exit removes the beat)
-STARTUP_GRACE = 60.0                 # a run that never beat yet may still be starting
+STARTUP_GRACE = 60.0                 # a run whose engine never locked yet may still
+                                     # be starting (spawned, still hydrating)
+CRASH_SETTLE = 5.0                   # crashed/unknown must hold this long before a
+                                     # host's wait ends: a `saage resume` hydrating
+                                     # (no lock yet) must not end the host's loop
 _POLL = 0.2
 
 
@@ -98,6 +102,50 @@ def _unlink(path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# The engine lock — ownership + liveness
+# --------------------------------------------------------------------------- #
+def _try_lock(path: Path):
+    """Exclusively lock `path` without blocking: the open file holding the
+    lock, or None if another holder has it. flock (not lockf) on POSIX: it is
+    per open file, so a probe from the engine's own process (tests) still
+    sees the engine's lock."""
+    fh = open(path, "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    return fh
+
+
+def _unlock(fh) -> None:
+    if os.name == "nt":
+        import msvcrt
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    fh.close()                           # POSIX: closing releases the flock
+
+
+def engine_alive(mailbox: "str | Path") -> bool | None:
+    """True while an engine holds the mailbox, False once none does, None if
+    no engine ever did (no lock file yet)."""
+    path = Path(mailbox) / "engine.lock"
+    if not path.exists():
+        return None
+    fh = _try_lock(path)
+    if fh is None:
+        return True
+    _unlock(fh)                          # held for microseconds: an engine
+    return False                         # acquiring now retries past it
+
+
+# --------------------------------------------------------------------------- #
 # Run status — shared by every host surface
 # --------------------------------------------------------------------------- #
 def _age(path: Path) -> float | None:
@@ -110,22 +158,22 @@ def _age(path: Path) -> float | None:
 def run_status(run_dir: "str | Path") -> str:
     """running | completed | failed | crashed | unknown, for a hosted run.
 
-    A fresh heartbeat means the engine is alive (this beats the checkpoint,
-    which still says `failed` early in a resumed run). Without one, the
-    checkpoint decides; `running` there with no live engine is a crash. A
-    run that never beat yet is given STARTUP_GRACE to start up. The beat is
-    checked first, so a live run's checkpoint is never even opened by a host
-    (no read/replace collisions with the engine's checkpoint writes)."""
+    A held engine lock means alive (this beats the checkpoint, which still
+    says `failed` early in a resumed run). Otherwise the checkpoint decides;
+    `running` there with no engine is a crash. A run whose engine never
+    locked yet is given STARTUP_GRACE to start up. The lock is checked first,
+    so a live run's checkpoint is never even opened by a host (no read/replace
+    collisions with the engine's checkpoint writes on Windows)."""
     run_dir = Path(run_dir)
-    beat = _age(mailbox_dir(run_dir) / "heartbeat")
-    if beat is not None and beat < STALE_AFTER:
+    alive = engine_alive(mailbox_dir(run_dir))
+    if alive:
         return "running"
     try:
         st = json.loads((run_dir / "checkpoint.json").read_text(encoding="utf-8"))["status"]
     except (OSError, json.JSONDecodeError, KeyError):   # absent, mid-replace (Windows)
         st = None
     if st in (None, "running"):
-        if beat is None:                          # never beat: still starting?
+        if alive is None:                         # never locked: still starting?
             young = min(a for a in (_age(run_dir / "checkpoint.json"), _age(run_dir), 1e9)
                         if a is not None)
             if young < STARTUP_GRACE:
@@ -208,17 +256,15 @@ def wait_next(run_dir: "str | Path", timeout: float) -> tuple[str, object]:
     hosts (MCP next_task, `saage host next`) share. Returns ("task", pending)
     | ("done", status) | ("waiting", status) after `timeout` while the engine
     is busy (e.g. a long command step). A dead run's leftover pending.json is
-    never handed out: liveness is checked first. completed/failed are final
-    at once (the engine wrote them); crashed/unknown must hold for
-    STALE_AFTER before they are — a suspended laptop or a stalled disk must
-    not end a host's loop while the engine is about to beat again."""
+    never handed out: liveness is checked first. completed/failed are final at
+    once (the engine wrote them); crashed/unknown only after CRASH_SETTLE."""
     deadline = time.monotonic() + timeout
     dead_since = None
     while True:
         st = run_status(run_dir)
         if st in ("crashed", "unknown"):
             dead_since = dead_since or time.monotonic()
-            if time.monotonic() - dead_since >= STALE_AFTER:
+            if time.monotonic() - dead_since >= CRASH_SETTLE:
                 return "done", st
         elif st != "running":
             return "done", st
@@ -235,15 +281,6 @@ def wait_next(run_dir: "str | Path", timeout: float) -> tuple[str, object]:
 # --------------------------------------------------------------------------- #
 # Engine side
 # --------------------------------------------------------------------------- #
-def _beat(path: Path, stop: threading.Event) -> None:
-    while not stop.is_set():
-        try:
-            path.touch()
-        except OSError:                           # mailbox gone (e.g. test tmp)
-            return
-        stop.wait(HEARTBEAT_EVERY)
-
-
 class HostProvider:
     """Delegates each agent step to the host agent via the mailbox.
 
@@ -257,43 +294,50 @@ class HostProvider:
         self.mailbox = Path(mailbox)
         self.timeout = validated_timeout(timeout)
         self.mailbox.mkdir(parents=True, exist_ok=True)
-        # one engine per mailbox: a second one (e.g. a bare `saage resume` in
-        # another terminal, which picks the newest unfinished run — the live
-        # one) would withdraw the first's step and the two would share seqs
-        beat_age = _age(self.mailbox / "heartbeat")
-        if beat_age is not None and beat_age < STALE_AFTER:
+        # one engine per mailbox, taken BEFORE any state is read or changed: a
+        # second engine (e.g. a bare `saage resume` in another terminal, which
+        # picks the newest unfinished run — the live one; or two racing
+        # starts) would withdraw the first's step and share its seqs. A few
+        # retries ride out a host's microsecond liveness probe.
+        self._lock = None
+        for _ in range(20):
+            self._lock = _try_lock(self.mailbox / "engine.lock")
+            if self._lock is not None:
+                break
+            time.sleep(0.05)
+        if self._lock is None:
             raise ValueError(
                 f"another engine is live on this run's mailbox ({self.mailbox}) "
                 f"— wait for it to finish, or stop it first")
-        # resume-safe numbering: continue past every seq this mailbox has
-        # seen — answered results AND a dead engine's leftover pending step,
-        # which is dropped so a late answer to it can never satisfy a new step
+        # resume-safe numbering: continue past every seq this mailbox ever
+        # posted — the high-water mark survives a timed-out step's cleanup, so
+        # a late answer to it can never satisfy a later step; the leftover
+        # pending step of a dead engine is withdrawn for the same reason
         seen = [int(p.stem.split("-", 1)[1]) for p in self.mailbox.glob("result-*.json")]
+        try:
+            seen.append(json.loads((self.mailbox / "seq.json").read_text())["seq"])
+        except (OSError, json.JSONDecodeError, KeyError):
+            pass
         stale = read_pending(self.mailbox) or {}
         if stale:
             seen.append(stale["seq"])
         _unlink(self.mailbox / "pending.json")
         self._seq = max(seen, default=0)
-        self._stop = threading.Event()
-        beat = self.mailbox / "heartbeat"
-        beat.touch()                     # live from now: claims the mailbox at once
-        self._beater = threading.Thread(target=_beat, args=(beat, self._stop),
-                                        daemon=True, name="saage-host-heartbeat")
-        self._beater.start()
         atexit.register(self.close)
 
     def close(self) -> None:
-        """Stop beating and say so at once (a clean exit shouldn't make hosts
-        wait out STALE_AFTER); a killed engine simply goes stale."""
-        self._stop.set()
-        self._beater.join(timeout=5)     # else a last touch() can resurrect it
-        _unlink(self.mailbox / "heartbeat")
+        """Release the mailbox (a killed engine's lock the OS releases)."""
+        if self._lock is not None:
+            _unlock(self._lock)
+            self._lock = None
 
     def run_step(self, step_id: str, skill: str, system: str, task: str,
                  tools: list[str], workspace: str | None = None) -> str:
         self._seq += 1
         seq = self._seq
         result = self.mailbox / f"result-{seq}.json"
+        # durable BEFORE the step is visible: no later engine reuses this seq
+        _write_json(self.mailbox / "seq.json", {"seq": seq})
         _write_json(self.mailbox / "pending.json", {
             "seq": seq, "step_id": step_id, "skill": skill,
             "system": system, "task": task, "tools": tools,
