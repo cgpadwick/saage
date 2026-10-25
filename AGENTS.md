@@ -82,7 +82,8 @@ workflow:                      # required: an ordered list of steps
   `saage setup` defaults; include it only to pin the flow to a provider+model it
   genuinely needs (a pin beats the defaults, and must carry both `type` and
   `model`). `provider.type` ∈ `anthropic | openai | openrouter | nvidia |
-  local`; optional `retry: { max_attempts, base_delay }` sub-block, optional
+  local | host` (`host`: no model/key — the driving coding agent answers each
+  agent step; see README "Host mode"); optional `retry: { max_attempts, base_delay }` sub-block, optional
   `request_timeout` (cap in seconds on a single model call — raise for slow
   `local` servers whose thinking turns outlive the SDK default of 600s; the
   cap is per retry attempt, so a hung server can cost up to

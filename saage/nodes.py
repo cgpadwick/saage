@@ -159,6 +159,12 @@ class AgentNode(Node):
 
     def exec(self, prep_res):
         log.info("▶ %s  [agent: %s]", self.id, self.skill.name)
+        if getattr(self.provider, "delegates_steps", False):
+            # host mode (saage.host): the driving agent does the whole step
+            # with its own tools; the allow-list is passed along as advice
+            return self.provider.run_step(self.id, self.skill.name,
+                                          prep_res["system"], prep_res["task"],
+                                          [t.name for t in self.tools])
         return run_agent(self.provider, prep_res["system"], prep_res["task"],
                          self.tools, self.max_steps)
 

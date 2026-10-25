@@ -18,6 +18,7 @@ from pathlib import Path
 
 import yaml
 
+from .host import MAILBOX_ENV
 from .hydrate import build_flow
 from .llm import ProviderKeyError
 from .validate import FlowSpecError
@@ -299,6 +300,7 @@ def _cmd_resume(args) -> int:
         return 1
     workspace = args.workspace or rec.get("workspace") or rec.get("shared", {}).get("workspace")
     _attach_run_log(run.dir)                      # append to the same run.log on resume
+    os.environ[MAILBOX_ENV] = str(run.dir / "host")   # host mode only
     log.info("resuming %s (run dir: %s)", run.run_id, run.dir)
     # run_flow marks the run failed if it raises; the engine stamps the terminal
     # completed/failed status into the final checkpoint write on a clean finish.
@@ -447,6 +449,10 @@ def _main(argv: list[str] | None = None) -> int:
         venv=args.venv,
     )
     _attach_run_log(run.dir)                      # local run dir gets run.log too
+    # host mode (saage.host) talks to the driving agent through the run dir;
+    # harmless for every other provider, which never reads it (assigned, not
+    # defaulted: a nested `saage run` must not answer to its parent's mailbox)
+    os.environ[MAILBOX_ENV] = str(run.dir / "host")
     logging.getLogger("saage").info("run dir: %s", run.dir)
     try:
         flow, seed = build_flow(args.flow, provider_overrides=overrides,

@@ -35,7 +35,14 @@ whether they want to wait for the result. If yes, make ONE wait_for_job call
 (it blocks server-side until the job finishes — no tokens are spent while
 blocked). If no, just report the job_id and check job_status later when the
 user asks. To author a NEW flow, edit files (flow.yaml + skill dirs) per the
-repo's AGENTS.md and check it with validate_flow before launching."""
+repo's AGENTS.md and check it with validate_flow before launching.
+
+HOST MODE (no API key — you are the LLM): start_hosted_run starts a flow
+whose agent steps are handed to YOU. Then loop: next_task → do that step
+(ideally in a fresh subagent: each saage step expects a clean context) →
+submit_result with ONLY the final answer the task asks for → next_task …
+until it returns done. The engine runs the command steps, counts the loops
+and decides when to stop — do not skip, reorder, or run them yourself."""
 
 
 def _tail(path: Path, n: int) -> str | None:
@@ -156,6 +163,75 @@ def build_server(config_path=None, flow_paths=None):
         if registry.get(job_id) is None:
             return {"error": f"unknown job {job_id!r}"}
         return {"cancelled": registry.cancel(job_id)}
+
+    def _mailbox(job_id: str) -> Path:     # `saage run` points host mode here
+        return registry.home / "runs" / job_id / "host"
+
+    @server.tool(description="Start a flow in HOST MODE: no API key; every "
+                             "agent step is handed to you via next_task. "
+                             "Returns a job_id; then loop next_task → do the "
+                             "step → submit_result until next_task says done.")
+    def start_hosted_run(flow: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+        catalog.refresh()
+        info = catalog.get(flow)
+        if info is None:
+            known = ", ".join(sorted(catalog.flows)) or "(none found)"
+            return {"error": f"unknown flow {flow!r} — known flows: {known}"}
+        if info.error:
+            return {"error": f"flow {flow!r} is broken: {info.error}"}
+        try:
+            job = registry.launch(info, {
+                k: v if isinstance(v, str) else json.dumps(v)
+                for k, v in (overrides or {}).items()}, provider="host")
+        except ValueError as e:
+            return {"error": str(e)}
+        return {"job_id": job.job_id, "flow": job.flow_name,
+                "hint": "call next_task to get the first agent step"}
+
+    @server.tool(description="Block (server-side, no tokens) until the hosted "
+                             "run needs its next agent step, then return it: "
+                             "seq, step_id, skill, system (the skill's "
+                             "instructions), task, tools (the tools the skill "
+                             "is meant to use). Returns {done: true, status} "
+                             "once the run finishes, or {waiting: true} if "
+                             "the engine is still busy after timeout_seconds "
+                             "(e.g. a long command step) — call again.")
+    def next_task(job_id: str, timeout_seconds: int = 300) -> dict[str, Any]:
+        import time
+
+        from .host import read_pending
+        if registry.get(job_id) is None:
+            return {"error": f"unknown job {job_id!r}"}
+        deadline = time.monotonic() + max(1, min(int(timeout_seconds), 3600))
+        while True:
+            pending = read_pending(_mailbox(job_id))
+            if pending is not None:
+                return {**pending, "hint": "do this step, then submit_result "
+                        "with its seq and ONLY the final answer the task asks for"}
+            status = registry.status(job_id)
+            if status != "running":
+                run_dir = registry.home / "runs" / job_id
+                return {"done": True, "status": status,
+                        "log_tail": _tail(run_dir / "run.log", 20)
+                        or _tail(run_dir / "server_launch.log", 20) or ""}
+            if time.monotonic() >= deadline:
+                return {"waiting": True, "status": status,
+                        "hint": "engine is busy (command step?) — call next_task again"}
+            time.sleep(0.2)
+
+    @server.tool(description="Answer the hosted run's pending agent step "
+                             "`seq` with its final output text. The engine "
+                             "applies the step's captures/routing and moves "
+                             "on; call next_task for the next step.")
+    def submit_result(job_id: str, seq: int, output: str) -> dict[str, Any]:
+        from .host import submit
+        if registry.get(job_id) is None:
+            return {"error": f"unknown job {job_id!r}"}
+        try:
+            submit(_mailbox(job_id), int(seq), output)
+        except ValueError as e:     # stale/duplicate seq — never misapplied
+            return {"error": str(e)}
+        return {"ok": True, "hint": "call next_task for the next step"}
 
     @server.tool(description="Validate a flow.yaml WITHOUT running it: parses "
                              "the spec, loads every skill, wires the graph. "

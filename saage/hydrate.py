@@ -63,6 +63,16 @@ def make_provider(spec: dict, require_key: bool = True):
     any child the run spawns see the same key an `export` would give them.
     """
     t = spec["type"]
+    if t == "host":
+        # the driving coding agent is the LLM: no model, no key (saage.host)
+        from .host import DEFAULT_TIMEOUT, MAILBOX_ENV, HostProvider
+        mailbox = spec.get("mailbox") or os.environ.get(MAILBOX_ENV)
+        if not mailbox:
+            raise ValueError(
+                "provider 'host' needs a mailbox: run it via `saage run` "
+                f"(which sets {MAILBOX_ENV} to <run_dir>/host) or the MCP "
+                "server's start_hosted_run")
+        return HostProvider(mailbox, timeout=spec.get("timeout", DEFAULT_TIMEOUT))
     model = spec["model"]
     if require_key and t != "local":
         key_env = spec.get("api_key_env") or PROVIDER_ENV.get(t)
@@ -247,7 +257,8 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
             if v is not None:
                 pspec[k] = v
         needs_llm = _needs_llm(spec["workflow"])
-        if not pspec.get("type") or not pspec.get("model"):
+        if not pspec.get("type") or (not pspec.get("model")
+                                     and pspec["type"] != "host"):
             if needs_llm:
                 raise ProviderKeyError(
                     "no LLM provider configured: this flow doesn't pin one and "
@@ -256,7 +267,7 @@ def build_flow(flow_yaml, provider=None, provider_overrides: dict | None = None,
             provider = object()      # command-only flow: no LLM is ever invoked
         else:
             provider = make_provider(pspec, require_key=needs_llm)
-            log.info("provider: %s / %s", pspec.get("type"), pspec.get("model"))
+            log.info("provider: %s / %s", pspec.get("type"), pspec.get("model") or "-")
     skills = load_skills(flow_dir)
     log.info("loaded %d skill(s): %s", len(skills), ", ".join(skills) or "(none)")
     ctx = Context(root=ws, provider=provider, skills=skills,

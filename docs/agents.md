@@ -47,6 +47,14 @@ jobs requires a POSIX OS (same as `saage serve`) and the `mcp` extra
 | `list_jobs` | all jobs, newest first |
 | `cancel_job(job_id)` | SIGTERM the job's process group |
 | `validate_flow(flow_yaml)` | free hydrate-check of a flow file — no key, no tokens |
+| `start_hosted_run(flow, overrides)` | start a job in **host mode** (no API key): its agent steps come to *you* |
+| `next_task(job_id, timeout_seconds)` | block until the hosted run needs its next agent step, then return it (`seq`, `step_id`, `skill`, `system`, `task`, `tools`); `{done: true}` when the run ends |
+| `submit_result(job_id, seq, output)` | answer that step with its final text; stale/duplicate `seq` is refused |
+
+**Host mode** makes the agent the LLM: the engine still runs the loop, the
+command steps, and the exit conditions, and hands over only the content
+steps. Do each task in a fresh subagent where the client supports it — saage
+steps expect a clean context, and a long loop would otherwise fill the chat.
 
 **Token etiquette is built in**: the server's instructions and the
 `launch_flow` response both tell the agent *not* to poll after launching —
