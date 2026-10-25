@@ -82,8 +82,8 @@ def validate_spec(spec, require_provider: bool = True) -> None:
         elif prov is not None:
             if not prov.get("type"):
                 errors.append("provider: missing 'type' (anthropic | openai | "
-                              "openrouter | nvidia | local)")
-            if not prov.get("model"):
+                              "openrouter | nvidia | local | host)")
+            if not prov.get("model") and prov.get("type") != "host":
                 errors.append("provider: missing 'model'")
     wf = spec.get("workflow")
     if wf is None:

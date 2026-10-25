@@ -189,7 +189,8 @@ That installs two surfaces:
 
 - **`saage mcp`** — an MCP server (stdio) over the same job manager as the web
   UI: `list_flows`, `launch_flow`, `wait_for_job`, `job_status`, `job_logs`,
-  `cancel_job`, `validate_flow`. The agent launches and monitors flows as
+  `cancel_job`, `validate_flow` — plus `start_hosted_run`, `next_task`,
+  `submit_result` for [host mode](#host-mode-the-agent-is-the-llm). The agent launches and monitors flows as
   native tool calls — and the server steers it away from token-burning poll
   loops (one blocking `wait_for_job`, only after asking you).
 - **Two skills**, installed to `~/.claude/skills/` so they work in every
@@ -293,6 +294,50 @@ provider: { type: openrouter, model: "anthropic/claude-3.5-sonnet" }
 provider: { type: nvidia, model: "nvidia/nemotron-3-ultra-550b-a55b" }
 provider: { type: local, model: "llama3.1:8b", base_url: "http://localhost:11434/v1" }
 ```
+
+### Host mode: the agent is the LLM
+
+`provider: { type: host }` (or `--provider host`, or the MCP tool
+`start_hosted_run`) runs a flow with **no API key**: each agent step is handed,
+whole, to the coding agent driving the run, which does it with its own model
+and tools. The engine still owns everything else — step order, loop bounds,
+`exit_when`, and the command steps, which it runs itself (so a "run the tests"
+step can't be skipped or its result made up). From an agent:
+
+```
+start_hosted_run(flow)            → job_id
+next_task(job_id)                 → {seq, step_id, skill, system, task, tools}
+submit_result(job_id, seq, text)  → engine applies captures, runs commands, loops
+next_task(job_id)                 → next step … or {done: true, status}
+```
+
+No MCP? The same loop is a CLI any shell-capable agent (or you) can drive —
+`RUN` (an id or unique prefix) defaults to the one live hosted run — with
+several live it must be named, so an answer can't land in the wrong run — and
+it finds any host-mode run, however started (`saage host start`, `saage run
+--provider host` in another terminal, MCP, `saage resume`). `next`'s exit code is the
+protocol (0 step printed, 3 run finished, 4 still busy — call again):
+
+```bash
+saage host start flows/guessing_game/flow.yaml --set target=0.3   # prints run id
+saage host next                  # blocks ≤90s; prints the step + its submit command
+echo 0.5 | saage host submit 1   # answer step 1 (stdin or --file)
+saage host status
+```
+
+Each step is self-contained (instructions, rendered task, suggested tools, and
+the workspace its relative paths refer to), so hand it to a fresh subagent or a
+`claude -p` call — steps that must not see each other's inputs (the guessing
+game's judge knows the target) stay isolated that way.
+
+The same `flow.yaml` runs headless with an API provider later (`saage run`,
+cron). Under the hood the run is an ordinary `saage run` job; agent steps go
+through a file mailbox in its run dir (`saage/host.py`), and each wait is
+bounded (`provider: { type: host, timeout: 3600 }`, seconds) so a vanished
+agent can't hang a run forever. (The reverse isn't bounded by host mode: a
+command step with no `timeout:` that hangs keeps the run alive, and `next`
+reports busy until it ends — give long commands a `timeout:`.) Local only: `saage remote` refuses host mode —
+the agent's tools edit your local files, not the node's workspace.
 
 ### Transient-failure retries
 

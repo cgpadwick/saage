@@ -41,7 +41,8 @@ def test_tool_roster(tmp_path):
     tools = anyio.run(server.list_tools)
     assert {t.name for t in tools} == {
         "list_flows", "launch_flow", "wait_for_job", "job_status", "job_logs",
-        "list_jobs", "cancel_job", "validate_flow"}
+        "list_jobs", "cancel_job", "validate_flow",
+        "start_hosted_run", "next_task", "submit_result"}
 
 
 def test_list_flows_reports_flows_and_breakage(tmp_path):
@@ -149,3 +150,79 @@ def test_flows_edited_mid_session_are_picked_up(tmp_path):
     (d / "flow.yaml").write_text(FLOW)
     out, _ = _call(server, "list_flows", {})
     assert [f["name"] for f in out["result"]] == ["fresh"]
+
+
+@posix_only
+def test_hosted_run_cycle(tmp_path):
+    # host mode end to end: a real `saage run --provider host` subprocess, no
+    # API key; this test plays the coding agent through next_task/submit_result
+    import shutil
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[1] / "flows" / "guessing_game"
+    shutil.copytree(src, tmp_path / "flows" / "guessing_game")
+    server = build_server(flow_paths=[str(tmp_path / "flows")])
+    out, _ = _call(server, "start_hosted_run", {"flow": "guessing_game"})
+    job_id = out["job_id"]
+
+    try:
+        answers = {"propose": ["0.5", "0.62"], "judge": ["higher", "correct"]}
+        steps = []
+        for _ in range(10):                           # bounded: 4 steps + done
+            task, _ = _call(server, "next_task", {"job_id": job_id,
+                                                  "timeout_seconds": 30})
+            if task.get("done"):
+                break
+            assert "seq" in task, task
+            steps.append(task["step_id"])
+            ok, _ = _call(server, "submit_result", {
+                "job_id": job_id, "seq": task["seq"],
+                "output": answers[task["skill"]].pop(0)})
+            assert ok == {"ok": True, "hint": ok["hint"]}, ok
+            dup, _ = _call(server, "submit_result", {   # replay is refused
+                "job_id": job_id, "seq": task["seq"], "output": "lower"})
+            # refused either way: the step is gone, or (last step) the run is
+            assert "not pending" in dup["error"] or "not running" in dup["error"]
+    finally:
+        _call(server, "cancel_job", {"job_id": job_id})   # never leave it blocked
+    assert task == {**task, "done": True, "status": "completed"}, task
+    assert steps == ["propose", "judge"] * 2
+    history = (tmp_path / "flows" / "guessing_game" / "history.txt").read_text()
+    assert history.splitlines() == ["guess=0.5 -> higher", "guess=0.62 -> correct"]
+
+
+@posix_only
+def test_cancelled_hosted_run_hands_out_nothing(tmp_path):
+    # a killed run's leftover step must not be handed out or accepted
+    import shutil
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[1] / "flows" / "guessing_game"
+    shutil.copytree(src, tmp_path / "flows" / "guessing_game")
+    server = build_server(flow_paths=[str(tmp_path / "flows")])
+    out, _ = _call(server, "start_hosted_run", {"flow": "guessing_game"})
+    job_id = out["job_id"]
+    try:
+        task, _ = _call(server, "next_task", {"job_id": job_id, "timeout_seconds": 30})
+        assert task["seq"] == 1, task
+    finally:
+        _call(server, "cancel_job", {"job_id": job_id})
+    done, _ = _call(server, "next_task", {"job_id": job_id, "timeout_seconds": 30})
+    assert done["done"] and done["status"] == "cancelled", done
+    late, _ = _call(server, "submit_result", {"job_id": job_id, "seq": 1, "output": "0.5"})
+    assert "not running" in late["error"]
+    bad, _ = _call(server, "next_task", {"job_id": "../../etc", "timeout_seconds": 1})
+    assert "unknown job" in bad["error"]                 # ids, never paths
+
+    # resuming the cancelled job: the registry's cancelled flag must not
+    # shadow the new engine — liveness is its lock
+    import subprocess
+    import sys
+    proc = subprocess.Popen([sys.executable, "-m", "saage.cli", "resume", job_id],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        task, _ = _call(server, "next_task", {"job_id": job_id, "timeout_seconds": 30})
+        assert task.get("step_id") == "propose" and task["seq"] == 2, task  # past seq 1
+        ok, _ = _call(server, "submit_result", {"job_id": job_id, "seq": 2, "output": "0.62"})
+        assert ok.get("ok"), ok
+    finally:
+        proc.kill()
+        proc.wait(timeout=10)

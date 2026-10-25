@@ -18,6 +18,7 @@ from pathlib import Path
 
 import yaml
 
+from .host import MAILBOX_ENV, HostTimeout, mailbox_dir
 from .hydrate import build_flow
 from .llm import ProviderKeyError
 from .validate import FlowSpecError
@@ -32,6 +33,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     from .remote.cli import add_parser as _add_remote_parser
     _add_remote_parser(sub)
+    from .host_cli import add_parser as _add_host_parser
+    _add_host_parser(sub)
     run = sub.add_parser("run", help="hydrate and run a flow")
     run.add_argument("flow", metavar="flow.yaml", help="path to the flow YAML")
     run.add_argument("--workspace", metavar="DIR",
@@ -299,6 +302,7 @@ def _cmd_resume(args) -> int:
         return 1
     workspace = args.workspace or rec.get("workspace") or rec.get("shared", {}).get("workspace")
     _attach_run_log(run.dir)                      # append to the same run.log on resume
+    os.environ[MAILBOX_ENV] = str(mailbox_dir(run.dir))   # host mode only
     log.info("resuming %s (run dir: %s)", run.run_id, run.dir)
     # run_flow marks the run failed if it raises; the engine stamps the terminal
     # completed/failed status into the final checkpoint write on a clean finish.
@@ -318,6 +322,9 @@ def _cmd_resume(args) -> int:
         return 1
     except provider_errors as e:
         _report_provider_failure(log, e, run.dir)
+        return 1
+    except HostTimeout as e:             # run_flow already marked it failed
+        log.error("run failed: %s", e)   # → run.log, where hosts look
         return 1
     return 0
 
@@ -388,6 +395,10 @@ def _main(argv: list[str] | None = None) -> int:
         _setup_logging(verbose=False, quiet=False)
         from .remote.cli import dispatch
         return dispatch(args)
+    if args.command == "host":
+        _setup_logging(verbose=False, quiet=True)    # stdout is the step text
+        from .host_cli import dispatch as _host_dispatch
+        return _host_dispatch(args)
     if args.command == "runs":
         _setup_logging(verbose=False, quiet=False)
         return _cmd_runs()
@@ -447,6 +458,10 @@ def _main(argv: list[str] | None = None) -> int:
         venv=args.venv,
     )
     _attach_run_log(run.dir)                      # local run dir gets run.log too
+    # host mode (saage.host) talks to the driving agent through the run dir;
+    # harmless for every other provider, which never reads it (assigned, not
+    # defaulted: a nested `saage run` must not answer to its parent's mailbox)
+    os.environ[MAILBOX_ENV] = str(mailbox_dir(run.dir))
     logging.getLogger("saage").info("run dir: %s", run.dir)
     try:
         flow, seed = build_flow(args.flow, provider_overrides=overrides,
@@ -475,6 +490,10 @@ def _main(argv: list[str] | None = None) -> int:
     except provider_errors as e:
         run.mark("failed")
         _report_provider_failure(log, e, run.dir)
+        return 1
+    except HostTimeout as e:
+        run.mark("failed")
+        log.error("run failed: %s", e)   # → run.log, where hosts look
         return 1
     except BaseException:
         run.mark("failed")

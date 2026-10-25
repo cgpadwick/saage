@@ -128,6 +128,14 @@ def handoff(*, flow: str, target: Target, set_args: dict | None = None,
     flow_doc = _load_flow(flow_path)
     flow_dir = flow_path.parent
     provider_type = (flow_doc.get("provider") or {}).get("type", "")
+    if provider_type == "host":
+        # host mode hands agent steps to the local coding agent, whose tools
+        # edit the LOCAL filesystem — the node's workspace is out of its reach,
+        # and an unattended node would stall at the first agent step
+        raise HandoffError(
+            "provider 'host' runs agent steps on your local coding agent and "
+            "can't be handed off — pin an API provider (or drop the provider "
+            "block to use your `saage setup` default) for remote runs")
     declared_ws = flow_doc.get("workspace")
     venv_arg = flow_doc.get("venv")            # engine default applies if None
 
