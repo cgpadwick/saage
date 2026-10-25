@@ -192,32 +192,27 @@ def build_server(config_path=None, flow_paths=None):
                              "run needs its next agent step, then return it: "
                              "seq, step_id, skill, system (the skill's "
                              "instructions), task, tools (the tools the skill "
-                             "is meant to use). Returns {done: true, status} "
+                             "is meant to use), workspace (the dir relative "
+                             "paths in the task refer to). Returns {done: true, status} "
                              "once the run finishes, or {waiting: true} if "
                              "the engine is still busy after timeout_seconds "
                              "(e.g. a long command step) — call again.")
     def next_task(job_id: str, timeout_seconds: int = 300) -> dict[str, Any]:
-        import time
-
-        from .host import read_pending
+        from .host import wait_next
         if registry.get(job_id) is None:
             return {"error": f"unknown job {job_id!r}"}
-        deadline = time.monotonic() + max(1, min(int(timeout_seconds), 3600))
-        while True:
-            pending = read_pending(_mailbox(job_id))
-            if pending is not None:
-                return {**pending, "hint": "do this step, then submit_result "
-                        "with its seq and ONLY the final answer the task asks for"}
-            status = registry.status(job_id)
-            if status != "running":
-                run_dir = registry.home / "runs" / job_id
-                return {"done": True, "status": status,
-                        "log_tail": _tail(run_dir / "run.log", 20)
-                        or _tail(run_dir / "server_launch.log", 20) or ""}
-            if time.monotonic() >= deadline:
-                return {"waiting": True, "status": status,
-                        "hint": "engine is busy (command step?) — call next_task again"}
-            time.sleep(0.2)
+        kind, val = wait_next(_mailbox(job_id), lambda: registry.status(job_id),
+                              max(1, min(int(timeout_seconds), 3600)))
+        if kind == "task":
+            return {**val, "hint": "do this step, then submit_result "
+                    "with its seq and ONLY the final answer the task asks for"}
+        if kind == "done":
+            run_dir = registry.home / "runs" / job_id
+            return {"done": True, "status": val,
+                    "log_tail": _tail(run_dir / "run.log", 20)
+                    or _tail(run_dir / "server_launch.log", 20) or ""}
+        return {"waiting": True, "status": val,
+                "hint": "engine is busy (command step?) — call next_task again"}
 
     @server.tool(description="Answer the hosted run's pending agent step "
                              "`seq` with its final output text. The engine "

@@ -311,6 +311,22 @@ submit_result(job_id, seq, text)  → engine applies captures, runs commands, lo
 next_task(job_id)                 → next step … or {done: true, status}
 ```
 
+No MCP? The same loop is a CLI any shell-capable agent (or you) can drive —
+`RUN` defaults to the latest hosted run, and `next`'s exit code is the
+protocol (0 step printed, 3 run finished, 4 still busy — call again):
+
+```bash
+saage host start flows/guessing_game/flow.yaml --set target=0.3   # prints run id
+saage host next                  # blocks ≤90s; prints the step + its submit command
+echo 0.5 | saage host submit 1   # answer step 1 (stdin or --file)
+saage host status
+```
+
+Each step is self-contained (instructions, rendered task, suggested tools, and
+the workspace its relative paths refer to), so hand it to a fresh subagent or a
+`claude -p` call — steps that must not see each other's inputs (the guessing
+game's judge knows the target) stay isolated that way.
+
 The same `flow.yaml` runs headless with an API provider later (`saage run`,
 cron). Under the hood the run is an ordinary `saage run` job; agent steps go
 through a file mailbox in its run dir (`saage/host.py`), and each wait is

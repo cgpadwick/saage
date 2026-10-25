@@ -33,6 +33,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     from .remote.cli import add_parser as _add_remote_parser
     _add_remote_parser(sub)
+    from .host_cli import add_parser as _add_host_parser
+    _add_host_parser(sub)
     run = sub.add_parser("run", help="hydrate and run a flow")
     run.add_argument("flow", metavar="flow.yaml", help="path to the flow YAML")
     run.add_argument("--workspace", metavar="DIR",
@@ -390,6 +392,10 @@ def _main(argv: list[str] | None = None) -> int:
         _setup_logging(verbose=False, quiet=False)
         from .remote.cli import dispatch
         return dispatch(args)
+    if args.command == "host":
+        _setup_logging(verbose=False, quiet=True)    # stdout is the step text
+        from .host_cli import dispatch as _host_dispatch
+        return _host_dispatch(args)
     if args.command == "runs":
         _setup_logging(verbose=False, quiet=False)
         return _cmd_runs()

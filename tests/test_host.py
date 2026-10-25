@@ -59,6 +59,7 @@ def test_guessing_game_hosted(flow_copy, tmp_path, monkeypatch):
     assert "The player's latest\nguess is 0.5" in judge["task"]
     assert "SKILL_ID: judge" in judge["system"]
     assert seen[0]["tools"] == ["read_file"]          # skill allow-list passed on
+    assert seen[0]["workspace"] == str(flow_yaml.parent.resolve())  # where history.txt is
     assert read_pending(mailbox) is None              # nothing left outstanding
 
 
@@ -107,3 +108,55 @@ def test_remote_handoff_refuses_host(tmp_path):
                  "workflow:\n  - {id: a, type: command, run: 'true'}\n")
     with pytest.raises(HandoffError, match="can't be handed off"):
         handoff(flow=str(f), target=None)
+
+
+@pytest.mark.skipif(__import__("os").name != "posix",
+                    reason="job control needs POSIX process groups")
+def test_host_cli_cycle(tmp_path, capsys, monkeypatch):
+    # `saage host start/next/submit/status` against a real hosted subprocess;
+    # this test plays the agent, keyed off the exit-code protocol
+    import io
+    import json
+    import shutil
+    from pathlib import Path
+
+    from saage.cli import _main
+    from saage.host_cli import EXIT_DONE, EXIT_ERROR, EXIT_STEP
+
+    src = Path(__file__).resolve().parents[1] / "flows" / "guessing_game"
+    flow = tmp_path / "guessing_game"
+    shutil.copytree(src, flow)
+
+    assert _main(["host", "start", str(flow / "flow.yaml"), "--set", "target=0.3"]) == 0
+    job_id = capsys.readouterr().out.strip()
+
+    answers = {"propose": ["0.5", "0.25", "0.3"],
+               "judge": ["lower", "higher", "correct"]}
+    steps = []
+    for _ in range(10):                           # bounded: 6 steps + done
+        rc = _main(["host", "next", "--json", "--timeout", "30"])   # latest run
+        out = capsys.readouterr().out
+        if rc == EXIT_DONE:
+            break
+        assert rc == EXIT_STEP, out
+        step = json.loads(out)
+        steps.append(step["step_id"])
+        if step["step_id"] == "judge":            # the engine rendered the knob
+            assert "hidden target is 0.3." in step["task"]
+        monkeypatch.setattr("sys.stdin", io.StringIO(answers[step["skill"]].pop(0) + "\n"))
+        assert _main(["host", "submit", job_id, str(step["seq"])]) == 0
+    assert json.loads(out) == {"done": True, "status": "completed"}
+    assert steps == ["propose", "judge"] * 3
+    assert (flow / "history.txt").read_text().splitlines() == [
+        "guess=0.5 -> lower", "guess=0.25 -> higher", "guess=0.3 -> correct"]
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("x"))
+    assert _main(["host", "submit", "1"]) == EXIT_ERROR        # nothing pending
+    assert _main(["host", "status", job_id[:12]]) == 0         # prefix resolves
+    assert "completed" in capsys.readouterr().out
+
+
+def test_host_cli_no_run(capsys):
+    from saage.cli import _main
+    assert _main(["host", "next"]) == 1
+    assert "no hosted run found" in capsys.readouterr().err

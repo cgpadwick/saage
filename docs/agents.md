@@ -51,6 +51,10 @@ jobs requires a POSIX OS (same as `saage serve`) and the `mcp` extra
 | `next_task(job_id, timeout_seconds)` | block until the hosted run needs its next agent step, then return it (`seq`, `step_id`, `skill`, `system`, `task`, `tools`); `{done: true}` when the run ends |
 | `submit_result(job_id, seq, output)` | answer that step with its final text; stale/duplicate `seq` is refused |
 
+Without MCP, `saage host start | next | submit | status` is the same loop
+from a shell (see the README's host-mode section; `next` exits 0 step, 3
+done, 4 busy).
+
 **Host mode** makes the agent the LLM: the engine still runs the loop, the
 command steps, and the exit conditions, and hands over only the content
 steps. Do each task in a fresh subagent where the client supports it — saage

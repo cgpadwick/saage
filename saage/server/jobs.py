@@ -62,6 +62,7 @@ class Job:
     overrides: dict[str, str]
     pid: int
     created_at: str = field(default_factory=_now)
+    provider: str | None = None     # set when launched with a provider override
 
 
 class JobRegistry:
@@ -151,6 +152,7 @@ class JobRegistry:
             flow_path=str(flow.path),
             overrides=dict(overrides),
             pid=proc.pid,
+            provider=provider,
         )
         self._append({**asdict(job), "cancelled": False})
         return job

@@ -8,7 +8,7 @@ dir. The host does the step with its own model and tools and hands back the
 final text; captures/routing then proceed exactly as for any provider.
 
 Mailbox protocol (`<run_dir>/host/`), one step outstanding at a time:
-    engine → pending.json        {seq, step_id, skill, system, task, tools}
+    engine → pending.json        {seq, step_id, skill, system, task, tools, workspace}
     host   → result-<seq>.json   {seq, output}
 Both writes are atomic (tmp + rename), so neither side ever reads a torn file.
 The engine's wait is bounded by `timeout` (a vanished host must not hang a run
@@ -68,6 +68,24 @@ def submit(mailbox: "str | Path", seq: int, output: str) -> None:
     _write_json(Path(mailbox) / f"result-{seq}.json", {"seq": seq, "output": output})
 
 
+def wait_next(mailbox: "str | Path", status, timeout: float) -> tuple[str, object]:
+    """Block until the run needs its next agent step — the one wait loop both
+    hosts (MCP next_task, `saage host next`) share. `status()` gives the job's
+    status. Returns ("task", pending) | ("done", status) | ("waiting", status)
+    after `timeout` while the engine is busy (e.g. a long command step)."""
+    deadline = time.monotonic() + timeout
+    while True:
+        pending = read_pending(mailbox)
+        if pending is not None:
+            return "task", pending
+        st = status()
+        if st != "running":
+            return "done", st
+        if time.monotonic() >= deadline:
+            return "waiting", st
+        time.sleep(_POLL)
+
+
 class HostProvider:
     """Delegates each agent step to the host agent via the mailbox.
 
@@ -86,13 +104,15 @@ class HostProvider:
         self._seq = max(done, default=0)
 
     def run_step(self, step_id: str, skill: str, system: str, task: str,
-                 tools: list[str]) -> str:
+                 tools: list[str], workspace: str | None = None) -> str:
         self._seq += 1
         seq = self._seq
         result = self.mailbox / f"result-{seq}.json"
         _write_json(self.mailbox / "pending.json", {
             "seq": seq, "step_id": step_id, "skill": skill,
-            "system": system, "task": task, "tools": tools})
+            "system": system, "task": task, "tools": tools,
+            # relative paths in the task ("read history.txt") mean files here
+            "workspace": workspace})
         log.info("    ⇄ waiting for host agent (step %d)", seq)
         deadline = time.monotonic() + self.timeout
         while not result.exists():
